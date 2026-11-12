@@ -2,6 +2,7 @@
 
 #include <adaptive/channel.hpp>
 #include <adaptive/config.hpp>
+#include <adaptive/pitch.hpp>
 #include <adaptive/tempo_clock.hpp>
 
 #include <output_processor.hpp>
@@ -44,6 +45,11 @@ public:
     /// Master output stage: drive, clipping and post-filter from pressense.
     synth::OutputProcessor& master() { return master_; }
 
+    /// Key, transpose and degree mapping used to resolve notes as they start.
+    /// Notes already sounding keep their pitch.
+    PitchContext& pitch() { return pitch_; }
+    const PitchContext& pitch() const { return pitch_; }
+
     /// Render `numFrames` mono samples into `out` (overwrites it).
     void render(float* out, uint32_t numFrames) {
         for (uint32_t i = 0; i < numFrames; ++i) out[i] = 0.0f;
@@ -52,7 +58,7 @@ public:
         while (done < numFrames) {
             if (tickPending_) {
                 const uint64_t tick = clock_.tick();
-                for (auto& ch : channels_) ch.onTick(tick);
+                for (auto& ch : channels_) ch.onTick(tick, pitch_);
                 tickPending_ = false;
             }
             uint32_t chunk = clock_.samplesUntilNextTick();
@@ -70,6 +76,7 @@ private:
     TempoClock clock_;
     std::array<Channel, config::kMaxChannels> channels_;
     synth::OutputProcessor master_;
+    PitchContext pitch_;
     bool tickPending_ = true;  // tick 0 starts at the first sample
 };
 

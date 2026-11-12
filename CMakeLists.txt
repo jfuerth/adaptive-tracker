@@ -27,7 +27,11 @@ option(ADAPTIVE_BUILD_HOST_TOOLS "Build unit tests and desktop tools" ON)
 if(ADAPTIVE_BUILD_HOST_TOOLS)
     enable_testing()
 
-    add_executable(adaptive_tests core/tests/test_main.cpp core/tests/test_engine.cpp)
+    add_executable(adaptive_tests
+        core/tests/test_main.cpp
+        core/tests/test_engine.cpp
+        core/tests/test_pitch.cpp
+        core/tests/test_sequencer.cpp)
     target_link_libraries(adaptive_tests PRIVATE adaptive_engine)
     target_include_directories(adaptive_tests SYSTEM PRIVATE core/third_party/doctest)
     target_compile_options(adaptive_tests PRIVATE ${ADAPTIVE_WARNINGS})
@@ -42,4 +46,8 @@ if(ADAPTIVE_BUILD_HOST_TOOLS)
     add_executable(render_demo desktop/render_demo.cpp)
     target_link_libraries(render_demo PRIVATE adaptive_engine)
     target_compile_options(render_demo PRIVATE ${ADAPTIVE_WARNINGS})
+
+    add_executable(key_experiment desktop/key_experiment.cpp)
+    target_link_libraries(key_experiment PRIVATE adaptive_engine)
+    target_compile_options(key_experiment PRIVATE ${ADAPTIVE_WARNINGS})
 endif()

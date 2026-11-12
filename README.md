@@ -13,7 +13,8 @@ See [DESIGN.md](DESIGN.md) for the design, terminology and roadmap.
   after setup, builds with `-fno-exceptions -fno-rtti`).
 - `core/tests/`: host unit tests (doctest) and a portability compile check.
 - `core/third_party/`: pressense (git submodule) and doctest.
-- `desktop/`: host-side tools, such as `render_demo` (renders a demo song to WAV).
+- `desktop/`: host-side tools: `render_demo` (renders a demo song to WAV) and
+  `key_experiment` (renders one arrangement in several keys and scales).
 
 ## Building on the desktop
 

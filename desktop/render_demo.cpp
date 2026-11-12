@@ -2,7 +2,8 @@
 //
 //   render_demo [out.wav] [seconds]
 //
-// Channel 0: bass, 16 rows at 4 rows/beat (one 4/4 bar).
+// Channel 0: bass, a sequence of two 16-row patterns at 4 rows/beat; the second
+//            sweeps the filter (Fxx) and slides into the loop (3xx).
 // Channel 1: arpeggio, 12 rows at 3 rows/beat (triplet eighths, one bar).
 // Channel 2: chords in 3 columns, 6 rows at 1 row/beat, so it loops every 6 beats
 //            and drifts against the 4-beat loops of the other channels.
@@ -17,6 +18,7 @@
 
 using adaptive::Cell;
 using adaptive::Pattern;
+namespace fx = adaptive::fx;
 
 namespace {
 
@@ -73,6 +75,20 @@ int main(int argc, char** argv) {
         if (bassLine[r] != 0) bass->cells[r][0] = Cell::on(bassLine[r], r % 4 == 0 ? 127 : 90);
     }
 
+    // Second bar of bass: same line, opening the filter row by row (Fxx), ending
+    // with a slide up to the next bar's root (3xx).
+    auto bass2 = std::make_unique<Pattern>(*bass);
+    for (int r = 0; r < 14; ++r) {
+        const Cell& c = bass2->cells[r][0];
+        bass2->cells[r][0] = c.with(fx::kFilterCutoff, static_cast<uint8_t>(0x50 + r * 6));
+    }
+    bass2->cells[14][0] = Cell::on(33).with(fx::kTonePorta, 0x04);
+    bass2->cells[15][0] = Cell::effectOnly(fx::kFilterCutoff, 0x50);
+
+    adaptive::Sequence bassSeq;
+    bassSeq.append(bass.get());
+    bassSeq.append(bass2.get());
+
     auto arp = std::make_unique<Pattern>();
     arp->numRows = 12;
     arp->rowsPerBeat = 3;
@@ -90,7 +106,7 @@ int main(int argc, char** argv) {
     }
 
     engine->channel(0).forEachVoice(bassPatch);
-    engine->channel(0).play(bass.get(), 0);
+    engine->channel(0).playSequence(&bassSeq, 0);
 
     engine->channel(1).forEachVoice(arpPatch);
     engine->channel(1).play(arp.get(), 0);

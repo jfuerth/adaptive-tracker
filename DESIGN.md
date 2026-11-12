@@ -93,6 +93,55 @@ no heap allocation after setup. In addition:
   host game (later). Simple mappings (parameter → layer gain, parameter threshold
   → section change) are data and need no Lua.
 
+## Pitch and keys
+
+Each channel has a **pitch mode** (`core/engine/include/adaptive/pitch.hpp`):
+
+| Mode | Cell note means | Follows key root / transpose | Follows scale |
+|---|---|---|---|
+| Absolute | MIDI note | No | No |
+| Transpose | MIDI note | Yes | No |
+| Degree | octave × 12 + scale-degree index, plus an accidental (±1) | Yes | Yes |
+
+- Scales are 12-bit masks (major, minor, harmonic minor, the modes, pentatonics,
+  chromatic). A key is a root (pitch class) plus a scale.
+- The engine keeps a **home key** (the key the song is written in) and a
+  **current key**. A root change moves by the shortest route (−5 to +6
+  semitones), so a key change never jumps by more than a tritone.
+- Pitches are resolved when a note starts; sounding notes keep their pitch.
+- When the current scale has a different size from the home scale, a **degree
+  mapping** decides what a degree means: **Wrap** (degree n is the n-th note of
+  the current scale, wrapping into the next octave) or **Snap** (take the home
+  scale's note and move it to the nearest note of the current scale, ties going
+  down). With scales of equal size, both map degree for degree.
+- In Degree mode the arpeggio's x and y are scale steps, so `0x24` plays the
+  triad of whatever scale is current.
+- `desktop/key_experiment` renders one arrangement in nine keys/scales/mappings
+  for listening.
+
+## Effects
+
+Effects follow ProTracker conventions where they make sense. Notes, volume and
+the parameter effects apply on a row's first tick. Slides and arpeggios update
+on every later **effect tick** of the row. An effect tick is 4 engine ticks
+(1/24 beat), which is ProTracker's default rate at 125 BPM and follows the tempo.
+A row with no effect ends the previous row's effect. For `1`, `2`, `3` and `A`,
+a parameter of `00` reuses the last nonzero one.
+
+| Code | Effect | Parameter |
+|---|---|---|
+| `0xy` | Arpeggio: note, +x, +y, cycling each effect tick | Semitones (scale steps in Degree mode) |
+| `1xx` | Pitch slide up | xx/16 semitone per effect tick |
+| `2xx` | Pitch slide down | xx/16 semitone per effect tick |
+| `3xx` | Slide to the row's note (no retrigger, no overshoot) | xx/16 semitone per effect tick |
+| `Axy` | Volume slide: up x, else down y | 1/64 of full volume per effect tick |
+| `Fxx` | Filter cutoff (voice baseline, persists) | 00 = 20 Hz … FF = 20 kHz, exponential |
+| `Qxx` | Filter resonance (persists) | Quadratic over the synth's Q range |
+| `Wxx` | Waveform shape (persists) | 00 … FF = 0 … 1 |
+
+The volume column (0–127) sets the column's volume. A note without a volume
+starts at full volume. Patterns cannot change tempo (see Decisions).
+
 ## Lua
 
 - Lua 5.4, embedded. Allocator is a fixed arena (`lua_newstate` with custom
@@ -112,8 +161,8 @@ core/
   engine/        portable sequencer + adaptive director (header-heavy C++20)
   control/       Lua binding, parameter store
   third_party/   pressense (git submodule; include lib/synth, lib/features, lib/nlohmann), lua
-  tests/         host unit tests (Catch2 or doctest), offline render to WAV
-desktop/         tiny CLI player for host-side listening/debugging
+  tests/         host unit tests (doctest), portability compile check
+desktop/         host tools: render_demo, key_experiment (render to WAV)
 android/         Gradle project: app (Compose) + :native (CMake → core + Oboe)
 ```
 
@@ -121,9 +170,10 @@ android/         Gradle project: app (Compose) + :native (CMake → core + Oboe)
 
 1. ✅ **Core skeleton + host tests** (done 2026-11-12): pressense submodule, one channel playing a
    hard-coded pattern through `WavetableSynth`, offline-rendered to WAV.
-2. **Sequencer**: per-channel patterns of mixed lengths and rows per beat, a small
-   effect set (volume, slide, arpeggio, synth-param automation), several channels.
-   Includes the scale-degree listening experiment.
+2. ✅ **Sequencer** (done 2026-11-12): per-channel pattern sequences of mixed lengths
+   and rows per beat, the effects above, pitch modes and keys, several channels.
+   The scale-degree listening experiment is ready; the Wrap/Snap decision is
+   waiting on listening.
 3. **Android shell**: Gradle + NDK + Oboe; play/stop a demo song from the phone.
 4. **Adaptive director**: sections, layers, quantised transitions, parameter sliders.
 5. **Pattern editor UI** (touch grid) and patch editor.
