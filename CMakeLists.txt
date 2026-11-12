@@ -1,0 +1,45 @@
+cmake_minimum_required(VERSION 3.22)
+project(adaptive_tracker LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+set(PRESSENSE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/core/third_party/pressense)
+if(NOT EXISTS ${PRESSENSE_DIR}/lib/synth/voice.hpp)
+    message(FATAL_ERROR "pressense submodule missing: run `git submodule update --init core/third_party/pressense`")
+endif()
+
+# Portable engine core: header-only, no heap after setup, no exceptions/RTTI needed.
+add_library(adaptive_engine INTERFACE)
+target_include_directories(adaptive_engine INTERFACE
+    ${CMAKE_CURRENT_SOURCE_DIR}/core/engine/include)
+target_include_directories(adaptive_engine SYSTEM INTERFACE
+    ${PRESSENSE_DIR}/lib/synth
+    ${PRESSENSE_DIR}/lib/features
+    ${PRESSENSE_DIR}/lib/nlohmann)
+
+set(ADAPTIVE_WARNINGS -Wall -Wextra -Wpedantic)
+
+# Host-only targets: tests and desktop tools.
+option(ADAPTIVE_BUILD_HOST_TOOLS "Build unit tests and desktop tools" ON)
+if(ADAPTIVE_BUILD_HOST_TOOLS)
+    enable_testing()
+
+    add_executable(adaptive_tests core/tests/test_main.cpp core/tests/test_engine.cpp)
+    target_link_libraries(adaptive_tests PRIVATE adaptive_engine)
+    target_include_directories(adaptive_tests SYSTEM PRIVATE core/third_party/doctest)
+    target_compile_options(adaptive_tests PRIVATE ${ADAPTIVE_WARNINGS})
+    add_test(NAME adaptive_tests COMMAND adaptive_tests)
+
+    # Fails the build if the engine stops compiling under MCU-style flags.
+    add_library(adaptive_portability_check OBJECT core/tests/portability_check.cpp)
+    target_link_libraries(adaptive_portability_check PRIVATE adaptive_engine)
+    target_compile_options(adaptive_portability_check PRIVATE
+        ${ADAPTIVE_WARNINGS} -Werror -fno-exceptions -fno-rtti)
+
+    add_executable(render_demo desktop/render_demo.cpp)
+    target_link_libraries(render_demo PRIVATE adaptive_engine)
+    target_compile_options(render_demo PRIVATE ${ADAPTIVE_WARNINGS})
+endif()
