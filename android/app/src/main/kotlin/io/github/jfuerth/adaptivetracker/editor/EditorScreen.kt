@@ -52,6 +52,7 @@ import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import io.github.jfuerth.adaptivetracker.NativeAudio
+import io.github.jfuerth.adaptivetracker.Song
 import io.github.jfuerth.adaptivetracker.instrument.InstrumentStore
 import io.github.jfuerth.adaptivetracker.ui.NoteKeyboard
 import io.github.jfuerth.adaptivetracker.ui.ToolButton
@@ -204,7 +205,7 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     PatternStore.names.forEachIndexed { i, name ->
-                        val shape = PatternStore.get(i)?.info?.let { " · ${it.rows} rows, ${it.rowsPerBeat}/beat" } ?: ""
+                        val shape = PatternStore.get(i)?.info?.let { " · ${it.rows} rows, speed ${it.speedLabel}" } ?: ""
                         DropdownMenuItem(text = { Text(name + shape) }, onClick = {
                             patternIndex = i
                             menuOpen = false
@@ -298,7 +299,7 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
         val description = when {
             field.isVolume -> if (cell.volume == CellData.VOLUME_DEFAULT) "Volume · default (full)"
                 else "Volume · ${cell.volume}/127"
-            else -> EffectDescription.describe(cell, info.mode, NativeAudio.EVENT_NAMES, NativeAudio::effectValue)
+            else -> EffectDescription.describe(cell, info.mode, Song.events, NativeAudio::effectValue, info.ticksPerBeat)
         }
         Text(
             description,
@@ -444,7 +445,7 @@ private fun PatternRow(
     // The edit bar is drawn behind the list (fixed in the viewport), so rows
     // are transparent except for the playing row, which tints over it.
     val background = if (isPlaying) colors.tertiary.copy(alpha = 0.35f) else Color.Transparent
-    val onBeat = row % info.rowsPerBeat == 0
+    val onBeat = info.isBeat(row)
     Row(
         Modifier.fillMaxWidth().height(ROW_HEIGHT).background(background).padding(horizontal = 6.dp),
         verticalAlignment = Alignment.CenterVertically,

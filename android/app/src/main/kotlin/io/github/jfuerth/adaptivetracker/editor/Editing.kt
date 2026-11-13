@@ -107,6 +107,7 @@ object EffectDescription {
         mode: PitchMode,
         eventNames: List<String> = emptyList(),
         effectValue: (effect: Int, param: Int) -> Float = { _, _ -> Float.NaN },
+        ticksPerBeat: Int = 0,
     ): String {
         if (cell.effect == CellData.EFFECT_NONE) return "No effect · type a command digit"
         val p = cell.param
@@ -123,8 +124,8 @@ object EffectDescription {
                 "Vibrato · rate %.1f Hz, depth %.1f semitone".format(Locale.US, 0.5 + x * 0.5, y * 0.1)
             '5' -> "Filter resonance · " + value(effectValue, cell) { "Q %.1f".format(Locale.US, it) }
             '6' -> "Waveform shape · " + value(effectValue, cell) { "${(it * 100).roundToInt()}%" }
-            '8' -> if (p == 0) "Filter sweep · 800 stops the sweep" else "Filter sweep up · " + sweep(p, effectValue)
-            '9' -> if (p == 0) "Filter sweep · 900 stops the sweep" else "Filter sweep down · " + sweep(p, effectValue)
+            '8' -> if (p == 0) "Filter sweep · 800 stops the sweep" else "Filter sweep up · " + sweep(p, effectValue, ticksPerBeat)
+            '9' -> if (p == 0) "Filter sweep · 900 stops the sweep" else "Filter sweep down · " + sweep(p, effectValue, ticksPerBeat)
             'A' -> when {
                 x != 0 -> "Volume slide up · $x/64 per tick"
                 y != 0 -> "Volume slide down · $y/64 per tick"
@@ -138,17 +139,17 @@ object EffectDescription {
         return "$code · $text"
     }
 
-    /** 8xx/9xx: xx/16 Fxx steps per effect tick, 24 effect ticks per beat. */
     /**
-     * 8xx/9xx move the cutoff by xx/16 Fxx steps per effect tick (24 per beat).
-     * Octaves per Fxx step come from the engine's Fxx mapping.
+     * 8xx/9xx move the cutoff by xx/16 Fxx steps per effect tick. Octaves per
+     * Fxx step come from the engine's Fxx mapping, and effect ticks per beat
+     * from the engine's clock ([ticksPerBeat], 0 if unknown).
      */
-    private fun sweep(p: Int, effectValue: (Int, Int) -> Float): String {
+    private fun sweep(p: Int, effectValue: (Int, Int) -> Float, ticksPerBeat: Int): String {
         val lowest = effectValue('F'.code, 0)
         val highest = effectValue('F'.code, 255)
-        if (lowest.isNaN() || highest.isNaN()) return "$p/16 cutoff step per tick, until stopped"
+        if (lowest.isNaN() || highest.isNaN() || ticksPerBeat <= 0) return "$p/16 cutoff step per tick, until stopped"
         val octavesPerStep = log2(highest / lowest) / 255.0
-        return "%.2f octave per beat, until stopped".format(Locale.US, p / 16.0 * 24 * octavesPerStep)
+        return "%.2f octave per beat, until stopped".format(Locale.US, p / 16.0 * ticksPerBeat * octavesPerStep)
     }
 
     /** The parameter in natural units, or its raw hex if the engine isn't available. */

@@ -40,11 +40,11 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.toMutableStateList
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,16 +58,20 @@ class MainActivity : ComponentActivity() {
     private var audioOk by mutableStateOf(true)
 
     private var crashReport by mutableStateOf<String?>(null)
+    private var songError by mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         CrashReports.install(this)
         crashReport = CrashReports.pending(this)
+        // Once per process: the engine keeps its song across activity restarts.
+        if (Song.title.isEmpty() && Song.sections.isEmpty()) songError = Song.loadAsset(this)
         enableEdgeToEdge()
         setContent {
             AppTheme {
                 App(
                     audioOk = audioOk,
+                    songError = songError,
                     crashReport = crashReport,
                     onShareCrash = ::shareCrashReport,
                     onDismissCrash = {
@@ -135,22 +139,30 @@ private fun SectionTitle(text: String) {
 }
 
 @Composable
-private fun App(audioOk: Boolean, crashReport: String?, onShareCrash: () -> Unit, onDismissCrash: () -> Unit) {
+private fun App(
+    audioOk: Boolean,
+    songError: String?,
+    crashReport: String?,
+    onShareCrash: () -> Unit,
+    onDismissCrash: () -> Unit,
+) {
     val stats = rememberStats()
     val playing = stats.getOrElse(6) { 0 } == 1
-    // Held here so they survive switching tabs.
-    val params = remember { mutableStateListOf(0.2f, 0f) }
-    val layerOn = remember { mutableStateListOf(true, true, true) }
+    // Held here so they survive switching tabs. Parameters start where the song says.
+    val params = remember { Song.paramInitial.toMutableStateList() }
+    val layerOn = remember { Song.layers.map { true }.toMutableStateList() }
     var tab by rememberSaveable { mutableIntStateOf(0) }
-
-    // Send the starting parameter values once.
-    LaunchedEffect(Unit) {
-        params.forEachIndexed { i, v -> NativeAudio.setParam(i, v) }
-    }
 
     Scaffold { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
             if (crashReport != null) CrashCard(crashReport, onShareCrash, onDismissCrash)
+            if (songError != null) {
+                Text(
+                    "The song couldn't be loaded: $songError",
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.padding(16.dp),
+                )
+            }
             PrimaryTabRow(selectedTabIndex = tab) {
                 Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Perform") })
                 Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Patterns") })
@@ -204,7 +216,7 @@ private fun PerformScreen(
                     when {
                         !playing -> "  Stopped"
                         currentSection < 0 -> "  Playing a solo pattern"
-                        else -> "  Now playing: ${NativeAudio.SECTION_NAMES.getOrElse(currentSection) { "?" }}"
+                        else -> "  Now playing: ${Song.sections.getOrElse(currentSection) { "?" }}"
                     },
                     style = MaterialTheme.typography.bodyLarge,
                 )
@@ -212,12 +224,7 @@ private fun PerformScreen(
 
             // Parameters
             SectionTitle("Parameters")
-            Text(
-                "Intensity brings in the rhythm layer, brightens the arpeggio and pushes the tempo. " +
-                    "Danger muffles the pad; past 75% it starts combat, and below it calms down.",
-                style = MaterialTheme.typography.bodySmall,
-            )
-            NativeAudio.PARAMS.forEachIndexed { i, name ->
+            Song.params.forEachIndexed { i, name ->
                 Text("$name: ${(params[i] * 100).toInt()}%")
                 Slider(
                     value = params[i],
@@ -231,7 +238,7 @@ private fun PerformScreen(
             // Events
             SectionTitle("Events")
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                NativeAudio.EVENT_BUTTONS.forEach { (index, label) ->
+                Song.events.forEachIndexed { index, label ->
                     FilledTonalButton(onClick = { NativeAudio.fireEvent(index) }, enabled = playing) {
                         Text(label)
                     }
@@ -241,7 +248,8 @@ private fun PerformScreen(
             // Sections
             SectionTitle("Sections")
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                NativeAudio.SECTIONS.forEachIndexed { i, name ->
+                Song.playableSections.forEach { i ->
+                    val name = Song.sections[i]
                     FilledTonalButton(
                         onClick = { NativeAudio.gotoSection(i, quantize, entry, viaBridge) },
                         enabled = playing,
@@ -267,7 +275,7 @@ private fun PerformScreen(
                     )
                 }
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            if (Song.hasBridge) Row(verticalAlignment = Alignment.CenterVertically) {
                 Switch(checked = viaBridge, onCheckedChange = { viaBridge = it })
                 Text("  Play the bridge first")
             }
@@ -275,7 +283,7 @@ private fun PerformScreen(
             // Layers
             SectionTitle("Layers (mute at the next bar)")
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                NativeAudio.LAYERS.forEachIndexed { i, name ->
+                Song.layers.forEachIndexed { i, name ->
                     FilterChip(
                         selected = layerOn[i],
                         onClick = {

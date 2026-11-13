@@ -1,7 +1,7 @@
 #pragma once
 
 #include <adaptive/engine.hpp>
-#include <demo/adaptive_demo.hpp>
+#include <adaptive/songfile.hpp>
 
 #include <oboe/Oboe.h>
 
@@ -9,6 +9,8 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <string>
+#include <string_view>
 
 /**
  * Plays the engine through an Oboe output stream.
@@ -29,10 +31,20 @@ public:
     bool open();
     void close();
 
+    /// Replace the song with a song file's contents (playback stops and
+    /// restarts with a fresh engine). Returns "" or why it failed, in which
+    /// case the old song stays. UI thread only.
+    std::string loadSong(std::string_view json);
+    const adaptive::songfile::SongInfo& songInfo() const { return info_; }
+    const adaptive::Song& song() const { return *song_; }
+
     // Control (UI thread only). Each returns false if the command queue was full.
     bool play();
     bool stop();
+    /// viaBridge: play the song's first bridge section (if any) on the way.
     bool gotoSection(int section, int quantize, int entry, bool viaBridge);
+    /// The first section with bridge beats, or -1.
+    int firstBridge() const;
     bool fireEvent(int event);
     bool setLayerMute(int layer, bool muted);
     bool setParam(int param, float value);
@@ -40,9 +52,9 @@ public:
     bool setKey(int root, int scaleIndex);
 
     // Pattern editing (UI thread only).
-    uint32_t patternCount() const { return adaptive::demo::AdaptiveDemo::kNumPatterns; }
-    const char* patternName(uint32_t i) { return song_->patternEntry(i).name; }
-    /// [channel, numRows, rowsPerBeat, numColumns, pitchMode (0 Absolute, 1 Transpose, 2 Degree)]
+    uint32_t patternCount() const { return song_->numPatterns; }
+    std::string patternName(uint32_t i) const { return name(info_.patterns, i); }
+    /// [channel, numRows, ticksPerRow, numColumns, pitchMode (0 Absolute, 1 Transpose, 2 Degree)]
     bool patternInfo(uint32_t i, int32_t out[5]);
     /// Copies the pattern's cells, 5 bytes each (note, accidental, volume, effect,
     /// param), row by row, numColumns per row. Only call before editing that
@@ -57,17 +69,17 @@ public:
     bool setColumnMask(int channel, int columnMask);
 
     // Instruments (UI thread only).
-    uint32_t channelCount() const { return adaptive::demo::AdaptiveDemo::kNumChannels; }
-    const char* channelName(uint32_t i) const;
+    uint32_t channelCount() const { return song_->numChannels; }
+    std::string channelName(uint32_t i) const { return name(info_.channels, i); }
     /// Columns (voices) on channel i; set up before audio starts and never changed.
     int channelColumns(int i) const {
         return i >= 0 && i < static_cast<int>(channelCount())
-                   ? static_cast<int>(engine_->channel(static_cast<uint32_t>(i)).numColumns()) : 0;
+                   ? static_cast<int>(song_->channels[i].numColumns) : 0;
     }
     uint32_t instrumentCount() const { return instrumentCount_; }
     uint32_t maxInstruments() const { return adaptive::config::kMaxInstruments; }
-    /// The demo's name for one of its instruments, or "" for one made in the app.
-    const char* instrumentName(uint32_t i) const;
+    /// The song file's name for one of its instruments, or "" for one made in the app.
+    std::string instrumentName(uint32_t i) const { return name(info_.instruments, i); }
     /// Add an instrument with `values` (Instrument::kNumParams floats), or the
     /// defaults when null. Returns its index, or -1 when the song is full.
     int addInstrument(const float* values);
@@ -111,11 +123,17 @@ public:
     void onErrorAfterClose(oboe::AudioStream* stream, oboe::Result error) override;
 
 private:
+    static std::string name(const std::vector<adaptive::songfile::Label>& labels, uint32_t i) {
+        return i < labels.size() ? labels[i].name : std::string();
+    }
+    /// The UI thread's view of the instrument table, from the song.
+    void resetMirrors();
     bool openLocked();  // streamMutex_ must be held
     void updateStats(oboe::AudioStream* stream, int64_t callbackNs, int32_t numFrames);
 
     std::unique_ptr<adaptive::Engine> engine_;
-    std::unique_ptr<adaptive::demo::AdaptiveDemo> song_;
+    std::unique_ptr<adaptive::Song> song_;
+    adaptive::songfile::SongInfo info_;
     std::shared_ptr<oboe::AudioStream> stream_;
     std::mutex streamMutex_;  // guards stream_ between UI thread and error-restart thread
     std::atomic<bool> wantOpen_{false};

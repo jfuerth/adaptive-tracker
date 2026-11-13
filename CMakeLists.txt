@@ -25,7 +25,13 @@ add_library(adaptive_demo INTERFACE)
 target_include_directories(adaptive_demo INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/core)
 target_link_libraries(adaptive_demo INTERFACE adaptive_engine)
 
+# Song files (JSON): phone and desktop only, not microcontrollers.
+add_library(adaptive_songfile STATIC core/songfile/songfile.cpp)
+target_include_directories(adaptive_songfile PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/core/songfile/include)
+target_link_libraries(adaptive_songfile PUBLIC adaptive_engine)
+
 set(ADAPTIVE_WARNINGS -Wall -Wextra -Wpedantic)
+target_compile_options(adaptive_songfile PRIVATE ${ADAPTIVE_WARNINGS})
 
 # Host-only targets: tests and desktop tools.
 option(ADAPTIVE_BUILD_HOST_TOOLS "Build unit tests and desktop tools" ${PROJECT_IS_TOP_LEVEL})
@@ -41,10 +47,12 @@ if(ADAPTIVE_BUILD_HOST_TOOLS)
         core/tests/test_mappings.cpp
         core/tests/test_demo.cpp
         core/tests/test_editor_engine.cpp
-        core/tests/test_inspect.cpp)
+        core/tests/test_inspect.cpp
+        core/tests/test_songfile.cpp)
     find_package(Threads REQUIRED)
     target_link_libraries(adaptive_tests PRIVATE Threads::Threads)
-    target_link_libraries(adaptive_tests PRIVATE adaptive_demo)
+    target_link_libraries(adaptive_tests PRIVATE adaptive_demo adaptive_songfile)
+    target_compile_definitions(adaptive_tests PRIVATE ADAPTIVE_SONGS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/songs")
     target_include_directories(adaptive_tests SYSTEM PRIVATE core/third_party/doctest)
     target_compile_options(adaptive_tests PRIVATE ${ADAPTIVE_WARNINGS})
     add_test(NAME adaptive_tests COMMAND adaptive_tests)
@@ -62,6 +70,11 @@ if(ADAPTIVE_BUILD_HOST_TOOLS)
     add_executable(adaptive_render desktop/adaptive_render.cpp)
     target_link_libraries(adaptive_render PRIVATE adaptive_demo)
     target_compile_options(adaptive_render PRIVATE ${ADAPTIVE_WARNINGS})
+
+    # Writes the demo song as a song file (songs/adaptive-demo.json).
+    add_executable(export_demo desktop/export_demo.cpp)
+    target_link_libraries(export_demo PRIVATE adaptive_demo adaptive_songfile)
+    target_compile_options(export_demo PRIVATE ${ADAPTIVE_WARNINGS})
 
     add_executable(key_experiment desktop/key_experiment.cpp)
     target_link_libraries(key_experiment PRIVATE adaptive_demo)

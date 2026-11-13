@@ -32,10 +32,11 @@ struct Fixture {
     Channel& ch() { return engine->channel(0); }
 };
 
-std::unique_ptr<Pattern> makePattern(uint16_t rows, uint8_t rowsPerBeat) {
+/// `ticksPerRow` is the speed: 24 = one row per beat, 6 = four.
+std::unique_ptr<Pattern> makePattern(uint16_t rows, uint8_t ticksPerRow) {
     auto p = std::make_unique<Pattern>();
     p->numRows = rows;
-    p->rowsPerBeat = rowsPerBeat;
+    p->ticksPerRow = ticksPerRow;
     return p;
 }
 
@@ -43,14 +44,17 @@ std::unique_ptr<Pattern> makePattern(uint16_t rows, uint8_t rowsPerBeat) {
 
 TEST_CASE("Sequence: patterns of different lengths and row rates play in order and loop") {
     Fixture f;
-    auto a = makePattern(4, 4);  // one beat = 96 ticks
-    auto b = makePattern(3, 1);  // three beats = 288 ticks
-    a->cells[0][0] = Cell::on(60);
-    b->cells[0][0] = Cell::on(67);
+    auto pool = std::make_unique<Pattern[]>(2);
+    pool[0].numRows = 4;  // speed 6: one beat = 96 ticks
+    pool[0].ticksPerRow = 6;
+    pool[1].numRows = 3;  // speed 24: three beats = 288 ticks
+    pool[1].ticksPerRow = 24;
+    pool[0].cells[0][0] = Cell::on(60);
+    pool[1].cells[0][0] = Cell::on(67);
     Sequence seq;
-    REQUIRE(seq.append(a.get()));
-    REQUIRE(seq.append(b.get()));
-    f.ch().playSequence(&seq, 0);
+    REQUIRE(seq.append(0));
+    REQUIRE(seq.append(1));
+    f.ch().playSequence(&seq, pool.get(), 0);
 
     f.reachTick(0);
     CHECK(f.ch().sequencePosition() == 0);
@@ -67,17 +71,41 @@ TEST_CASE("Sequence: patterns of different lengths and row rates play in order a
     CHECK(f.ch().column(0).pitch == 60.0f);
 }
 
-TEST_CASE("Sequence: append rejects invalid patterns") {
+TEST_CASE("Sequence: a song only plays sequences of valid patterns") {
+    auto song = std::make_unique<Song>();
+    song->addPattern(0, 4, 6);
+    const uint8_t bad = song->addPattern(0, 4, 0);  // speed 0
     Sequence seq;
-    auto bad = makePattern(4, 5);  // 5 rows per beat does not divide 96
-    CHECK_FALSE(seq.append(bad.get()));
-    CHECK_FALSE(seq.append(nullptr));
-    CHECK(seq.length == 0);
+    REQUIRE(seq.append(0));
+    CHECK(song->isPlayable(seq));
+    seq.append(bad);
+    CHECK_FALSE(song->isPlayable(seq));
+    Sequence missing;
+    missing.append(7);  // no such pattern
+    CHECK_FALSE(song->isPlayable(missing));
+    CHECK_FALSE(song->isPlayable(Sequence{}));  // empty
+}
+
+TEST_CASE("Speed: rows needn't line up with beats") {
+    Fixture f;
+    auto p = makePattern(3, 5);  // 5 effect ticks = 20 engine ticks per row
+    p->cells[0][0] = Cell::on(60);
+    p->cells[1][0] = Cell::on(62);
+    p->cells[2][0] = Cell::on(64);
+    f.ch().play(p.get(), 0);
+    f.reachTick(19);
+    CHECK(f.ch().column(0).pitch == 60.0f);
+    f.reachTick(20);
+    CHECK(f.ch().column(0).pitch == 62.0f);
+    f.reachTick(40);
+    CHECK(f.ch().column(0).pitch == 64.0f);
+    f.reachTick(60);  // loops after 60 ticks
+    CHECK(f.ch().column(0).pitch == 60.0f);
 }
 
 TEST_CASE("Effects: arpeggio cycles base, +x, +y on each effect tick") {
     Fixture f;
-    auto p = makePattern(4, 1);
+    auto p = makePattern(4, 24);
     p->cells[0][0] = Cell::on(60).with(fx::kArpeggio, 0x47);
     f.ch().play(p.get(), 0);
 
@@ -95,7 +123,7 @@ TEST_CASE("Effects: arpeggio in Degree mode uses scale steps") {
     Fixture f;
     f.ch().setPitchMode(PitchMode::Degree);
     f.engine->pitch().current = Key{0, scales::kNaturalMinor};
-    auto p = makePattern(4, 1);
+    auto p = makePattern(4, 24);
     p->cells[0][0] = Cell::degree(4, 0).with(fx::kArpeggio, 0x24);  // root, 3rd, 5th
     f.ch().play(p.get(), 0);
 
@@ -106,7 +134,7 @@ TEST_CASE("Effects: arpeggio in Degree mode uses scale steps") {
 
 TEST_CASE("Effects: portamento up and down move by xx/16 semitone per effect tick") {
     Fixture f;
-    auto p = makePattern(4, 1);  // rows last 96 ticks = 24 effect ticks
+    auto p = makePattern(4, 24);  // rows last 96 ticks = 24 effect ticks
     p->cells[0][0] = Cell::on(60).with(fx::kPortaUp, 0x08);
     p->cells[1][0] = Cell::effectOnly(fx::kPortaDown, 0x10);
     f.ch().play(p.get(), 0);
@@ -121,7 +149,7 @@ TEST_CASE("Effects: portamento up and down move by xx/16 semitone per effect tic
 
 TEST_CASE("Effects: slides continue across rows until stopped or a new note") {
     Fixture f;
-    auto p = makePattern(5, 1);
+    auto p = makePattern(5, 24);
     p->cells[0][0] = Cell::on(60).with(fx::kPortaUp, 0x10);  // 1 semitone per effect tick
     p->cells[2][0] = Cell::effectOnly(fx::kPortaUp, 0x00);   // stop
     p->cells[3][0] = Cell::on(50).with(fx::kPortaDown, 0x08);
@@ -140,7 +168,7 @@ TEST_CASE("Effects: slides continue across rows until stopped or a new note") {
 
 TEST_CASE("Effects: tone portamento slides to the note without retriggering or overshooting") {
     Fixture f;
-    auto p = makePattern(4, 1);
+    auto p = makePattern(4, 24);
     p->cells[0][0] = Cell::on(60);
     p->cells[1][0] = Cell::on(62).with(fx::kTonePorta, 0x05);  // 5/16 per effect tick
     p->cells[2][0] = Cell::on(55).with(fx::kTonePorta, 0x00);  // reuse speed
@@ -164,7 +192,7 @@ TEST_CASE("Effects: tone portamento slides to the note without retriggering or o
 
 TEST_CASE("Effects: volume column and volume slide") {
     Fixture f;
-    auto p = makePattern(4, 1);
+    auto p = makePattern(4, 24);
     p->cells[0][0] = Cell::on(60, 64);
     p->cells[1][0] = Cell::effectOnly(fx::kVolumeSlide, 0x02);  // down 2/64 per effect tick
     f.ch().play(p.get(), 0);
@@ -179,13 +207,13 @@ TEST_CASE("Effects: volume column and volume slide") {
 
 TEST_CASE("Effects: synth parameter effects set the voice's baseline") {
     Fixture f;
-    auto p = makePattern(1, 1);
+    auto p = makePattern(1, 24);
     p->cells[0][0] = Cell::on(60).with(fx::kFilterCutoff, 0xFF);
     f.ch().play(p.get(), 0);
     f.reachTick(0);
     CHECK(f.ch().voice(0).getBaseCutoff() == doctest::Approx(20000.0f).epsilon(0.001));
 
-    auto q = makePattern(1, 1);
+    auto q = makePattern(1, 24);
     q->cells[0][0] = Cell::effectOnly(fx::kWaveShape, 0x80);
     f.ch().play(q.get(), 96);
     f.reachTick(96);
@@ -195,7 +223,7 @@ TEST_CASE("Effects: synth parameter effects set the voice's baseline") {
 TEST_CASE("Key changes apply to notes that start afterwards") {
     Fixture f;
     f.ch().setPitchMode(PitchMode::Degree);
-    auto p = makePattern(2, 1);
+    auto p = makePattern(2, 24);
     p->cells[0][0] = Cell::degree(4, 2);  // the 3rd
     f.ch().play(p.get(), 0);
 

@@ -22,8 +22,12 @@ microcontrollers (ESP32, RP2350) later.
 | Instruments | `adaptive::Instrument` is a flat array of 17 pressense parameters in natural units (shape, cutoff, resonance, filter envelope + amount, amp envelope, level, vibrato, tremolo). The song holds a table of them; **each column of each channel names one** (`Song::columnInstrument`), e.g. the drum channel's kick and hat columns. No instrument field in cells. Editing is a `SetInstrumentParam` command that updates every voice using the instrument, including held previews. Previews play an instrument, not a channel's voice. **No copies of pressense in the app:** instrument defaults are read from a default-constructed voice; the editor gets parameter keys and ranges from the engine; the waveform and envelope graphs are rendered by pressense's own oscillator and envelope (`adaptive/inspect.hpp`); effect descriptions get their values from the engine's `fxmap`. While the song plays, the audio thread owns it: new instruments are written by the app into an unused slot, then made live with `AddInstrument`; `AssignInstrument` changes a column's instrument; the UI keeps its own view of the count and assignments. Names live in the app. **Monitor:** `SetMonitor` picks an instrument whose voices (columns playing it and its previews, before channel filter/gain and the master stage) `render()` also writes to a second buffer; the app shows it as an oscilloscope and a live spectrum (level against log frequency, analyser-style fall-back) |
 | Instrument editor | The synth is drawn as its **signal flow**: oscillator → filter → amp down the right, modulators (vibrato, filter envelope, amp envelope, tremolo) on the left with arrows into the stage they modulate; modulation amounts sit on the arrows. Tapping a value opens its slider (log curve for Hz and times) with fine-step buttons; the 12-key keyboard plays the instrument while you adjust it. Envelopes and the oscillator shape are drawn |
 | Chords | Several columns per channel, one voice per column. No chord shorthand yet |
-| Pattern scope | **Per channel.** Each channel plays its own sequence of patterns, which can have different lengths. A section says which pattern(s) each channel plays |
-| Timing | Engine clock in ticks at 96 PPQ (divisible by 2, 3, 4, 8, 16, 32). Each pattern sets its own **length in rows** and **rows per beat**, so channels can play polyrhythms. **Beats per bar is set per section** and defines bar quantisation, counted from section start. Patterns needn't fill whole bars |
+| Pattern scope | **Per channel.** Each pattern belongs to one channel (its pitch mode, columns and instruments). Each channel plays its own sequence of patterns, which can have different lengths. A section says which pattern(s) each channel plays |
+| Columns | **Fixed per channel**, 1-4, in the song: every pattern on the channel has that many. Patterns store all 4, so removing a column and adding it back loses nothing |
+| Song data | `adaptive::Song` holds everything the engine plays, by index, with no pointers: channel setups, a pool of patterns, sections with per-channel sequences, layers, events, parameters (with initial values), mappings, instruments, start tempo, key and section. The engine changes it only on command, on the audio thread |
+| Song file | **JSON**, see `docs/song-format.md`. Tolerant reader (unknown fields ignored, defaults for missing ones), refuses newer versions, references by stable id, names separate from ids, errors say where. The app's own format; MCU builds will take a converted binary, so the MCU side can change freely. The demo is a file now (`songs/adaptive-demo.json`, bundled as an app asset, written by `export_demo` from `core/demo/adaptive_demo.hpp`; a test fails if they drift) |
+| Memory (MCU, later) | Patterns are fixed at 256 rows x 4 columns (5 KB each), fine on the phone but not for an MCU's pattern pool. The file stores only what's used; an MCU build will want a shared cell arena |
+| Timing | Engine clock in ticks at 96 PPQ; effects move every 4 ticks (24 **effect ticks** per beat). Each pattern sets its own **length in rows** and **speed: effect ticks per row**, as in trackers (6 = four rows per beat; 5 is fine too, rows needn't line up with beats), so channels can play polyrhythms. **Beats per bar is set per section** and defines bar quantisation, counted from section start. Patterns needn't fill whole bars |
 | Tempo | Comes only from the section plus adaptive mappings (a multiplier). **Patterns cannot change tempo** |
 | Degree mapping | **Wrap** is the default (chosen by listening test, 2026-11-12). Snap stays available per song |
 | Section transitions | Each transition chooses **Restart** (default: channels start their new sequences from the top) or **Keep phase** (channels continue at the same position, and the bar count carries on). A transition can play a **bridge** section once before entering the target |
@@ -223,7 +227,7 @@ android/         Gradle project: app (Compose) + :native (CMake → core + Oboe)
 1. ✅ **Core skeleton + host tests** (done 2026-11-12): pressense submodule, one channel playing a
    hard-coded pattern through `WavetableSynth`, offline-rendered to WAV.
 2. ✅ **Sequencer** (done 2026-11-12): per-channel pattern sequences of mixed lengths
-   and rows per beat, the effects above, pitch modes and keys, several channels.
+   and speed, the effects above, pitch modes and keys, several channels.
    Listening test result: Wrap is the default degree mapping.
 3. ✅ **Android shell** (done 2026-11-12): Gradle + NDK + Oboe; play/stop a demo song from the phone.
 4. ✅ **Adaptive director** (done 2026-11-12): command queue, sections and
@@ -236,10 +240,12 @@ android/         Gradle project: app (Compose) + :native (CMake → core + Oboe)
    ✅ Creating, duplicating and renaming instruments, and assigning them to
    columns (from the column headings or the instrument's "Plays on" list);
    live oscilloscope and spectrum of the instrument's output (done
-   2026-11-13). Still to do: pattern
-   length / rows-per-beat editing, creating patterns and arranging sequences.
+   2026-11-13). Still to do: column count, pattern length and speed
+   editing, creating patterns and arranging sequences.
 6. **Lua**: control thread, API, script editor; measure footprint.
-7. Later: song file format, MCU build (RP2350 first, reusing pressense's I2S sink).
+7. ✅ Song file format (done 2026-11-13): JSON load/save, the demo as a
+   file. Still to do: saving from the app, opening songs. Later: the MCU
+   build (RP2350 first, reusing pressense's I2S sink) with a converted binary song.
 
 ## Future enhancement ideas
 

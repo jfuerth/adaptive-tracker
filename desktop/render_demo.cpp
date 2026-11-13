@@ -69,7 +69,7 @@ int main(int argc, char** argv) {
     // Patterns live as long as the engine plays them.
     auto bass = std::make_unique<Pattern>();
     bass->numRows = 16;
-    bass->rowsPerBeat = 4;
+    bass->ticksPerRow = 6;
     const uint8_t bassLine[16] = {33, 0, 45, 33, 0, 33, 45, 0, 31, 0, 43, 31, 0, 36, 38, 40};
     for (int r = 0; r < 16; ++r) {
         if (bassLine[r] != 0) bass->cells[r][0] = Cell::on(bassLine[r], r % 4 == 0 ? 127 : 90);
@@ -85,19 +85,23 @@ int main(int argc, char** argv) {
     bass2->cells[14][0] = Cell::on(33).with(fx::kTonePorta, 0x04);
     bass2->cells[15][0] = Cell::effectOnly(fx::kFilterCutoff, 0x50);
 
+    // A sequence's entries index a pattern table.
+    auto bassPatterns = std::make_unique<Pattern[]>(2);
+    bassPatterns[0] = *bass;
+    bassPatterns[1] = *bass2;
     adaptive::Sequence bassSeq;
-    bassSeq.append(bass.get());
-    bassSeq.append(bass2.get());
+    bassSeq.append(0);
+    bassSeq.append(1);
 
     auto arp = std::make_unique<Pattern>();
     arp->numRows = 12;
-    arp->rowsPerBeat = 3;
+    arp->ticksPerRow = 8;
     const uint8_t arpNotes[12] = {69, 72, 76, 69, 72, 76, 67, 71, 74, 67, 71, 74};
     for (int r = 0; r < 12; ++r) arp->cells[r][0] = Cell::on(arpNotes[r], r % 3 == 0 ? 110 : 70);
 
     auto pad = std::make_unique<Pattern>();
     pad->numRows = 6;
-    pad->rowsPerBeat = 1;
+    pad->ticksPerRow = 24;
     const uint8_t chordA[3] = {57, 60, 64};  // A minor
     const uint8_t chordG[3] = {55, 59, 62};  // G major
     for (int c = 0; c < 3; ++c) {
@@ -106,7 +110,7 @@ int main(int argc, char** argv) {
     }
 
     engine->channel(0).forEachVoice(bassPatch);
-    engine->channel(0).playSequence(&bassSeq, 0);
+    engine->channel(0).playSequence(&bassSeq, bassPatterns.get(), 0);
 
     engine->channel(1).forEachVoice(arpPatch);
     engine->channel(1).play(arp.get(), 0);

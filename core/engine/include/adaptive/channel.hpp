@@ -106,11 +106,14 @@ public:
     }
 
     /**
-     * Play `sequence` (looping) from `startTick`. It and its patterns must stay
-     * alive while playing. nullptr stops the channel; sounding voices are released.
+     * Play `sequence` (looping) from `startTick`; its entries index `patterns`.
+     * Both must stay alive while playing, and every entry must be a valid
+     * pattern (see Song::isPlayable). nullptr stops the channel; sounding
+     * voices are released.
      */
-    void playSequence(const Sequence* sequence, uint64_t startTick) {
-        sequence_ = (sequence != nullptr && sequence->length > 0) ? sequence : nullptr;
+    void playSequence(const Sequence* sequence, const Pattern* patterns, uint64_t startTick) {
+        sequence_ = (sequence != nullptr && sequence->length > 0 && patterns != nullptr) ? sequence : nullptr;
+        pool_ = patterns;
         single_ = nullptr;
         loop_ = true;
         restart(startTick);
@@ -218,7 +221,7 @@ public:
             pattern = currentPattern();
         }
 
-        const uint32_t ticksPerRow = pattern->ticksPerRow();
+        const uint32_t ticksPerRow = pattern->engineTicksPerRow();
         const uint64_t tickInPattern = tick - entryStartTick_;
         if (tickInPattern % ticksPerRow == 0) {
             const uint32_t row = static_cast<uint32_t>(tickInPattern / ticksPerRow);
@@ -305,7 +308,7 @@ private:
     static inline const float kBypassLog2 = std::log2(kFilterBypassHz);
 
     const Pattern* currentPattern() const {
-        return sequence_ != nullptr ? sequence_->entries[entryIndex_] : single_;
+        return sequence_ != nullptr ? &pool_[sequence_->entries[entryIndex_]] : single_;
     }
 
     void restart(uint64_t startTick) {
@@ -317,7 +320,7 @@ private:
         totalTicks_ = 0;
         for (auto& c : columns_) c.filterSweep = c.slide = c.glide = 0.0f;
         if (sequence_ != nullptr) {
-            for (uint32_t i = 0; i < sequence_->length; ++i) totalTicks_ += sequence_->entries[i]->lengthTicks();
+            for (uint32_t i = 0; i < sequence_->length; ++i) totalTicks_ += pool_[sequence_->entries[i]].lengthTicks();
         } else if (single_ != nullptr) {
             totalTicks_ = single_->lengthTicks();
         } else {
@@ -346,8 +349,8 @@ private:
         uint64_t entryStart = loopStart;
         uint32_t index = 0;
         if (sequence_ != nullptr) {
-            while (offset >= sequence_->entries[index]->lengthTicks()) {
-                const uint32_t len = sequence_->entries[index]->lengthTicks();
+            while (offset >= pool_[sequence_->entries[index]].lengthTicks()) {
+                const uint32_t len = pool_[sequence_->entries[index]].lengthTicks();
                 offset -= len;
                 entryStart += len;
                 ++index;
@@ -524,6 +527,7 @@ private:
     std::array<ColumnState, config::kMaxColumns> columns_{};
     Timer timer_;
     const Sequence* sequence_ = nullptr;
+    const Pattern* pool_ = nullptr;  // what sequence_ entries index
     const Pattern* single_ = nullptr;
     uint64_t startTick_ = 0;
     uint64_t entryStartTick_ = 0;

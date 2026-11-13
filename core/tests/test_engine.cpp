@@ -64,13 +64,16 @@ TEST_CASE("TempoClock: no drift over ten minutes at a tempo with a fractional ti
     CHECK(clock.tick() == 127680);
 }
 
-TEST_CASE("Pattern: rows per beat must divide the tick resolution") {
-    CHECK(isValidRowsPerBeat(3));
-    CHECK(isValidRowsPerBeat(4));
-    CHECK(isValidRowsPerBeat(96));
-    CHECK_FALSE(isValidRowsPerBeat(0));
-    CHECK_FALSE(isValidRowsPerBeat(5));
-    CHECK_FALSE(isValidRowsPerBeat(7));
+TEST_CASE("Pattern: speed is effect ticks per row, any nonzero value") {
+    Pattern p;
+    p.ticksPerRow = 6;
+    CHECK(p.isValid());
+    CHECK(p.engineTicksPerRow() == 24);
+    p.ticksPerRow = 5;
+    CHECK(p.isValid());
+    CHECK(p.lengthTicks() == 16u * 20u);
+    p.ticksPerRow = 0;
+    CHECK_FALSE(p.isValid());
 }
 
 TEST_CASE("Engine: a note starts exactly on its row") {
@@ -95,13 +98,13 @@ TEST_CASE("Engine: a note starts exactly on its row") {
     };
 
     SUBCASE("4 rows per beat: row 4 is one beat in") {
-        pattern->rowsPerBeat = 4;
+        pattern->ticksPerRow = 6;
         pattern->cells[4][0] = Cell::on(69);
         expectTriggerAt(24000);
     }
 
     SUBCASE("3 rows per beat: row 1 is a triplet eighth in") {
-        pattern->rowsPerBeat = 3;
+        pattern->ticksPerRow = 8;
         pattern->cells[1][0] = Cell::on(69);
         expectTriggerAt(8000);
     }
@@ -110,7 +113,7 @@ TEST_CASE("Engine: a note starts exactly on its row") {
 TEST_CASE("Engine: onsets do not depend on the audio block size") {
     auto pattern = std::make_unique<Pattern>();
     pattern->numRows = 8;
-    pattern->rowsPerBeat = 4;
+    pattern->ticksPerRow = 6;
     pattern->cells[3][0] = Cell::on(60);
 
     std::vector<float> reference;
@@ -131,7 +134,7 @@ TEST_CASE("Engine: pattern loops at its own length") {
     auto engine = std::make_unique<Engine>(kSampleRate);
     auto pattern = std::make_unique<Pattern>();
     pattern->numRows = 2;     // two sixteenths = 12000 samples at 120 BPM
-    pattern->rowsPerBeat = 4;
+    pattern->ticksPerRow = 6;
     pattern->cells[0][0] = Cell::on(69);
     engine->channel(0).forEachVoice(pluckPatch);
     engine->channel(0).play(pattern.get(), 0);
@@ -148,7 +151,7 @@ TEST_CASE("Engine: output is bounded and audible with several columns") {
     auto engine = std::make_unique<Engine>(kSampleRate);
     auto pattern = std::make_unique<Pattern>();
     pattern->numRows = 4;
-    pattern->rowsPerBeat = 1;
+    pattern->ticksPerRow = 24;
     pattern->cells[0][0] = Cell::on(60);
     pattern->cells[0][1] = Cell::on(64);
     pattern->cells[0][2] = Cell::on(67);

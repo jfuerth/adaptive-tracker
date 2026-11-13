@@ -86,45 +86,42 @@ struct Cell {
     constexpr bool isOff() const { return note == kNoteOff; }
 };
 
-/// True when a pattern can use this many rows per beat: it must divide the
-/// engine's tick resolution so every row starts exactly on a tick.
-constexpr bool isValidRowsPerBeat(uint32_t rowsPerBeat) {
-    return rowsPerBeat > 0 && rowsPerBeat <= config::kTicksPerBeat &&
-           config::kTicksPerBeat % rowsPerBeat == 0;
-}
-
 /**
- * A block of rows for one channel. Each pattern sets its own length and rows per
- * beat, so channels can loop at different lengths and subdivisions.
+ * A block of rows for one channel. Each pattern sets its own length and speed,
+ * so channels can loop at different lengths and subdivisions.
  */
 struct Pattern {
     uint16_t numRows = 16;
-    uint8_t rowsPerBeat = 4;
+    /// Speed: effect ticks per row, as in trackers (24 per beat, so 6 = four
+    /// rows per beat). Rows needn't line up with beats (e.g. 5).
+    uint8_t ticksPerRow = 6;
+    /// The channel the pattern belongs to: its pitch mode, columns and instruments.
+    uint8_t channel = 0;
     Cell cells[config::kMaxRows][config::kMaxColumns] = {};
 
-    constexpr uint32_t ticksPerRow() const { return config::kTicksPerBeat / rowsPerBeat; }
-    constexpr uint32_t lengthTicks() const { return numRows * ticksPerRow(); }
+    constexpr uint32_t engineTicksPerRow() const { return uint32_t(ticksPerRow) * config::kTicksPerEffectTick; }
+    constexpr uint32_t lengthTicks() const { return numRows * engineTicksPerRow(); }
 
-    /// True when the length and rows per beat are usable by the engine.
-    constexpr bool isValid() const {
-        return numRows > 0 && numRows <= config::kMaxRows && isValidRowsPerBeat(rowsPerBeat);
-    }
+    /// True when the length and speed are usable by the engine.
+    constexpr bool isValid() const { return numRows > 0 && numRows <= config::kMaxRows && ticksPerRow > 0; }
 };
 
 /**
- * The order in which a channel plays patterns. Loops back to the first entry
- * after the last. The patterns must outlive the sequence's use by the engine.
+ * The patterns a channel plays, in order, looping back to the first after the
+ * last. Entries are indices into the song's patterns.
  */
 struct Sequence {
-    const Pattern* entries[config::kMaxSequenceLength] = {};
-    uint16_t length = 0;
+    uint8_t entries[config::kMaxSequenceLength] = {};
+    uint8_t length = 0;
 
-    /// Append a pattern. Returns false if the sequence is full or the pattern invalid.
-    bool append(const Pattern* p) {
-        if (length >= config::kMaxSequenceLength || p == nullptr || !p->isValid()) return false;
-        entries[length++] = p;
+    /// Append a pattern. Returns false if the sequence is full.
+    bool append(uint8_t pattern) {
+        if (length >= config::kMaxSequenceLength) return false;
+        entries[length++] = pattern;
         return true;
     }
 };
+
+static_assert(config::kMaxSequenceLength <= 255 && config::kMaxPatterns <= 255, "indices are 8 bits");
 
 } // namespace adaptive

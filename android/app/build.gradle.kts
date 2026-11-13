@@ -12,8 +12,8 @@ android {
         applicationId = "io.github.jfuerth.adaptivetracker"
         minSdk = 26
         targetSdk = 37
-        versionCode = 12
-        versionName = "0.6.2"
+        versionCode = 13
+        versionName = "0.7.0"
 
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
@@ -32,6 +32,9 @@ android {
             signingConfig = signingConfigs.getByName("debug")
         }
     }
+
+    // Songs are shared with the desktop tools: songs/ at the repository root.
+    sourceSets.getByName("main").assets.srcDir("../../songs")
 
     buildFeatures {
         compose = true

@@ -6,6 +6,8 @@
 
 #include <cmath>
 #include <memory>
+#include <string>
+#include <vector>
 
 namespace {
 // One player for the app process. Created on first use from the UI thread.
@@ -79,10 +81,69 @@ JNIEXPORT jint JNICALL JNI_FN(getPatternCount)(JNIEnv*, jobject) {
 }
 
 JNIEXPORT jstring JNICALL JNI_FN(getPatternName)(JNIEnv* env, jobject, jint i) {
-    return env->NewStringUTF(player().patternName(static_cast<uint32_t>(i)));
+    return env->NewStringUTF(player().patternName(static_cast<uint32_t>(i)).c_str());
 }
 
-/// [channel, numRows, rowsPerBeat, numColumns, pitchMode], or null.
+/// Replace the song with a song file. Null on success, else why it failed.
+JNIEXPORT jstring JNICALL JNI_FN(loadSong)(JNIEnv* env, jobject, jstring json) {
+    const char* chars = env->GetStringUTFChars(json, nullptr);
+    if (chars == nullptr) return env->NewStringUTF("out of memory");
+    const std::string error = player().loadSong(chars);
+    env->ReleaseStringUTFChars(json, chars);
+    return error.empty() ? nullptr : env->NewStringUTF(error.c_str());
+}
+
+JNIEXPORT jstring JNICALL JNI_FN(getSongTitle)(JNIEnv* env, jobject) {
+    return env->NewStringUTF(player().songInfo().title.c_str());
+}
+
+/// Names of one kind of thing in the song: 0 sections, 1 layers, 2 params, 3 events.
+JNIEXPORT jobjectArray JNICALL JNI_FN(getSongNames)(JNIEnv* env, jobject, jint kind) {
+    const auto& info = player().songInfo();
+    const auto& song = player().song();
+    const std::vector<adaptive::songfile::Label>* labels = nullptr;
+    uint32_t count = 0;
+    switch (kind) {
+    case 0: labels = &info.sections; count = song.numSections; break;
+    case 1: labels = &info.layers; count = song.numLayers; break;
+    case 2: labels = &info.params; count = song.numParams; break;
+    case 3: labels = &info.events; count = song.numEvents; break;
+    default: break;
+    }
+    jobjectArray result = env->NewObjectArray(static_cast<jsize>(count), env->FindClass("java/lang/String"), nullptr);
+    if (result == nullptr) return nullptr;
+    for (uint32_t i = 0; i < count; ++i) {
+        const std::string name = labels != nullptr && i < labels->size() ? (*labels)[i].name : std::to_string(i + 1);
+        jstring s = env->NewStringUTF(name.c_str());
+        env->SetObjectArrayElement(result, static_cast<jsize>(i), s);
+        env->DeleteLocalRef(s);
+    }
+    return result;
+}
+
+/// For each section, its bridge length in beats (0: not a bridge).
+JNIEXPORT jintArray JNICALL JNI_FN(getSectionBridgeBeats)(JNIEnv* env, jobject) {
+    const auto& song = player().song();
+    jint beats[adaptive::config::kMaxSections];
+    for (uint32_t i = 0; i < song.numSections; ++i) beats[i] = song.sections[i].bridgeBeats;
+    jintArray result = env->NewIntArray(song.numSections);
+    if (result != nullptr) env->SetIntArrayRegion(result, 0, song.numSections, beats);
+    return result;
+}
+
+JNIEXPORT jfloatArray JNICALL JNI_FN(getParamInitialValues)(JNIEnv* env, jobject) {
+    const auto& song = player().song();
+    jfloatArray result = env->NewFloatArray(song.numParams);
+    if (result != nullptr) env->SetFloatArrayRegion(result, 0, song.numParams, song.paramInitial);
+    return result;
+}
+
+/// Effect ticks per beat: a pattern's speed (ticks per row) is counted in these.
+JNIEXPORT jint JNICALL JNI_FN(getTicksPerBeat)(JNIEnv*, jobject) {
+    return static_cast<jint>(adaptive::config::kEffectTicksPerBeat);
+}
+
+/// [channel, numRows, ticksPerRow, numColumns, pitchMode], or null.
 JNIEXPORT jintArray JNICALL JNI_FN(getPatternInfo)(JNIEnv* env, jobject, jint i) {
     int32_t info[5];
     if (!player().patternInfo(static_cast<uint32_t>(i), info)) return nullptr;
@@ -125,7 +186,7 @@ JNIEXPORT jint JNICALL JNI_FN(getChannelCount)(JNIEnv*, jobject) {
 }
 
 JNIEXPORT jstring JNICALL JNI_FN(getChannelName)(JNIEnv* env, jobject, jint i) {
-    return env->NewStringUTF(player().channelName(static_cast<uint32_t>(i)));
+    return env->NewStringUTF(player().channelName(static_cast<uint32_t>(i)).c_str());
 }
 
 JNIEXPORT jint JNICALL JNI_FN(getChannelColumns)(JNIEnv*, jobject, jint i) {
@@ -137,7 +198,7 @@ JNIEXPORT jint JNICALL JNI_FN(getInstrumentCount)(JNIEnv*, jobject) {
 }
 
 JNIEXPORT jstring JNICALL JNI_FN(getInstrumentName)(JNIEnv* env, jobject, jint i) {
-    return env->NewStringUTF(player().instrumentName(static_cast<uint32_t>(i)));
+    return env->NewStringUTF(player().instrumentName(static_cast<uint32_t>(i)).c_str());
 }
 
 /// Instrument::kNumParams values, or null.

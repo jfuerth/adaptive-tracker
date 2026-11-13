@@ -21,11 +21,9 @@ constexpr uint64_t kBar = 4 * kBeat;
 struct Fixture {
     std::unique_ptr<Engine> engine = std::make_unique<Engine>(kSampleRate);
     std::unique_ptr<Song> song = std::make_unique<Song>();
-    std::vector<std::unique_ptr<Pattern>> patterns;
-    std::vector<std::unique_ptr<Sequence>> sequences;
     std::vector<float> buf;
     uint64_t renderedSamples = 0;
-    const Pattern* stinger = nullptr;
+    uint8_t stinger = kNoIndex;
 
     static constexpr uint8_t kExplore = 0, kCombat = 1, kBridge = 2;
     static constexpr uint8_t kStingerChannel = 3;
@@ -46,13 +44,9 @@ struct Fixture {
         song->layers[0] = (1u << 1) | (1u << 2);  // the "bass" layer: channels 1 and 2
         song->numLayers = 1;
 
-        auto st = std::make_unique<Pattern>();
-        st->numRows = 2;
-        st->rowsPerBeat = 1;
-        st->cells[0][0] = Cell::on(90);
-        st->cells[1][0] = Cell::off();
-        stinger = st.get();
-        patterns.push_back(std::move(st));
+        stinger = song->addPattern(kStingerChannel, 2, 24);
+        song->patterns[stinger].cells[0][0] = Cell::on(90);
+        song->patterns[stinger].cells[1][0] = Cell::off();
 
         song->events[0].add(Command::playStinger(kStingerChannel, stinger));
         song->events[0].add(Command::gotoSection(kCombat, Quantize::Bar));
@@ -61,20 +55,16 @@ struct Fixture {
         engine->setSong(song.get());
     }
 
-    const Pattern* barPattern(uint8_t note) {
-        auto p = std::make_unique<Pattern>();
-        p->numRows = 4;
-        p->rowsPerBeat = 1;
-        for (int r = 0; r < 4; ++r) p->cells[r][0] = Cell::on(note);
-        patterns.push_back(std::move(p));
-        return patterns.back().get();
+    uint8_t barPattern(uint8_t note) {
+        const uint8_t i = song->addPattern(0, 4, 24);
+        for (int r = 0; r < 4; ++r) song->patterns[i].cells[r][0] = Cell::on(note);
+        return i;
     }
 
-    const Sequence* sequenceOf(const Pattern* p) {
-        auto s = std::make_unique<Sequence>();
-        s->append(p);
-        sequences.push_back(std::move(s));
-        return sequences.back().get();
+    static Sequence sequenceOf(uint8_t pattern) {
+        Sequence s;
+        s.append(pattern);
+        return s;
     }
 
     /// Render until tick `tick` has been processed.

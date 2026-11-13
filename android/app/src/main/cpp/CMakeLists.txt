@@ -12,5 +12,5 @@ add_subdirectory(${REPO_ROOT} adaptive_core)
 find_package(oboe REQUIRED CONFIG)
 
 add_library(adaptive_native SHARED audio_player.cpp jni_bridge.cpp)
-target_link_libraries(adaptive_native PRIVATE adaptive_demo oboe::oboe log)
+target_link_libraries(adaptive_native PRIVATE adaptive_songfile oboe::oboe log)
 target_compile_options(adaptive_native PRIVATE -Wall -Wextra)

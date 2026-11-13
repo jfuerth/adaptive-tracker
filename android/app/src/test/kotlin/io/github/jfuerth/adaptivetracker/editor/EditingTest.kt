@@ -173,7 +173,8 @@ class DescriptionTest {
         assertEquals("F80 · Filter cutoff · 80", EffectDescription.describe(CellData(effect = 'F'.code, param = 0x80), PitchMode.ABSOLUTE))
         assertEquals("No effect · type a command digit", EffectDescription.describe(CellData(), PitchMode.ABSOLUTE))
         assertEquals("810 · Filter sweep up · 0.94 octave per beat, until stopped",
-            EffectDescription.describe(CellData(effect = '8'.code, param = 0x10), PitchMode.ABSOLUTE, effectValue = engineValues))
+            EffectDescription.describe(CellData(effect = '8'.code, param = 0x10), PitchMode.ABSOLUTE, effectValue = engineValues,
+                ticksPerBeat = 24))
         assertEquals("900 · Filter sweep · 900 stops the sweep",
             EffectDescription.describe(CellData(effect = '9'.code, param = 0), PitchMode.ABSOLUTE))
     }
@@ -186,5 +187,22 @@ class DescriptionTest {
         assertEquals("---", CellFormat.note(CellData(), PitchMode.ABSOLUTE, c))
         assertEquals("..", CellFormat.volume(CellData()))
         assertEquals("305", CellFormat.effect(CellData(effect = '3'.code, param = 5)))
+    }
+}
+
+class PatternInfoTest {
+    private fun info(ticksPerRow: Int) = PatternInfo(0, 16, ticksPerRow, 1, PitchMode.ABSOLUTE, 24)
+
+    @Test
+    fun beatsFallOnEveryFourthRowAtSpeedSix() {
+        assertEquals(listOf(0, 4, 8, 12), (0 until 16).filter { info(6).isBeat(it) })
+        assertEquals("6 (4 rows/beat)", info(6).speedLabel)
+    }
+
+    @Test
+    fun atSpeedFiveTheBeatRowIsTheOneTheBeatStartsIn() {
+        // Rows start at ticks 0, 5, 10, 15, 20, 25...; beats at 0, 24, 48, 72.
+        assertEquals(listOf(0, 4, 9, 14), (0 until 16).filter { info(5).isBeat(it) })
+        assertEquals("5", info(5).speedLabel)
     }
 }

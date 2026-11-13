@@ -1,0 +1,711 @@
+{
+  "format": "adaptive-tracker-song",
+  "version": 1,
+  "title": "Adaptive demo",
+  "tempo": 96,
+  "key": {"root": "C", "scale": "major"},
+  "start": "explore",
+  "instruments": [
+    {
+      "id": "lead",
+      "name": "Lead",
+      "params": {
+        "shape": 0.5,
+        "cutoff": 2200,
+        "resonance": 0.707,
+        "filterEnvAmount": 0.5,
+        "filterAttack": 0.005,
+        "filterDecay": 0.2,
+        "filterSustain": 0.3,
+        "filterRelease": 0.1,
+        "ampAttack": 0.005,
+        "ampDecay": 0.25,
+        "ampSustain": 0.5,
+        "ampRelease": 0.12,
+        "level": 0.28,
+        "vibratoRate": 5,
+        "vibratoDepth": 0.05,
+        "tremoloRate": 5,
+        "tremoloDepth": 0
+      }
+    },
+    {
+      "id": "bass",
+      "name": "Bass",
+      "params": {
+        "shape": 0,
+        "cutoff": 320,
+        "resonance": 3,
+        "filterEnvAmount": 0.5,
+        "filterAttack": 0.005,
+        "filterDecay": 0.2,
+        "filterSustain": 0.3,
+        "filterRelease": 0.1,
+        "ampAttack": 0.002,
+        "ampDecay": 0.2,
+        "ampSustain": 0.6,
+        "ampRelease": 0.06,
+        "level": 0.42,
+        "vibratoRate": 5,
+        "vibratoDepth": 0,
+        "tremoloRate": 5,
+        "tremoloDepth": 0
+      }
+    },
+    {
+      "id": "pad",
+      "name": "Pad",
+      "params": {
+        "shape": 0.3,
+        "cutoff": 1000,
+        "resonance": 0.707,
+        "filterEnvAmount": 0.5,
+        "filterAttack": 0.005,
+        "filterDecay": 0.2,
+        "filterSustain": 0.3,
+        "filterRelease": 0.1,
+        "ampAttack": 0.25,
+        "ampDecay": 0.5,
+        "ampSustain": 0.7,
+        "ampRelease": 0.6,
+        "level": 0.1,
+        "vibratoRate": 5,
+        "vibratoDepth": 0.06,
+        "tremoloRate": 5,
+        "tremoloDepth": 0
+      }
+    },
+    {
+      "id": "arp",
+      "name": "Arp",
+      "params": {
+        "shape": 1,
+        "cutoff": 4000,
+        "resonance": 0.707,
+        "filterEnvAmount": 0.5,
+        "filterAttack": 0.005,
+        "filterDecay": 0.2,
+        "filterSustain": 0.3,
+        "filterRelease": 0.1,
+        "ampAttack": 0.001,
+        "ampDecay": 0.09,
+        "ampSustain": 0.15,
+        "ampRelease": 0.05,
+        "level": 0.1,
+        "vibratoRate": 5,
+        "vibratoDepth": 0,
+        "tremoloRate": 5,
+        "tremoloDepth": 0
+      }
+    },
+    {
+      "id": "kick",
+      "name": "Kick",
+      "params": {
+        "shape": 0.5,
+        "cutoff": 900,
+        "resonance": 0.707,
+        "filterEnvAmount": 0.5,
+        "filterAttack": 0.005,
+        "filterDecay": 0.2,
+        "filterSustain": 0.3,
+        "filterRelease": 0.1,
+        "ampAttack": 0.001,
+        "ampDecay": 0.18,
+        "ampSustain": 0,
+        "ampRelease": 0.05,
+        "level": 0.85,
+        "vibratoRate": 5,
+        "vibratoDepth": 0,
+        "tremoloRate": 5,
+        "tremoloDepth": 0
+      }
+    },
+    {
+      "id": "hat",
+      "name": "Hat",
+      "params": {
+        "shape": 1,
+        "cutoff": 12000,
+        "resonance": 0.707,
+        "filterEnvAmount": 0.5,
+        "filterAttack": 0.005,
+        "filterDecay": 0.2,
+        "filterSustain": 0.3,
+        "filterRelease": 0.1,
+        "ampAttack": 0.0005,
+        "ampDecay": 0.03,
+        "ampSustain": 0,
+        "ampRelease": 0.02,
+        "level": 0.12,
+        "vibratoRate": 5,
+        "vibratoDepth": 0,
+        "tremoloRate": 5,
+        "tremoloDepth": 0
+      }
+    },
+    {
+      "id": "stinger",
+      "name": "Stinger",
+      "params": {
+        "shape": 0.9,
+        "cutoff": 5000,
+        "resonance": 2,
+        "filterEnvAmount": 0.5,
+        "filterAttack": 0.005,
+        "filterDecay": 0.2,
+        "filterSustain": 0.3,
+        "filterRelease": 0.1,
+        "ampAttack": 0.001,
+        "ampDecay": 0.15,
+        "ampSustain": 0.4,
+        "ampRelease": 0.15,
+        "level": 0.3,
+        "vibratoRate": 5,
+        "vibratoDepth": 0,
+        "tremoloRate": 5,
+        "tremoloDepth": 0
+      }
+    }
+  ],
+  "channels": [
+    {
+      "id": "lead",
+      "name": "Lead",
+      "pitch": "degree",
+      "columns": [
+        {"instrument": "lead"}
+      ],
+      "patterns": [
+        {
+          "id": "explore-lead",
+          "name": "Explore lead",
+          "rows": 32,
+          "ticksPerRow": 12,
+          "cells": [
+            {"row": 0, "column": 0, "degree": 5, "octave": 4, "volume": 100},
+            {"row": 2, "column": 0, "degree": 3, "octave": 4, "volume": 100},
+            {"row": 4, "column": 0, "degree": 5, "octave": 4, "volume": 100},
+            {"row": 5, "column": 0, "degree": 6, "octave": 4, "volume": 100},
+            {"row": 6, "column": 0, "degree": 5, "octave": 4, "volume": 100},
+            {"row": 8, "column": 0, "degree": 3, "octave": 4, "volume": 100},
+            {"row": 10, "column": 0, "degree": 1, "octave": 4, "volume": 100},
+            {"row": 12, "column": 0, "degree": 6, "octave": 3, "volume": 100},
+            {"row": 14, "column": 0, "off": true},
+            {"row": 16, "column": 0, "degree": 4, "octave": 4, "volume": 100},
+            {"row": 18, "column": 0, "degree": 6, "octave": 4, "volume": 100},
+            {"row": 20, "column": 0, "degree": 1, "octave": 5, "volume": 100},
+            {"row": 22, "column": 0, "degree": 6, "octave": 4, "volume": 100},
+            {"row": 23, "column": 0, "degree": 4, "octave": 4, "volume": 100},
+            {"row": 24, "column": 0, "degree": 5, "octave": 4, "volume": 100},
+            {"row": 28, "column": 0, "degree": 2, "octave": 4, "volume": 100},
+            {"row": 30, "column": 0, "degree": 7, "octave": 3, "volume": 100},
+            {"row": 31, "column": 0, "off": true}
+          ]
+        },
+        {
+          "id": "combat-lead",
+          "name": "Combat lead",
+          "rows": 64,
+          "ticksPerRow": 6,
+          "cells": [
+            {"row": 0, "column": 0, "degree": 10, "octave": 4, "volume": 110},
+            {"row": 2, "column": 0, "off": true},
+            {"row": 3, "column": 0, "degree": 8, "octave": 4, "volume": 110},
+            {"row": 5, "column": 0, "off": true},
+            {"row": 6, "column": 0, "degree": 10, "octave": 4, "volume": 110},
+            {"row": 8, "column": 0, "degree": 1, "octave": 5, "volume": 110},
+            {"row": 10, "column": 0, "off": true},
+            {"row": 11, "column": 0, "degree": 12, "octave": 4, "volume": 110},
+            {"row": 13, "column": 0, "off": true},
+            {"row": 14, "column": 0, "degree": 10, "octave": 4, "volume": 110},
+            {"row": 16, "column": 0, "degree": 8, "octave": 4, "volume": 110},
+            {"row": 18, "column": 0, "off": true},
+            {"row": 19, "column": 0, "degree": 6, "octave": 4, "volume": 110},
+            {"row": 21, "column": 0, "off": true},
+            {"row": 22, "column": 0, "degree": 8, "octave": 4, "volume": 110},
+            {"row": 24, "column": 0, "degree": 11, "octave": 4, "volume": 110},
+            {"row": 26, "column": 0, "off": true},
+            {"row": 27, "column": 0, "degree": 10, "octave": 4, "volume": 110},
+            {"row": 29, "column": 0, "off": true},
+            {"row": 30, "column": 0, "degree": 8, "octave": 4, "volume": 110},
+            {"row": 32, "column": 0, "degree": 9, "octave": 4, "volume": 110},
+            {"row": 34, "column": 0, "off": true},
+            {"row": 35, "column": 0, "degree": 7, "octave": 4, "volume": 110},
+            {"row": 37, "column": 0, "off": true},
+            {"row": 38, "column": 0, "degree": 9, "octave": 4, "volume": 110},
+            {"row": 40, "column": 0, "degree": 12, "octave": 4, "volume": 110},
+            {"row": 42, "column": 0, "off": true},
+            {"row": 43, "column": 0, "degree": 11, "octave": 4, "volume": 110},
+            {"row": 45, "column": 0, "off": true},
+            {"row": 46, "column": 0, "degree": 9, "octave": 4, "volume": 110},
+            {"row": 48, "column": 0, "degree": 9, "octave": 4, "volume": 110},
+            {"row": 50, "column": 0, "off": true},
+            {"row": 51, "column": 0, "degree": 7, "octave": 4, "volume": 110},
+            {"row": 53, "column": 0, "off": true},
+            {"row": 54, "column": 0, "degree": 9, "octave": 4, "volume": 110},
+            {"row": 56, "column": 0, "degree": 12, "octave": 4, "volume": 110},
+            {"row": 58, "column": 0, "off": true},
+            {"row": 59, "column": 0, "degree": 11, "octave": 4, "volume": 110},
+            {"row": 61, "column": 0, "off": true},
+            {"row": 62, "column": 0, "degree": 9, "octave": 4, "volume": 110}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "bass",
+      "name": "Bass",
+      "pitch": "degree",
+      "columns": [
+        {"instrument": "bass"}
+      ],
+      "patterns": [
+        {
+          "id": "explore-bass",
+          "name": "Explore bass",
+          "rows": 16,
+          "ticksPerRow": 24,
+          "cells": [
+            {"row": 0, "column": 0, "degree": 1, "octave": 2, "volume": 120},
+            {"row": 2, "column": 0, "degree": 5, "octave": 2, "volume": 90},
+            {"row": 4, "column": 0, "degree": 6, "octave": 2, "volume": 120},
+            {"row": 6, "column": 0, "degree": 10, "octave": 2, "volume": 90},
+            {"row": 8, "column": 0, "degree": 4, "octave": 2, "volume": 120},
+            {"row": 10, "column": 0, "degree": 8, "octave": 2, "volume": 90},
+            {"row": 12, "column": 0, "degree": 5, "octave": 2, "volume": 120},
+            {"row": 14, "column": 0, "degree": 9, "octave": 2, "volume": 90}
+          ]
+        },
+        {
+          "id": "combat-bass",
+          "name": "Combat bass",
+          "rows": 64,
+          "ticksPerRow": 6,
+          "cells": [
+            {"row": 0, "column": 0, "degree": 6, "octave": 2, "volume": 127},
+            {"row": 2, "column": 0, "degree": 6, "octave": 3, "volume": 80},
+            {"row": 4, "column": 0, "degree": 6, "octave": 2, "volume": 127},
+            {"row": 6, "column": 0, "degree": 6, "octave": 3, "volume": 80},
+            {"row": 8, "column": 0, "degree": 6, "octave": 2, "volume": 127},
+            {"row": 10, "column": 0, "degree": 6, "octave": 3, "volume": 80},
+            {"row": 12, "column": 0, "degree": 6, "octave": 2, "volume": 127},
+            {"row": 14, "column": 0, "degree": 6, "octave": 3, "volume": 80},
+            {"row": 16, "column": 0, "degree": 4, "octave": 2, "volume": 127},
+            {"row": 18, "column": 0, "degree": 4, "octave": 3, "volume": 80},
+            {"row": 20, "column": 0, "degree": 4, "octave": 2, "volume": 127},
+            {"row": 22, "column": 0, "degree": 4, "octave": 3, "volume": 80},
+            {"row": 24, "column": 0, "degree": 4, "octave": 2, "volume": 127},
+            {"row": 26, "column": 0, "degree": 4, "octave": 3, "volume": 80},
+            {"row": 28, "column": 0, "degree": 4, "octave": 2, "volume": 127},
+            {"row": 30, "column": 0, "degree": 4, "octave": 3, "volume": 80},
+            {"row": 32, "column": 0, "degree": 5, "octave": 2, "volume": 127},
+            {"row": 34, "column": 0, "degree": 5, "octave": 3, "volume": 80},
+            {"row": 36, "column": 0, "degree": 5, "octave": 2, "volume": 127},
+            {"row": 38, "column": 0, "degree": 5, "octave": 3, "volume": 80},
+            {"row": 40, "column": 0, "degree": 5, "octave": 2, "volume": 127},
+            {"row": 42, "column": 0, "degree": 5, "octave": 3, "volume": 80},
+            {"row": 44, "column": 0, "degree": 5, "octave": 2, "volume": 127},
+            {"row": 46, "column": 0, "degree": 5, "octave": 3, "volume": 80},
+            {"row": 48, "column": 0, "degree": 5, "octave": 2, "volume": 127},
+            {"row": 50, "column": 0, "degree": 5, "octave": 3, "volume": 80},
+            {"row": 52, "column": 0, "degree": 5, "octave": 2, "volume": 127},
+            {"row": 54, "column": 0, "degree": 5, "octave": 3, "volume": 80},
+            {"row": 56, "column": 0, "degree": 5, "octave": 2, "volume": 127},
+            {"row": 58, "column": 0, "degree": 5, "octave": 3, "volume": 80},
+            {"row": 60, "column": 0, "degree": 5, "octave": 2, "volume": 127},
+            {"row": 62, "column": 0, "degree": 5, "octave": 3, "volume": 80}
+          ]
+        },
+        {
+          "id": "bridge-bass",
+          "name": "Bridge bass",
+          "rows": 4,
+          "ticksPerRow": 24,
+          "cells": [
+            {"row": 0, "column": 0, "degree": 5, "octave": 2, "volume": 127}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "pad",
+      "name": "Pad",
+      "pitch": "degree",
+      "columns": [
+        {"instrument": "pad"},
+        {"instrument": "pad"},
+        {"instrument": "pad"}
+      ],
+      "patterns": [
+        {
+          "id": "explore-pad",
+          "name": "Explore pad",
+          "rows": 16,
+          "ticksPerRow": 24,
+          "cells": [
+            {"row": 0, "column": 0, "degree": 1, "octave": 3},
+            {"row": 0, "column": 1, "degree": 3, "octave": 3},
+            {"row": 0, "column": 2, "degree": 5, "octave": 3},
+            {"row": 4, "column": 0, "degree": 6, "octave": 3},
+            {"row": 4, "column": 1, "degree": 8, "octave": 3},
+            {"row": 4, "column": 2, "degree": 10, "octave": 3},
+            {"row": 8, "column": 0, "degree": 4, "octave": 3},
+            {"row": 8, "column": 1, "degree": 6, "octave": 3},
+            {"row": 8, "column": 2, "degree": 8, "octave": 3},
+            {"row": 12, "column": 0, "degree": 5, "octave": 3},
+            {"row": 12, "column": 1, "degree": 7, "octave": 3},
+            {"row": 12, "column": 2, "degree": 9, "octave": 3}
+          ]
+        },
+        {
+          "id": "combat-pad",
+          "name": "Combat pad",
+          "rows": 16,
+          "ticksPerRow": 24,
+          "cells": [
+            {"row": 0, "column": 0, "degree": 6, "octave": 3},
+            {"row": 0, "column": 1, "degree": 8, "octave": 3},
+            {"row": 0, "column": 2, "degree": 10, "octave": 3},
+            {"row": 4, "column": 0, "degree": 4, "octave": 3},
+            {"row": 4, "column": 1, "degree": 6, "octave": 3},
+            {"row": 4, "column": 2, "degree": 8, "octave": 3},
+            {"row": 8, "column": 0, "degree": 5, "octave": 3},
+            {"row": 8, "column": 1, "degree": 7, "octave": 3},
+            {"row": 8, "column": 2, "degree": 9, "octave": 3},
+            {"row": 12, "column": 0, "degree": 5, "octave": 3},
+            {"row": 12, "column": 1, "degree": 7, "octave": 3},
+            {"row": 12, "column": 2, "degree": 9, "octave": 3}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "arp",
+      "name": "Arp",
+      "pitch": "degree",
+      "columns": [
+        {"instrument": "arp"}
+      ],
+      "patterns": [
+        {
+          "id": "explore-arp",
+          "name": "Explore arp",
+          "rows": 64,
+          "ticksPerRow": 6,
+          "cells": [
+            {"row": 0, "column": 0, "degree": 1, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 2, "column": 0, "degree": 1, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 4, "column": 0, "degree": 1, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 6, "column": 0, "degree": 1, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 8, "column": 0, "degree": 1, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 10, "column": 0, "degree": 1, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 12, "column": 0, "degree": 1, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 14, "column": 0, "degree": 1, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 16, "column": 0, "degree": 6, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 18, "column": 0, "degree": 6, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 20, "column": 0, "degree": 6, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 22, "column": 0, "degree": 6, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 24, "column": 0, "degree": 6, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 26, "column": 0, "degree": 6, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 28, "column": 0, "degree": 6, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 30, "column": 0, "degree": 6, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 32, "column": 0, "degree": 4, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 34, "column": 0, "degree": 4, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 36, "column": 0, "degree": 4, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 38, "column": 0, "degree": 4, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 40, "column": 0, "degree": 4, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 42, "column": 0, "degree": 4, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 44, "column": 0, "degree": 4, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 46, "column": 0, "degree": 4, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 48, "column": 0, "degree": 5, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 50, "column": 0, "degree": 5, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 52, "column": 0, "degree": 5, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 54, "column": 0, "degree": 5, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 56, "column": 0, "degree": 5, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 58, "column": 0, "degree": 5, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 60, "column": 0, "degree": 5, "octave": 5, "volume": 50, "effect": "024"},
+            {"row": 62, "column": 0, "degree": 5, "octave": 5, "volume": 50, "effect": "024"}
+          ]
+        },
+        {
+          "id": "combat-arp",
+          "name": "Combat arp",
+          "rows": 64,
+          "ticksPerRow": 6,
+          "cells": [
+            {"row": 0, "column": 0, "degree": 6, "octave": 5, "volume": 70, "effect": "024"},
+            {"row": 1, "column": 0, "degree": 6, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 2, "column": 0, "degree": 6, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 3, "column": 0, "degree": 6, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 4, "column": 0, "degree": 6, "octave": 5, "volume": 70, "effect": "024"},
+            {"row": 5, "column": 0, "degree": 6, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 6, "column": 0, "degree": 6, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 7, "column": 0, "degree": 6, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 8, "column": 0, "degree": 6, "octave": 5, "volume": 70, "effect": "024"},
+            {"row": 9, "column": 0, "degree": 6, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 10, "column": 0, "degree": 6, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 11, "column": 0, "degree": 6, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 12, "column": 0, "degree": 6, "octave": 5, "volume": 70, "effect": "024"},
+            {"row": 13, "column": 0, "degree": 6, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 14, "column": 0, "degree": 6, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 15, "column": 0, "degree": 6, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 16, "column": 0, "degree": 4, "octave": 5, "volume": 70, "effect": "024"},
+            {"row": 17, "column": 0, "degree": 4, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 18, "column": 0, "degree": 4, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 19, "column": 0, "degree": 4, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 20, "column": 0, "degree": 4, "octave": 5, "volume": 70, "effect": "024"},
+            {"row": 21, "column": 0, "degree": 4, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 22, "column": 0, "degree": 4, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 23, "column": 0, "degree": 4, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 24, "column": 0, "degree": 4, "octave": 5, "volume": 70, "effect": "024"},
+            {"row": 25, "column": 0, "degree": 4, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 26, "column": 0, "degree": 4, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 27, "column": 0, "degree": 4, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 28, "column": 0, "degree": 4, "octave": 5, "volume": 70, "effect": "024"},
+            {"row": 29, "column": 0, "degree": 4, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 30, "column": 0, "degree": 4, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 31, "column": 0, "degree": 4, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 32, "column": 0, "degree": 5, "octave": 5, "volume": 70, "effect": "024"},
+            {"row": 33, "column": 0, "degree": 5, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 34, "column": 0, "degree": 5, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 35, "column": 0, "degree": 5, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 36, "column": 0, "degree": 5, "octave": 5, "volume": 70, "effect": "024"},
+            {"row": 37, "column": 0, "degree": 5, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 38, "column": 0, "degree": 5, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 39, "column": 0, "degree": 5, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 40, "column": 0, "degree": 5, "octave": 5, "volume": 70, "effect": "024"},
+            {"row": 41, "column": 0, "degree": 5, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 42, "column": 0, "degree": 5, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 43, "column": 0, "degree": 5, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 44, "column": 0, "degree": 5, "octave": 5, "volume": 70, "effect": "024"},
+            {"row": 45, "column": 0, "degree": 5, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 46, "column": 0, "degree": 5, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 47, "column": 0, "degree": 5, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 48, "column": 0, "degree": 5, "octave": 5, "volume": 70, "effect": "024"},
+            {"row": 49, "column": 0, "degree": 5, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 50, "column": 0, "degree": 5, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 51, "column": 0, "degree": 5, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 52, "column": 0, "degree": 5, "octave": 5, "volume": 70, "effect": "024"},
+            {"row": 53, "column": 0, "degree": 5, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 54, "column": 0, "degree": 5, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 55, "column": 0, "degree": 5, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 56, "column": 0, "degree": 5, "octave": 5, "volume": 70, "effect": "024"},
+            {"row": 57, "column": 0, "degree": 5, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 58, "column": 0, "degree": 5, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 59, "column": 0, "degree": 5, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 60, "column": 0, "degree": 5, "octave": 5, "volume": 70, "effect": "024"},
+            {"row": 61, "column": 0, "degree": 5, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 62, "column": 0, "degree": 5, "octave": 5, "volume": 45, "effect": "024"},
+            {"row": 63, "column": 0, "degree": 5, "octave": 5, "volume": 45, "effect": "024"}
+          ]
+        },
+        {
+          "id": "bridge-arp",
+          "name": "Bridge arp",
+          "rows": 16,
+          "ticksPerRow": 6,
+          "cells": [
+            {"row": 0, "column": 0, "degree": 1, "octave": 4, "volume": 50},
+            {"row": 1, "column": 0, "degree": 2, "octave": 4, "volume": 54},
+            {"row": 2, "column": 0, "degree": 3, "octave": 4, "volume": 58},
+            {"row": 3, "column": 0, "degree": 4, "octave": 4, "volume": 62},
+            {"row": 4, "column": 0, "degree": 5, "octave": 4, "volume": 66},
+            {"row": 5, "column": 0, "degree": 6, "octave": 4, "volume": 70},
+            {"row": 6, "column": 0, "degree": 7, "octave": 4, "volume": 74},
+            {"row": 7, "column": 0, "degree": 8, "octave": 4, "volume": 78},
+            {"row": 8, "column": 0, "degree": 1, "octave": 5, "volume": 82},
+            {"row": 9, "column": 0, "degree": 2, "octave": 5, "volume": 86},
+            {"row": 10, "column": 0, "degree": 3, "octave": 5, "volume": 90},
+            {"row": 11, "column": 0, "degree": 4, "octave": 5, "volume": 94},
+            {"row": 12, "column": 0, "degree": 5, "octave": 5, "volume": 98},
+            {"row": 13, "column": 0, "degree": 6, "octave": 5, "volume": 102},
+            {"row": 14, "column": 0, "degree": 7, "octave": 5, "volume": 106},
+            {"row": 15, "column": 0, "degree": 8, "octave": 5, "volume": 110}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "drums",
+      "name": "Drums",
+      "pitch": "absolute",
+      "columns": [
+        {"instrument": "kick"},
+        {"instrument": "hat"}
+      ],
+      "patterns": [
+        {
+          "id": "combat-drums",
+          "name": "Combat drums",
+          "rows": 16,
+          "ticksPerRow": 6,
+          "cells": [
+            {"row": 0, "column": 0, "note": "A2", "volume": 127, "effect": "260"},
+            {"row": 2, "column": 1, "note": "C8", "volume": 60},
+            {"row": 4, "column": 0, "note": "A2", "volume": 127, "effect": "260"},
+            {"row": 6, "column": 1, "note": "C8", "volume": 60},
+            {"row": 8, "column": 0, "note": "A2", "volume": 127, "effect": "260"},
+            {"row": 10, "column": 1, "note": "C8", "volume": 60},
+            {"row": 12, "column": 0, "note": "A2", "volume": 127, "effect": "260"},
+            {"row": 14, "column": 1, "note": "C8", "volume": 60}
+          ]
+        },
+        {
+          "id": "bridge-drums",
+          "name": "Bridge drums",
+          "rows": 16,
+          "ticksPerRow": 6,
+          "cells": [
+            {"row": 0, "column": 0, "note": "A2", "volume": 80, "effect": "260"},
+            {"row": 4, "column": 0, "note": "A2", "volume": 92, "effect": "260"},
+            {"row": 8, "column": 0, "note": "A2", "volume": 104, "effect": "260"},
+            {"row": 10, "column": 0, "note": "A2", "volume": 110, "effect": "260"},
+            {"row": 12, "column": 0, "note": "A2", "volume": 116, "effect": "260"},
+            {"row": 13, "column": 0, "note": "A2", "volume": 119, "effect": "260"},
+            {"row": 14, "column": 0, "note": "A2", "volume": 122, "effect": "260"},
+            {"row": 15, "column": 0, "note": "A2", "volume": 125, "effect": "260"}
+          ]
+        }
+      ]
+    },
+    {
+      "id": "stinger",
+      "name": "Stinger",
+      "pitch": "degree",
+      "columns": [
+        {"instrument": "stinger"}
+      ],
+      "patterns": [
+        {
+          "id": "hit-stinger",
+          "name": "Hit stinger",
+          "rows": 6,
+          "ticksPerRow": 3,
+          "cells": [
+            {"row": 0, "column": 0, "degree": 5, "octave": 5, "volume": 127, "effect": "218"},
+            {"row": 5, "column": 0, "off": true}
+          ]
+        },
+        {
+          "id": "pickup-stinger",
+          "name": "Pickup stinger",
+          "rows": 6,
+          "ticksPerRow": 3,
+          "cells": [
+            {"row": 0, "column": 0, "degree": 1, "octave": 5, "volume": 110},
+            {"row": 1, "column": 0, "degree": 3, "octave": 5, "volume": 110},
+            {"row": 2, "column": 0, "degree": 5, "octave": 5, "volume": 110},
+            {"row": 3, "column": 0, "degree": 1, "octave": 6, "volume": 120},
+            {"row": 5, "column": 0, "off": true}
+          ]
+        }
+      ]
+    }
+  ],
+  "params": [
+    {"id": "intensity", "name": "Intensity", "initial": 0.2},
+    {"id": "danger", "name": "Danger", "initial": 0}
+  ],
+  "sections": [
+    {
+      "id": "explore",
+      "name": "Explore",
+      "tempo": 96,
+      "beatsPerBar": 4,
+      "channels": {
+        "lead": ["explore-lead"],
+        "bass": ["explore-bass"],
+        "pad": ["explore-pad"],
+        "arp": ["explore-arp"]
+      }
+    },
+    {
+      "id": "combat",
+      "name": "Combat",
+      "tempo": 128,
+      "beatsPerBar": 4,
+      "channels": {
+        "lead": ["combat-lead"],
+        "bass": ["combat-bass"],
+        "pad": ["combat-pad"],
+        "arp": ["combat-arp"],
+        "drums": ["combat-drums"]
+      }
+    },
+    {
+      "id": "bridge",
+      "name": "Bridge",
+      "tempo": 128,
+      "beatsPerBar": 4,
+      "bridgeBeats": 4,
+      "channels": {
+        "bass": ["bridge-bass"],
+        "arp": ["bridge-arp"],
+        "drums": ["bridge-drums"]
+      }
+    }
+  ],
+  "layers": [
+    {
+      "id": "rhythm",
+      "name": "Rhythm",
+      "channels": ["arp", "drums"]
+    },
+    {
+      "id": "melody",
+      "name": "Melody",
+      "channels": ["lead"]
+    },
+    {
+      "id": "pad",
+      "name": "Pad",
+      "channels": ["pad"]
+    }
+  ],
+  "events": [
+    {
+      "id": "hit",
+      "name": "Hit",
+      "actions": [
+        {"type": "playStinger", "pattern": "hit-stinger", "when": "now"}
+      ]
+    },
+    {
+      "id": "pickup",
+      "name": "Pickup",
+      "actions": [
+        {"type": "playStinger", "pattern": "pickup-stinger", "when": "beat"}
+      ]
+    },
+    {
+      "id": "enter-combat",
+      "name": "Enter combat",
+      "actions": [
+        {"type": "gotoSection", "section": "combat", "when": "bar", "entry": "restart", "via": "bridge"}
+      ]
+    },
+    {
+      "id": "calm-down",
+      "name": "Calm down",
+      "actions": [
+        {"type": "gotoSection", "section": "explore", "when": "bar", "entry": "keepPhase"}
+      ]
+    },
+    {
+      "id": "alarm",
+      "name": "Alarm",
+      "actions": [
+        {"type": "gotoSection", "section": "combat", "when": "now", "entry": "restart"},
+        {"type": "playStinger", "pattern": "hit-stinger", "when": "now"}
+      ]
+    }
+  ],
+  "mappings": [
+    {"param": "intensity", "target": "layerGain", "layer": "rhythm", "curve": "linear", "from": 0.15, "to": 1, "rampMs": 400},
+    {"param": "intensity", "target": "tempoScale", "curve": "linear", "from": 0.94, "to": 1.1, "rampMs": 1500},
+    {"param": "intensity", "target": "channelCutoff", "channel": "arp", "curve": "exponential", "from": 1200, "to": 14000, "rampMs": 200},
+    {"param": "danger", "target": "channelCutoff", "channel": "pad", "curve": "exponential", "from": 6000, "to": 700, "rampMs": 300},
+    {"param": "danger", "target": "threshold", "threshold": 0.75, "above": "enter-combat", "below": "calm-down"}
+  ]
+}

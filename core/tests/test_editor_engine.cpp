@@ -18,25 +18,20 @@ constexpr uint64_t kBeat = config::kTicksPerBeat;
 struct Fixture {
     std::unique_ptr<Engine> engine = std::make_unique<Engine>(48000);
     std::unique_ptr<Song> song = std::make_unique<Song>();
-    std::unique_ptr<Pattern> a = std::make_unique<Pattern>();
-    std::unique_ptr<Pattern> b = std::make_unique<Pattern>();
-    std::unique_ptr<Sequence> seqA = std::make_unique<Sequence>();
-    std::unique_ptr<Sequence> seqB = std::make_unique<Sequence>();
+    static constexpr uint8_t kA = 0, kB = 1;  // song patterns
+    Pattern* a = nullptr;
+    Pattern* b = nullptr;
     std::vector<float> buf;
     uint64_t renderedSamples = 0;
 
     Fixture() {
         engine->setTempoMilliBpm(120000);
-        for (Pattern* p : {a.get(), b.get()}) {
-            p->numRows = 4;
-            p->rowsPerBeat = 1;
-        }
+        a = &song->patterns[song->addPattern(0, 4, 24)];
+        b = &song->patterns[song->addPattern(0, 4, 24)];
         a->cells[0][0] = Cell::on(60);
         b->cells[0][0] = Cell::on(72);
-        seqA->append(a.get());
-        seqB->append(b.get());
-        song->sections[0].sequences[0] = seqA.get();
-        song->sections[1].sequences[0] = seqB.get();
+        song->sections[0].sequences[0].append(kA);
+        song->sections[1].sequences[0].append(kB);
         song->numSections = 2;
         song->events[0].add(Command::gotoSection(1, Quantize::Now));
         song->numEvents = 1;
@@ -93,13 +88,13 @@ TEST_CASE("SetCell edits a pattern while it plays") {
     Fixture f;
     f.engine->post(Command::gotoSection(0, Quantize::Now));
     f.reachTick(10);
-    f.engine->post(Command::setCell(f.a.get(), 1, 0, Cell::on(67)));
+    f.engine->post(Command::setCell(Fixture::kA, 1, 0, Cell::on(67)));
     f.reachTick(11);
     CHECK(f.a->cells[1][0].note == 67);
     f.reachTick(kBeat);
     CHECK(f.engine->channel(0).column(0).pitch == 67.0f);
     CHECK(f.engine->channel(0).playingRow() == 1);
-    CHECK(f.engine->channel(0).playingPattern() == f.a.get());
+    CHECK(f.engine->channel(0).playingPattern() == f.a);
 }
 
 TEST_CASE("Previews sound with an instrument and stop on release") {
@@ -122,9 +117,8 @@ TEST_CASE("Previews sound with an instrument and stop on release") {
 TEST_CASE("SoloPattern loops one pattern alone; a column mask silences other columns") {
     Fixture f;
     // Channel 1 gets a two-column pattern; channel 0 plays the section.
-    auto chords = std::make_unique<Pattern>();
-    chords->numRows = 2;
-    chords->rowsPerBeat = 1;
+    const uint8_t chordsIndex = f.song->addPattern(1, 2, 24);
+    Pattern* chords = &f.song->patterns[chordsIndex];
     chords->cells[0][0] = Cell::on(60);
     chords->cells[0][1] = Cell::on(64);
     f.engine->channel(1).setNumColumns(2);
@@ -132,10 +126,10 @@ TEST_CASE("SoloPattern loops one pattern alone; a column mask silences other col
     f.reachTick(10);
     CHECK(f.engine->channel(0).isPlaying());
 
-    f.engine->post(Command::soloPattern(1, chords.get(), 0b10));  // column 1 only
+    f.engine->post(Command::soloPattern(1, chordsIndex, 0b10));  // column 1 only
     f.reachTick(11);
     CHECK_FALSE(f.engine->channel(0).isPlaying());  // everything else stopped
-    CHECK(f.engine->channel(1).playingPattern() == chords.get());
+    CHECK(f.engine->channel(1).playingPattern() == chords);
     CHECK(f.engine->currentSection() == kNoIndex);
     CHECK(f.engine->isPlaying());
     CHECK(f.engine->channel(1).voice(0).isActive());  // column 0 runs silently
@@ -154,11 +148,9 @@ TEST_CASE("SoloPattern loops one pattern alone; a column mask silences other col
 TEST_CASE("Column mask: masked columns contribute no sound") {
     auto rms = [](uint16_t mask) {
         Fixture f;
-        auto p = std::make_unique<Pattern>();
-        p->numRows = 1;
-        p->rowsPerBeat = 1;
-        p->cells[0][0] = Cell::on(57);
-        f.engine->post(Command::soloPattern(0, p.get(), mask));
+        const uint8_t p = f.song->addPattern(0, 1, 24);
+        f.song->patterns[p].cells[0][0] = Cell::on(57);
+        f.engine->post(Command::soloPattern(0, p, mask));
         f.reachTick(40);
         double e = 0;
         for (float s : f.buf) e += double(s) * s;
@@ -205,7 +197,7 @@ TEST_CASE("Instruments: setSong applies each column's instrument") {
     const uint8_t lead = f.song->addInstrument(Instrument().set(P::Cutoff, 2200.0f).set(P::AmpAttack, 0.25f));
     const uint8_t hat = f.song->addInstrument(Instrument().set(P::Shape, 1.0f));
     f.song->assign(0, lead);
-    f.song->columnInstrument[0][1] = hat;
+    f.song->channels[0].instruments[1] = hat;
     f.engine->setSong(f.song.get());
     CHECK(f.engine->channel(0).voice(0).getBaseCutoff() == doctest::Approx(2200.0f));
     CHECK(f.engine->channel(0).voice(0).getAmpEnvelope().getAttackTime() == doctest::Approx(0.25f));
@@ -223,8 +215,8 @@ TEST_CASE("Instruments: SetInstrumentParam edits the song and every voice using 
     f.song->assign(1, b);
     f.engine->setSong(f.song.get());
     f.engine->post(Command::previewOn(a, 2, 60));
-    f.engine->post(Command::setInstrumentParam(&f.song->instruments[a], a, P::Cutoff, 500.0f));
-    f.engine->post(Command::setInstrumentParam(&f.song->instruments[a], a, P::Level, 7.0f));
+    f.engine->post(Command::setInstrumentParam(a, P::Cutoff, 500.0f));
+    f.engine->post(Command::setInstrumentParam(a, P::Level, 7.0f));
     f.reachTick(1);
     CHECK(f.song->instruments[a].get(P::Cutoff) == 500.0f);
     CHECK(f.song->instruments[a].get(P::Level) == 1.0f);  // clamped
@@ -272,8 +264,8 @@ TEST_CASE("Instruments: AddInstrument makes an app-written entry playable") {
     f.engine->post(Command::assignInstrument(0, 1, 0));
     f.reachTick(2);
     CHECK(f.song->numInstruments == 1);
-    CHECK(f.song->columnInstrument[0][1] == 0);
-    CHECK(f.song->columnInstrument[0][0] == kNoIndex);
+    CHECK(f.song->columnInstrument(0, 1) == 0);
+    CHECK(f.song->columnInstrument(0, 0) == kNoIndex);
     CHECK(f.engine->channel(0).voice(1).getBaseCutoff() == doctest::Approx(700.0f));
     CHECK(f.engine->channel(0).voice(0).getBaseCutoff() == doctest::Approx(1000.0f));
 }
@@ -285,8 +277,8 @@ TEST_CASE("Instruments: assigning a missing instrument leaves the column with no
     f.engine->setSong(f.song.get());
     f.engine->post(Command::assignInstrument(0, 2, 5));
     f.reachTick(1);
-    CHECK(f.song->columnInstrument[0][2] == kNoIndex);
-    CHECK(f.song->columnInstrument[0][1] == 0);
+    CHECK(f.song->columnInstrument(0, 2) == kNoIndex);
+    CHECK(f.song->columnInstrument(0, 1) == 0);
 }
 
 TEST_CASE("Monitor: render's monitor output carries only the monitored instrument's voices") {

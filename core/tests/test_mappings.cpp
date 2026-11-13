@@ -16,23 +16,22 @@ constexpr uint32_t kSampleRate = 48000;
 struct Fixture {
     std::unique_ptr<Engine> engine = std::make_unique<Engine>(kSampleRate);
     std::unique_ptr<Song> song = std::make_unique<Song>();
-    std::unique_ptr<Pattern> drone = std::make_unique<Pattern>();
-    std::unique_ptr<Sequence> seq = std::make_unique<Sequence>();
     std::vector<float> buf;
     uint64_t renderedSamples = 0;
+    Pattern* drone = nullptr;
 
     static constexpr uint8_t kIntensity = 0;
     static constexpr uint8_t kDanger = 1;
 
     Fixture() {
         engine->setTempoMilliBpm(120000);
-        drone->numRows = 1;
-        drone->rowsPerBeat = 1;
+        drone = &song->patterns[song->addPattern(0, 1, 24)];
         drone->cells[0][0] = Cell::on(57);
-        seq->append(drone.get());
-        song->sections[0].sequences[0] = seq.get();
-        song->sections[0].sequences[1] = seq.get();
-        song->sections[1].sequences[0] = seq.get();
+        Sequence seq;
+        seq.append(0);
+        song->sections[0].sequences[0] = seq;
+        song->sections[0].sequences[1] = seq;
+        song->sections[1].sequences[0] = seq;
         song->numSections = 2;
         song->layers[0] = 1u << 1;  // layer 0 = channel 1
         song->numLayers = 1;

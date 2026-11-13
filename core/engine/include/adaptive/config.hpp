@@ -25,6 +25,10 @@ inline constexpr uint32_t kTicksPerBeat = 96;
 #define ADAPTIVE_MAX_ROWS 256
 #endif
 
+#ifndef ADAPTIVE_MAX_PATTERNS
+#define ADAPTIVE_MAX_PATTERNS 64
+#endif
+
 #ifndef ADAPTIVE_MAX_SEQUENCE_LENGTH
 #define ADAPTIVE_MAX_SEQUENCE_LENGTH 64
 #endif
@@ -66,7 +70,10 @@ inline constexpr uint32_t kMaxColumns = ADAPTIVE_MAX_COLUMNS;
 /// Rows per pattern.
 inline constexpr uint32_t kMaxRows = ADAPTIVE_MAX_ROWS;
 /// Entries in a channel's pattern sequence.
+inline constexpr uint32_t kMaxPatterns = ADAPTIVE_MAX_PATTERNS;
 inline constexpr uint32_t kMaxSequenceLength = ADAPTIVE_MAX_SEQUENCE_LENGTH;
+/// Effect ticks per beat: a pattern's speed is counted in these.
+inline constexpr uint32_t kEffectTicksPerBeat = kTicksPerBeat / kTicksPerEffectTick;
 inline constexpr uint32_t kMaxSections = ADAPTIVE_MAX_SECTIONS;
 inline constexpr uint32_t kMaxLayers = ADAPTIVE_MAX_LAYERS;
 inline constexpr uint32_t kMaxEvents = ADAPTIVE_MAX_EVENTS;

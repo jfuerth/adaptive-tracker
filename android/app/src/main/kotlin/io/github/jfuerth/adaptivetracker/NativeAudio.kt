@@ -1,32 +1,17 @@
 package io.github.jfuerth.adaptivetracker
 
 /**
- * Bridge to the C++ engine (android/app/src/main/cpp), playing the adaptive demo
- * song (core/demo/adaptive_demo.hpp).
+ * Bridge to the C++ engine (android/app/src/main/cpp), playing a song loaded
+ * from a song file (see Song).
  *
  * Control calls post commands to the engine's lock-free queue: they are cheap,
  * never block, and must all be made from the main (UI) thread. Each returns
  * false if the queue was full and the command was dropped.
- *
- * The index constants mirror AdaptiveDemo in adaptive_demo.hpp.
  */
 object NativeAudio {
     init {
         System.loadLibrary("adaptive_native")
     }
-
-    val SECTIONS = listOf("Explore", "Combat")  // the bridge (index 2) is only used in transitions
-    const val SECTION_BRIDGE = 2
-    val SECTION_NAMES = listOf("Explore", "Combat", "Bridge")
-
-    val LAYERS = listOf("Rhythm", "Melody", "Pad")
-    val PARAMS = listOf("Intensity", "Danger")
-
-    /** All of the demo's events, by index (used to describe Bxx effects). */
-    val EVENT_NAMES = listOf("Hit", "Pickup", "Enter combat", "Calm down", "Alarm")
-
-    /** Events with buttons: index into the demo's events, and a label. */
-    val EVENT_BUTTONS = listOf(0 to "Hit", 1 to "Pickup", 4 to "Alarm")
 
     enum class Quantize(val label: String) { NOW("Now"), BEAT("Beat"), BAR("Bar") }
     enum class Entry(val label: String) { RESTART("Restart"), KEEP_PHASE("Keep phase") }
@@ -52,7 +37,26 @@ object NativeAudio {
 
     external fun close()
 
-    /** Starts the song at the Explore section. */
+    /**
+     * Replaces the song with a song file's text; playback stops. Returns null,
+     * or why the file couldn't be loaded (the old song stays).
+     */
+    external fun loadSong(json: String): String?
+
+    external fun getSongTitle(): String
+
+    /** Names in the song: [kind] 0 sections, 1 layers, 2 parameters, 3 events. */
+    external fun getSongNames(kind: Int): Array<String>
+
+    /** Per section, its bridge length in beats (0: not a bridge). */
+    external fun getSectionBridgeBeats(): IntArray
+
+    external fun getParamInitialValues(): FloatArray
+
+    /** Effect ticks per beat; a pattern's speed (ticks per row) counts these. */
+    external fun getTicksPerBeat(): Int
+
+    /** Starts the song at its start section. */
     external fun play(): Boolean
 
     /** Stops all channels; sounding notes release. */
@@ -87,7 +91,7 @@ object NativeAudio {
 
     external fun getPatternName(index: Int): String
 
-    /** [channel, numRows, rowsPerBeat, numColumns, pitchMode], or null. */
+    /** [channel, numRows, ticksPerRow, numColumns, pitchMode], or null. */
     external fun getPatternInfo(index: Int): IntArray?
 
     /**

@@ -11,8 +11,8 @@ namespace adaptive::demo {
  * parameters with mappings, and events with stingers. Written in C-major
  * scale degrees (drums excepted), so key and scale changes affect everything.
  *
- * Holds its own patterns and Song, so it must outlive any engine playing it.
- * Large: allocate it on the heap.
+ * Builds a Song, which must outlive any engine playing it. Large: allocate
+ * it on the heap.
  */
 class AdaptiveDemo {
 public:
@@ -37,43 +37,26 @@ public:
                              kStingerSynth = 6;
     static constexpr const char* kInstrumentNames[] = {"Lead", "Bass", "Pad", "Arp", "Kick", "Hat", "Stinger"};
 
+    // Patterns, in the song's pattern table: grouped by channel, the order a
+    // song file lists them in.
+    static constexpr uint8_t kExploreLead = 0, kCombatLead = 1, kExploreBass = 2, kCombatBass = 3,
+                             kBridgeBass = 4, kExplorePad = 5, kCombatPad = 6, kExploreArp = 7, kCombatArp = 8,
+                             kBridgeArp = 9, kCombatDrums = 10, kBridgeDrums = 11, kHitStinger = 12,
+                             kPickupStinger = 13;
+    static constexpr const char* kPatternNames[] = {
+        "Explore lead", "Combat lead", "Explore bass", "Combat bass", "Bridge bass", "Explore pad", "Combat pad",
+        "Explore arp", "Combat arp", "Bridge arp", "Combat drums", "Bridge drums", "Hit stinger", "Pickup stinger"};
+    static constexpr const char* kEventNames[] = {"Hit", "Pickup", "Enter combat", "Calm down", "Alarm"};
+    static constexpr const char* kTitle = "Adaptive demo";
+
     AdaptiveDemo() { build(); }
 
     const Song& song() const { return song_; }
-    /// The song, for editing (e.g. instruments, via Command::setInstrumentParam).
     Song& song() { return song_; }
 
-    /// Editable patterns, for the pattern editor: name, the pattern, and the
-    /// channel whose instrument and pitch mode it plays with.
-    struct PatternEntry {
-        const char* name;
-        Pattern* pattern;
-        uint8_t channel;
-    };
-    static constexpr uint32_t kNumPatterns = 14;
-    PatternEntry patternEntry(uint32_t i) const {
-        return i < kNumPatterns ? patternTable_[i] : PatternEntry{"", nullptr, 0};
-    }
-
-    /// Pitch modes, column counts, and the song (which brings the
-    /// instruments). Call before audio starts. Then post
+    /// Hand the song to the engine. Call before audio starts, then post
     /// Command::gotoSection(kExplore, Quantize::Now) to play.
-    void setUp(Engine& engine) {
-        auto setUpChannel = [&](uint8_t ch, PitchMode mode, uint32_t columns) {
-            Channel& c = engine.channel(ch);
-            c.setPitchMode(mode);
-            c.setNumColumns(columns);
-        };
-        setUpChannel(kLead, PitchMode::Degree, 1);
-        setUpChannel(kBass, PitchMode::Degree, 1);
-        setUpChannel(kPad, PitchMode::Degree, 3);
-        setUpChannel(kArp, PitchMode::Degree, 1);
-        setUpChannel(kDrums, PitchMode::Absolute, 2);
-        setUpChannel(kStinger, PitchMode::Degree, 1);
-
-        engine.pitch().home = Key{0, scales::kMajor};
-        engine.setSong(&song_);
-    }
+    void setUp(Engine& engine) { engine.setSong(&song_); }
 
 private:
     /// Set a degree note, or an "off" when degree < 0.
@@ -81,9 +64,12 @@ private:
         p.cells[row][col] = degree < 0 ? Cell::off() : Cell::degree(uint8_t(octave), uint8_t(degree), 0, vol);
     }
 
+    /// Add a pattern to the song (in kPatternNames order) and return it.
+    Pattern& add(uint8_t channel, uint16_t numRows, uint8_t ticksPerRow) {
+        return song_.patterns[song_.addPattern(channel, numRows, ticksPerRow)];
+    }
+
     static void chordPattern(Pattern& p, const int (&roots)[4], int rowsPerBar) {
-        p.rowsPerBeat = 1;
-        p.numRows = uint16_t(rowsPerBar * 4);
         for (int bar = 0; bar < 4; ++bar) {
             for (int c = 0; c < 3; ++c) put(p, bar * rowsPerBar, c, 3, roots[bar] + 2 * c);
         }
@@ -92,20 +78,43 @@ private:
     void build() {
         const int exploreRoots[4] = {0, 5, 3, 4};  // I vi IV V
         const int combatRoots[4] = {5, 3, 4, 4};   // vi IV V V
+        song_.tempoMilliBpm = 96000;
+        song_.homeKey = Key{0, scales::kMajor};
+        song_.startSection = kExplore;
+        song_.numParams = 2;
+        song_.paramInitial[kIntensity] = 0.2f;  // a little rhythm from the start
+        song_.addChannel(PitchMode::Degree, 1);    // lead
+        song_.addChannel(PitchMode::Degree, 1);    // bass
+        song_.addChannel(PitchMode::Degree, 3);    // pad
+        song_.addChannel(PitchMode::Degree, 1);    // arp
+        song_.addChannel(PitchMode::Absolute, 2);  // drums
+        song_.addChannel(PitchMode::Degree, 1);    // stinger
         buildInstruments();
+
+        // Speeds (ticks per row): 24 = 1 row per beat, 12 = 2, 6 = 4, 3 = 8.
+        Pattern& exploreLead_ = add(kLead, 32, 12);
+        Pattern& combatLead_ = add(kLead, 64, 6);
+        Pattern& exploreBass_ = add(kBass, 16, 24);
+        Pattern& combatBass_ = add(kBass, 64, 6);
+        Pattern& bridgeBass_ = add(kBass, 4, 24);
+        Pattern& explorePad_ = add(kPad, 16, 24);
+        Pattern& combatPad_ = add(kPad, 16, 24);
+        Pattern& exploreArp_ = add(kArp, 64, 6);
+        Pattern& combatArp_ = add(kArp, 64, 6);
+        Pattern& bridgeArp_ = add(kArp, 16, 6);
+        Pattern& combatDrums_ = add(kDrums, 16, 6);
+        Pattern& bridgeDrums_ = add(kDrums, 16, 6);
+        Pattern& hit_ = add(kStinger, 6, 3);
+        Pattern& pickup_ = add(kStinger, 6, 3);
 
         // ---- Explore (96 BPM, 4 bars) ----
         chordPattern(explorePad_, exploreRoots, 4);
 
-        exploreBass_.rowsPerBeat = 1;
-        exploreBass_.numRows = 16;
         for (int bar = 0; bar < 4; ++bar) {
             put(exploreBass_, bar * 4, 0, 2, exploreRoots[bar], 120);
             put(exploreBass_, bar * 4 + 2, 0, 2, exploreRoots[bar] + 4, 90);
         }
 
-        exploreLead_.rowsPerBeat = 2;
-        exploreLead_.numRows = 32;
         const int leadA[32][2] = {
             {4, 4}, {0, -2}, {4, 2}, {0, -2}, {4, 4}, {4, 5}, {4, 4}, {0, -2},
             {4, 2}, {0, -2}, {4, 0}, {0, -2}, {3, 5}, {0, -2}, {0, -1}, {0, -2},
@@ -116,8 +125,6 @@ private:
             if (leadA[r][1] != -2) put(exploreLead_, r, 0, leadA[r][0], leadA[r][1], 100);
         }
 
-        exploreArp_.rowsPerBeat = 4;
-        exploreArp_.numRows = 64;
         for (int bar = 0; bar < 4; ++bar) {
             for (int k = 0; k < 16; k += 2) {
                 exploreArp_.cells[bar * 16 + k][0] =
@@ -128,16 +135,12 @@ private:
         // ---- Combat (128 BPM, 4 bars) ----
         chordPattern(combatPad_, combatRoots, 4);
 
-        combatBass_.rowsPerBeat = 4;
-        combatBass_.numRows = 64;
         for (int bar = 0; bar < 4; ++bar) {
             for (int k = 0; k < 16; k += 2) {
                 put(combatBass_, bar * 16 + k, 0, (k % 4 == 0) ? 2 : 3, combatRoots[bar], k % 4 == 0 ? 127 : 80);
             }
         }
 
-        combatLead_.rowsPerBeat = 4;
-        combatLead_.numRows = 64;
         const int motif[6][2] = {{0, 4}, {3, 2}, {6, 4}, {8, 7}, {11, 6}, {14, 4}};  // {row, degree above root}
         for (int bar = 0; bar < 4; ++bar) {
             for (const auto& m : motif) {
@@ -146,8 +149,6 @@ private:
             }
         }
 
-        combatArp_.rowsPerBeat = 4;
-        combatArp_.numRows = 64;
         for (int bar = 0; bar < 4; ++bar) {
             for (int k = 0; k < 16; ++k) {
                 combatArp_.cells[bar * 16 + k][0] =
@@ -155,26 +156,18 @@ private:
             }
         }
 
-        combatDrums_.rowsPerBeat = 4;
-        combatDrums_.numRows = 16;
         for (int beat = 0; beat < 4; ++beat) {
             combatDrums_.cells[beat * 4][0] = Cell::on(45, 127).with(fx::kPortaDown, 0x60);
             combatDrums_.cells[beat * 4 + 2][1] = Cell::on(108, 60);
         }
 
         // ---- Bridge (1 bar riser into combat) ----
-        bridgeBass_.rowsPerBeat = 1;
-        bridgeBass_.numRows = 4;
         put(bridgeBass_, 0, 0, 2, 4, 127);  // the V chord's root, held
 
-        bridgeArp_.rowsPerBeat = 4;
-        bridgeArp_.numRows = 16;
         for (int k = 0; k < 16; ++k) {
             bridgeArp_.cells[k][0] = Cell::degree(uint8_t(4 + k / 8), uint8_t(k % 8), 0, uint8_t(50 + k * 4));
         }
 
-        bridgeDrums_.rowsPerBeat = 4;
-        bridgeDrums_.numRows = 16;
         for (int k = 0; k < 16; ++k) {
             if (k < 8 ? (k % 4 == 0) : (k >= 12 || k % 2 == 0)) {
                 bridgeDrums_.cells[k][0] = Cell::on(45, uint8_t(80 + k * 3)).with(fx::kPortaDown, 0x60);
@@ -182,65 +175,36 @@ private:
         }
 
         // ---- Stingers ----
-        hit_.rowsPerBeat = 8;
-        hit_.numRows = 6;
         hit_.cells[0][0] = Cell::degree(5, 4, 0, 127).with(fx::kPortaDown, 0x18);
         hit_.cells[5][0] = Cell::off();
 
-        pickup_.rowsPerBeat = 8;
-        pickup_.numRows = 6;
         put(pickup_, 0, 0, 5, 0, 110);
         put(pickup_, 1, 0, 5, 2, 110);
         put(pickup_, 2, 0, 5, 4, 110);
         put(pickup_, 3, 0, 6, 0, 120);
         put(pickup_, 5, 0, 0, -1);
 
-        // ---- The editor's pattern table ----
-        const PatternEntry table[kNumPatterns] = {
-            {"Explore lead", &exploreLead_, kLead},   {"Explore bass", &exploreBass_, kBass},
-            {"Explore pad", &explorePad_, kPad},      {"Explore arp", &exploreArp_, kArp},
-            {"Combat lead", &combatLead_, kLead},     {"Combat bass", &combatBass_, kBass},
-            {"Combat pad", &combatPad_, kPad},        {"Combat arp", &combatArp_, kArp},
-            {"Combat drums", &combatDrums_, kDrums},  {"Bridge bass", &bridgeBass_, kBass},
-            {"Bridge arp", &bridgeArp_, kArp},        {"Bridge drums", &bridgeDrums_, kDrums},
-            {"Hit stinger", &hit_, kStinger},         {"Pickup stinger", &pickup_, kStinger},
-        };
-        for (uint32_t i = 0; i < kNumPatterns; ++i) patternTable_[i] = table[i];
-
-        // ---- Sequences and sections ----
-        auto one = [](Sequence& s, const Pattern& p) { s.append(&p); };
-        one(seqExploreLead_, exploreLead_);
-        one(seqExploreBass_, exploreBass_);
-        one(seqExplorePad_, explorePad_);
-        one(seqExploreArp_, exploreArp_);
-        one(seqCombatLead_, combatLead_);
-        one(seqCombatBass_, combatBass_);
-        one(seqCombatPad_, combatPad_);
-        one(seqCombatArp_, combatArp_);
-        one(seqCombatDrums_, combatDrums_);
-        one(seqBridgeBass_, bridgeBass_);
-        one(seqBridgeArp_, bridgeArp_);
-        one(seqBridgeDrums_, bridgeDrums_);
-
+        // ---- Sections: what each channel plays ----
+        auto one = [](Section& s, uint8_t channel, uint8_t pattern) { s.sequences[channel].append(pattern); };
         Section& explore = song_.sections[kExplore];
-        explore.sequences[kLead] = &seqExploreLead_;
-        explore.sequences[kBass] = &seqExploreBass_;
-        explore.sequences[kPad] = &seqExplorePad_;
-        explore.sequences[kArp] = &seqExploreArp_;
+        one(explore, kLead, kExploreLead);
+        one(explore, kBass, kExploreBass);
+        one(explore, kPad, kExplorePad);
+        one(explore, kArp, kExploreArp);
         explore.tempoMilliBpm = 96000;
 
         Section& combat = song_.sections[kCombat];
-        combat.sequences[kLead] = &seqCombatLead_;
-        combat.sequences[kBass] = &seqCombatBass_;
-        combat.sequences[kPad] = &seqCombatPad_;
-        combat.sequences[kArp] = &seqCombatArp_;
-        combat.sequences[kDrums] = &seqCombatDrums_;
+        one(combat, kLead, kCombatLead);
+        one(combat, kBass, kCombatBass);
+        one(combat, kPad, kCombatPad);
+        one(combat, kArp, kCombatArp);
+        one(combat, kDrums, kCombatDrums);
         combat.tempoMilliBpm = 128000;
 
         Section& bridge = song_.sections[kBridge];
-        bridge.sequences[kBass] = &seqBridgeBass_;
-        bridge.sequences[kArp] = &seqBridgeArp_;
-        bridge.sequences[kDrums] = &seqBridgeDrums_;
+        one(bridge, kBass, kBridgeBass);
+        one(bridge, kArp, kBridgeArp);
+        one(bridge, kDrums, kBridgeDrums);
         bridge.tempoMilliBpm = 128000;
         bridge.bridgeBeats = 4;
         song_.numSections = 3;
@@ -252,12 +216,12 @@ private:
         song_.numLayers = 3;
 
         // ---- Events ----
-        song_.events[kHit].add(Command::playStinger(kStinger, &hit_, Quantize::Now));
-        song_.events[kPickup].add(Command::playStinger(kStinger, &pickup_, Quantize::Beat));
+        song_.events[kHit].add(Command::playStinger(kStinger, kHitStinger, Quantize::Now));
+        song_.events[kPickup].add(Command::playStinger(kStinger, kPickupStinger, Quantize::Beat));
         song_.events[kEnterCombat].add(Command::gotoSection(kCombat, Quantize::Bar, Entry::Restart, kBridge));
         song_.events[kCalmDown].add(Command::gotoSection(kExplore, Quantize::Bar, Entry::KeepPhase));
         song_.events[kAlarm].add(Command::gotoSection(kCombat, Quantize::Now, Entry::Restart));
-        song_.events[kAlarm].add(Command::playStinger(kStinger, &hit_, Quantize::Now));
+        song_.events[kAlarm].add(Command::playStinger(kStinger, kHitStinger, Quantize::Now));
         song_.numEvents = 5;
 
         // ---- Mappings ----
@@ -328,19 +292,11 @@ private:
         song_.assign(kPad, kPadSynth);
         song_.assign(kArp, kArpSynth);
         song_.assign(kDrums, kKick);
-        song_.columnInstrument[kDrums][1] = kHat;
+        song_.channels[kDrums].instruments[1] = kHat;
         song_.assign(kStinger, kStingerSynth);
     }
 
     Song song_;
-    PatternEntry patternTable_[kNumPatterns] = {};
-    Pattern exploreLead_, exploreBass_, explorePad_, exploreArp_;
-    Pattern combatLead_, combatBass_, combatPad_, combatArp_, combatDrums_;
-    Pattern bridgeBass_, bridgeArp_, bridgeDrums_;
-    Pattern hit_, pickup_;
-    Sequence seqExploreLead_, seqExploreBass_, seqExplorePad_, seqExploreArp_;
-    Sequence seqCombatLead_, seqCombatBass_, seqCombatPad_, seqCombatArp_, seqCombatDrums_;
-    Sequence seqBridgeBass_, seqBridgeArp_, seqBridgeDrums_;
 };
 
 } // namespace adaptive::demo

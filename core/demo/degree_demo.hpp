@@ -56,7 +56,7 @@ public:
 private:
     void build() {
         // Melody: (octave, degree) pairs; degree -1 = note off.
-        melody_.rowsPerBeat = 2;
+        melody_.ticksPerRow = 12;
         melody_.numRows = 16;
         const int melody[16][2] = {{4, 0}, {4, 2}, {4, 4}, {4, 6}, {5, 0}, {4, 6}, {4, 5}, {4, 4},
                                    {4, 3}, {4, 5}, {4, 4}, {4, 2}, {4, 3}, {4, 1}, {4, 0}, {4, -1}};
@@ -70,20 +70,20 @@ private:
         // Chords I, IV, V, vi, two beats each.
         const int roots[4] = {0, 3, 4, 5};
 
-        bass_.rowsPerBeat = 1;
+        bass_.ticksPerRow = 24;
         bass_.numRows = 8;
         for (int i = 0; i < 4; ++i) {
             bass_.cells[i * 2][0] = Cell::degree(2, uint8_t(roots[i]), 0, 120);
             bass_.cells[i * 2 + 1][0] = Cell::degree(2, uint8_t(roots[i]), 0, 80);
         }
 
-        pad_.rowsPerBeat = 1;
+        pad_.ticksPerRow = 24;
         pad_.numRows = 8;
         for (int i = 0; i < 4; ++i) {
             for (int c = 0; c < 3; ++c) pad_.cells[i * 2][c] = Cell::degree(3, uint8_t(roots[i] + 2 * c));
         }
 
-        arp_.rowsPerBeat = 4;
+        arp_.ticksPerRow = 6;
         arp_.numRows = 32;
         for (int i = 0; i < 4; ++i) {
             for (int k = 0; k < 8; k += 2) {

@@ -3,6 +3,7 @@
 #include <adaptive/config.hpp>
 #include <adaptive/instrument.hpp>
 #include <adaptive/pattern.hpp>
+#include <adaptive/pitch.hpp>
 
 #include <cmath>
 #include <cstdint>
@@ -27,12 +28,13 @@ enum class Entry : uint8_t {
 inline constexpr uint8_t kNoIndex = 0xFF;
 
 /**
- * One adaptive state (explore, combat, ...): which sequence each channel plays.
- * A channel with no sequence is silent in this section; channels reserved for
- * stingers should have none.
+ * One adaptive state (explore, combat, ...): which patterns each channel
+ * plays. Each channel loops its own sequence, so they can have different
+ * lengths. A channel with an empty sequence is silent in this section;
+ * channels reserved for stingers should have none.
  */
 struct Section {
-    const Sequence* sequences[config::kMaxChannels] = {};
+    Sequence sequences[config::kMaxChannels] = {};
     uint8_t beatsPerBar = 4;
     uint32_t tempoMilliBpm = 0;  ///< 0 keeps the current tempo.
     /// Only used when this section serves as a transition bridge: how long it
@@ -48,17 +50,17 @@ struct Command {
     enum class Kind : uint8_t {
         None,
         GotoSection,  ///< a = section, b = bridge section or kNoIndex; uses `entry`
-        PlayStinger,  ///< a = channel; plays `pattern` once
+        PlayStinger,  ///< a = channel; plays song pattern `data` once
         SetLayerMute, ///< a = layer, b = 1 to mute, 0 to unmute
         FireEvent,    ///< a = event; runs the event's actions
         Stop,         ///< stop all channels (sounding notes release)
         SetParam,     ///< a = parameter, value = 0..1; runs mappings
         SetKey,       ///< a = root pitch class, data = scale mask
         SetTempo,     ///< value = base tempo in BPM (scaled by any TempoScale mapping)
-        SetCell,      ///< target[data][a] = cell: edit a pattern safely while it plays
+        SetCell,      ///< song pattern b, row data, column a = cell: edit safely while it plays
         PreviewOn,    ///< b = preview slot; sound note `data` (MIDI) with the song's instrument a
         PreviewOff,   ///< b = preview slot; release it
-        SoloPattern,  ///< stop everything, then loop `target` alone on channel a; data = column mask
+        SoloPattern,  ///< stop everything, then loop song pattern b alone on channel a; data = column mask
         SetColumnMask,///< channel a plays only the columns in bitmask `data`
         SetInstrumentParam, ///< song instrument a, parameter b = value; updates voices using it
         AddInstrument,///< make song instrument a (already written by the app) available
@@ -71,77 +73,70 @@ struct Command {
     Entry entry = Entry::Restart;
     uint8_t a = 0;
     uint8_t b = kNoIndex;
-    const Pattern* pattern = nullptr;
     float value = 0.0f;
     uint16_t data = 0;
-    Pattern* target = nullptr;  ///< SetCell only. The app owns patterns and may edit them.
-    Cell cell = {};             ///< SetCell only.
-    Instrument* instrument = nullptr;  ///< SetInstrumentParam only. The app owns the song and may edit it.
+    Cell cell = {};  ///< SetCell only.
 
     static constexpr Command gotoSection(uint8_t section, Quantize when = Quantize::Bar,
                                          Entry entry = Entry::Restart, uint8_t bridge = kNoIndex) {
-        return Command{Kind::GotoSection, when, entry, section, bridge, nullptr};
+        return Command{Kind::GotoSection, when, entry, section, bridge};
     }
-    static constexpr Command playStinger(uint8_t channel, const Pattern* p, Quantize when = Quantize::Now) {
-        return Command{Kind::PlayStinger, when, Entry::Restart, channel, 0, p};
+    static constexpr Command playStinger(uint8_t channel, uint8_t pattern, Quantize when = Quantize::Now) {
+        return Command{Kind::PlayStinger, when, Entry::Restart, channel, 0, 0.0f, pattern};
     }
     static constexpr Command setLayerMute(uint8_t layer, bool muted, Quantize when = Quantize::Bar) {
-        return Command{Kind::SetLayerMute, when, Entry::Restart, layer, uint8_t(muted ? 1 : 0), nullptr};
+        return Command{Kind::SetLayerMute, when, Entry::Restart, layer, uint8_t(muted ? 1 : 0)};
     }
     static constexpr Command fireEvent(uint8_t event) {
-        return Command{Kind::FireEvent, Quantize::Now, Entry::Restart, event, 0, nullptr};
+        return Command{Kind::FireEvent, Quantize::Now, Entry::Restart, event, 0};
     }
-    static constexpr Command stop() { return Command{Kind::Stop, Quantize::Now, Entry::Restart, 0, 0, nullptr}; }
+    static constexpr Command stop() { return Command{Kind::Stop, Quantize::Now, Entry::Restart, 0, 0}; }
     static constexpr Command setParam(uint8_t param, float v) {
-        return Command{Kind::SetParam, Quantize::Now, Entry::Restart, param, 0, nullptr, v, 0};
+        return Command{Kind::SetParam, Quantize::Now, Entry::Restart, param, 0, v, 0};
     }
     static constexpr Command setKey(uint8_t root, uint16_t scale, Quantize when = Quantize::Bar) {
-        return Command{Kind::SetKey, when, Entry::Restart, root, 0, nullptr, 0.0f, scale};
+        return Command{Kind::SetKey, when, Entry::Restart, root, 0, 0.0f, scale};
     }
     static constexpr Command setTempo(float bpm, Quantize when = Quantize::Beat) {
-        return Command{Kind::SetTempo, when, Entry::Restart, 0, 0, nullptr, bpm, 0};
+        return Command{Kind::SetTempo, when, Entry::Restart, 0, 0, bpm, 0};
     }
-    static constexpr Command setCell(Pattern* p, uint16_t row, uint8_t column, const Cell& c) {
-        return Command{Kind::SetCell, Quantize::Now, Entry::Restart, column, 0, nullptr, 0.0f, row, p, c};
+    /// Edit a cell of song pattern `pattern` safely while it plays.
+    static constexpr Command setCell(uint8_t pattern, uint16_t row, uint8_t column, const Cell& c) {
+        return Command{Kind::SetCell, Quantize::Now, Entry::Restart, column, pattern, 0.0f, row, c};
     }
     static constexpr Command previewOn(uint8_t instrument, uint8_t slot, uint8_t midiNote, float volume = 1.0f) {
-        return Command{Kind::PreviewOn, Quantize::Now, Entry::Restart, instrument, slot, nullptr, volume, midiNote};
+        return Command{Kind::PreviewOn, Quantize::Now, Entry::Restart, instrument, slot, volume, midiNote};
     }
-    /// Edit `song.instruments[index]` safely while it plays: `instrument`
-    /// must point at that entry.
-    static constexpr Command setInstrumentParam(Instrument* instrument, uint8_t index, Instrument::Param p,
-                                                float value) {
-        Command c{Kind::SetInstrumentParam, Quantize::Now, Entry::Restart, index, static_cast<uint8_t>(p),
-                  nullptr, value};
-        c.instrument = instrument;
-        return c;
+    /// Edit song instrument `index` safely while it plays.
+    static constexpr Command setInstrumentParam(uint8_t index, Instrument::Param p, float value) {
+        return Command{Kind::SetInstrumentParam, Quantize::Now, Entry::Restart, index, static_cast<uint8_t>(p),
+                       value};
     }
     /// Make `song.instruments[index]` playable. The app writes that entry
     /// first: entries at or past `numInstruments` are never read by the
     /// audio thread, so writing one is safe while it plays.
     static constexpr Command addInstrument(uint8_t index) {
-        return Command{Kind::AddInstrument, Quantize::Now, Entry::Restart, index, 0, nullptr};
+        return Command{Kind::AddInstrument, Quantize::Now, Entry::Restart, index, 0};
     }
     /// Channel `channel`'s column `column` plays song instrument `instrument`
     /// from now on; its voice takes the instrument's settings straight away.
     static constexpr Command assignInstrument(uint8_t channel, uint8_t column, uint8_t instrument) {
-        return Command{Kind::AssignInstrument, Quantize::Now, Entry::Restart, channel, column, nullptr, 0.0f,
-                       instrument};
+        return Command{Kind::AssignInstrument, Quantize::Now, Entry::Restart, channel, column, 0.0f, instrument};
     }
     /// Listen to one instrument on render()'s monitor output (kNoIndex: none).
     static constexpr Command setMonitor(uint8_t instrument) {
-        return Command{Kind::SetMonitor, Quantize::Now, Entry::Restart, instrument, 0, nullptr};
+        return Command{Kind::SetMonitor, Quantize::Now, Entry::Restart, instrument, 0};
     }
-    /// Loop one pattern on its own (e.g. the one being edited). `columnMask`
-    /// selects which of its columns are heard (bit 0 = column 0).
-    static constexpr Command soloPattern(uint8_t channel, Pattern* p, uint16_t columnMask = 0xFFFF) {
-        return Command{Kind::SoloPattern, Quantize::Now, Entry::Restart, channel, 0, nullptr, 0.0f, columnMask, p};
+    /// Loop song pattern `pattern` on its own on `channel` (e.g. the one being
+    /// edited). `columnMask` selects which of its columns are heard (bit 0 = column 0).
+    static constexpr Command soloPattern(uint8_t channel, uint8_t pattern, uint16_t columnMask = 0xFFFF) {
+        return Command{Kind::SoloPattern, Quantize::Now, Entry::Restart, channel, pattern, 0.0f, columnMask};
     }
     static constexpr Command setColumnMask(uint8_t channel, uint16_t columnMask) {
-        return Command{Kind::SetColumnMask, Quantize::Now, Entry::Restart, channel, 0, nullptr, 0.0f, columnMask};
+        return Command{Kind::SetColumnMask, Quantize::Now, Entry::Restart, channel, 0, 0.0f, columnMask};
     }
     static constexpr Command previewOff(uint8_t slot) {
-        return Command{Kind::PreviewOff, Quantize::Now, Entry::Restart, 0, slot, nullptr, 0.0f, 0};
+        return Command{Kind::PreviewOff, Quantize::Now, Entry::Restart, 0, slot, 0.0f, 0};
     }
 };
 
@@ -199,7 +194,38 @@ struct Event {
     }
 };
 
+/// How a channel plays: its pitch mode, how many columns (voices) it has,
+/// and each column's instrument.
+struct ChannelSetup {
+    PitchMode pitchMode = PitchMode::Absolute;
+    uint8_t numColumns = 1;
+    /// Song instrument per column; kNoIndex leaves the voice as it is.
+    uint8_t instruments[config::kMaxColumns];
+
+    ChannelSetup() {
+        for (auto& i : instruments) i = kNoIndex;
+    }
+};
+
+/**
+ * Everything the engine plays, as plain data with fixed capacities. Parts
+ * refer to each other by index (patterns, instruments, sections, layers,
+ * events, parameters), so a song can be copied, saved and loaded as is.
+ * Names and other editing data live outside it (see the song file format).
+ */
 struct Song {
+    /// Tempo and key the song starts in, and the section Play starts.
+    uint32_t tempoMilliBpm = 120000;
+    Key homeKey = {0, scales::kMajor};
+    uint8_t startSection = 0;
+
+    ChannelSetup channels[config::kMaxChannels] = {};
+    uint8_t numChannels = 0;
+
+    /// Every pattern, whatever channel it belongs to (Pattern::channel).
+    Pattern patterns[config::kMaxPatterns] = {};
+    uint8_t numPatterns = 0;
+
     Section sections[config::kMaxSections] = {};
     uint8_t numSections = 0;
 
@@ -210,21 +236,37 @@ struct Song {
     Event events[config::kMaxEvents] = {};
     uint8_t numEvents = 0;
 
+    /// Parameters the app sets (0..1); mappings turn them into changes.
+    /// Each starts at its initial value when the song is set.
+    uint8_t numParams = 0;
+    float paramInitial[config::kMaxParams] = {};
+
     Mapping mappings[config::kMaxMappings] = {};
     uint8_t numMappings = 0;
 
-    /// Synth patches, and which one each column of each channel plays
-    /// (kNoIndex: leave the voice as it is).
+    /// Synth patches; channels choose one per column.
     Instrument instruments[config::kMaxInstruments] = {};
     uint8_t numInstruments = 0;
-    uint8_t columnInstrument[config::kMaxChannels][config::kMaxColumns];
 
-    Song() {
-        for (auto& ch : columnInstrument) {
-            for (auto& c : ch) c = kNoIndex;
-        }
+    /// Add a channel; returns its index, or kNoIndex when the table is full.
+    uint8_t addChannel(PitchMode mode, uint8_t numColumns) {
+        if (numChannels >= config::kMaxChannels) return kNoIndex;
+        ChannelSetup& c = channels[numChannels];
+        c = ChannelSetup();
+        c.pitchMode = mode;
+        c.numColumns = numColumns < 1 ? 1 : (numColumns > config::kMaxColumns ? config::kMaxColumns : numColumns);
+        return numChannels++;
     }
-
+    /// Add an empty pattern for `channel`; returns its index, or kNoIndex when full.
+    uint8_t addPattern(uint8_t channel, uint16_t numRows = 16, uint8_t ticksPerRow = 6) {
+        if (numPatterns >= config::kMaxPatterns) return kNoIndex;
+        Pattern& p = patterns[numPatterns];
+        p = Pattern();
+        p.channel = channel;
+        p.numRows = numRows;
+        p.ticksPerRow = ticksPerRow;
+        return numPatterns++;
+    }
     /// Add an instrument; returns its index, or kNoIndex when the table is full.
     uint8_t addInstrument(const Instrument& i) {
         if (numInstruments >= config::kMaxInstruments) return kNoIndex;
@@ -234,8 +276,26 @@ struct Song {
     /// Use instrument `index` on every column of `channel`.
     void assign(uint8_t channel, uint8_t index) {
         if (channel < config::kMaxChannels) {
-            for (auto& c : columnInstrument[channel]) c = index;
+            for (auto& c : channels[channel].instruments) c = index;
         }
+    }
+    /// Instrument played by `channel`'s `column`, or kNoIndex.
+    uint8_t columnInstrument(uint32_t channel, uint32_t column) const {
+        return channel < config::kMaxChannels && column < config::kMaxColumns
+                   ? channels[channel].instruments[column] : kNoIndex;
+    }
+
+    /// True when every entry of `s` names a playable pattern.
+    bool isPlayable(const Sequence& s) const {
+        if (s.length == 0) return false;
+        for (uint8_t i = 0; i < s.length; ++i) {
+            if (s.entries[i] >= numPatterns || !patterns[s.entries[i]].isValid()) return false;
+        }
+        return true;
+    }
+    /// Pattern `index`, or nullptr if there is no such playable pattern.
+    const Pattern* pattern(uint32_t index) const {
+        return index < numPatterns && patterns[index].isValid() ? &patterns[index] : nullptr;
     }
 
     bool addMapping(const Mapping& m) {

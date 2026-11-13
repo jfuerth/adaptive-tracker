@@ -80,12 +80,23 @@ public:
     void setSong(Song* song) {
         song_ = song;
         if (song_ == nullptr) return;
+        // Channels the song sets up; others keep whatever setup they have.
+        for (uint32_t ch = 0; ch < song_->numChannels; ++ch) {
+            channels_[ch].setPitchMode(song_->channels[ch].pitchMode);
+            channels_[ch].setNumColumns(song_->channels[ch].numColumns);
+        }
         for (uint32_t ch = 0; ch < config::kMaxChannels; ++ch) {
             for (uint32_t col = 0; col < config::kMaxColumns; ++col) {
-                const uint8_t i = song_->columnInstrument[ch][col];
+                const uint8_t i = song_->columnInstrument(ch, col);
                 if (i < song_->numInstruments) song_->instruments[i].applyTo(channels_[ch].voice(col));
             }
         }
+        for (uint32_t i = 0; i < config::kMaxParams; ++i) {
+            params_[i] = i < song_->numParams ? song_->paramInitial[i] : 0.0f;
+        }
+        pitch_.home = song_->homeKey;
+        pitch_.current = song_->homeKey;
+        setTempoMilliBpm(song_->tempoMilliBpm);
         for (uint8_t i = 0; i < song_->numMappings; ++i) {
             // Starting values apply instantly; only later changes glide.
             applyMapping(song_->mappings[i], params_[song_->mappings[i].param], 0, false, 0.0f, true);
@@ -214,7 +225,7 @@ private:
         if (song_ == nullptr || monitor_ == kNoIndex) return 0;
         uint32_t mask = 0;
         for (uint32_t col = 0; col < config::kMaxColumns; ++col) {
-            if (song_->columnInstrument[c][col] == monitor_) mask |= 1u << col;
+            if (song_->columnInstrument(c, col) == monitor_) mask |= 1u << col;
         }
         return mask;
     }
@@ -293,7 +304,9 @@ private:
             enterSection(c.a, c.entry, c.b, tick);
             break;
         case Command::Kind::PlayStinger:
-            if (c.a < config::kMaxChannels && c.pattern != nullptr) channels_[c.a].playOnce(c.pattern, tick);
+            if (c.a < config::kMaxChannels && song_ != nullptr && song_->pattern(c.data) != nullptr) {
+                channels_[c.a].playOnce(song_->pattern(c.data), tick);
+            }
             break;
         case Command::Kind::SetLayerMute:
             if (song_ != nullptr && c.a < song_->numLayers) {
@@ -311,14 +324,14 @@ private:
             currentSection_ = kNoIndex;
             break;
         case Command::Kind::SoloPattern:
-            if (c.a < config::kMaxChannels && c.target != nullptr) {
+            if (c.a < config::kMaxChannels && song_ != nullptr && song_->pattern(c.b) != nullptr) {
                 for (auto& ch : channels_) {
                     ch.play(nullptr, 0);
                     ch.setColumnMask(~0u);
                 }
                 currentSection_ = kNoIndex;
                 sectionStartTick_ = tick;  // beats and bars count from here
-                channels_[c.a].play(c.target, tick);
+                channels_[c.a].play(song_->pattern(c.b), tick);
                 channels_[c.a].setColumnMask(c.data);
             }
             break;
@@ -335,8 +348,9 @@ private:
             if (c.value > 0.0f) setTempoMilliBpm(static_cast<uint32_t>(c.value * 1000.0f));
             break;
         case Command::Kind::SetCell:
-            if (c.target != nullptr && c.data < config::kMaxRows && c.a < config::kMaxColumns) {
-                c.target->cells[c.data][c.a] = c.cell;
+            if (song_ != nullptr && c.b < song_->numPatterns && c.data < config::kMaxRows &&
+                c.a < config::kMaxColumns) {
+                song_->patterns[c.b].cells[c.data][c.a] = c.cell;
             }
             break;
         case Command::Kind::PreviewOn:
@@ -351,10 +365,11 @@ private:
             if (c.b < config::kPreviewVoices) previews_[c.b].release();
             break;
         case Command::Kind::SetInstrumentParam:
-            if (c.instrument != nullptr && c.b < Instrument::kNumParams) {
+            if (song_ != nullptr && c.a < song_->numInstruments && c.b < Instrument::kNumParams) {
                 const auto p = static_cast<Instrument::Param>(c.b);
-                c.instrument->set(p, c.value);
-                applyInstrumentParam(c.a, *c.instrument, p);
+                Instrument& inst = song_->instruments[c.a];
+                inst.set(p, c.value);
+                applyInstrumentParam(c.a, inst, p);
             }
             break;
         case Command::Kind::AddInstrument:
@@ -365,7 +380,7 @@ private:
         case Command::Kind::AssignInstrument:
             if (song_ != nullptr && c.a < config::kMaxChannels && c.b < config::kMaxColumns) {
                 const uint8_t i = static_cast<uint8_t>(c.data);
-                song_->columnInstrument[c.a][c.b] = i < song_->numInstruments ? i : kNoIndex;
+                song_->channels[c.a].instruments[c.b] = i < song_->numInstruments ? i : kNoIndex;
                 if (i < song_->numInstruments) song_->instruments[i].applyTo(channels_[c.a].voice(c.b));
             }
             break;
@@ -384,7 +399,7 @@ private:
         if (song_ != nullptr) {
             for (uint32_t ch = 0; ch < config::kMaxChannels; ++ch) {
                 for (uint32_t col = 0; col < config::kMaxColumns; ++col) {
-                    if (song_->columnInstrument[ch][col] == index) inst.applyParam(channels_[ch].voice(col), p);
+                    if (song_->columnInstrument(ch, col) == index) inst.applyParam(channels_[ch].voice(col), p);
                 }
             }
         }
@@ -485,8 +500,8 @@ private:
         const uint64_t start = keepPhase ? sectionStartTick_ : tick;
         for (uint32_t c = 0; c < config::kMaxChannels; ++c) {
             Channel& ch = channels_[c];
-            if (s.sequences[c] != nullptr) {
-                ch.playSequence(s.sequences[c], start);
+            if (song_->isPlayable(s.sequences[c])) {
+                ch.playSequence(&s.sequences[c], song_->patterns, start);
             } else if (!ch.isOneShot()) {
                 ch.play(nullptr, 0);  // not in this section; leave stingers alone
             }
