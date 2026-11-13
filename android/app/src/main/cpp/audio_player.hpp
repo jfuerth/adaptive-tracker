@@ -59,14 +59,31 @@ public:
     // Instruments (UI thread only).
     uint32_t channelCount() const { return adaptive::demo::AdaptiveDemo::kNumChannels; }
     const char* channelName(uint32_t i) const;
-    uint32_t instrumentCount() const { return song_->song().numInstruments; }
+    /// Columns (voices) on channel i; set up before audio starts and never changed.
+    int channelColumns(int i) const {
+        return i >= 0 && i < static_cast<int>(channelCount())
+                   ? static_cast<int>(engine_->channel(static_cast<uint32_t>(i)).numColumns()) : 0;
+    }
+    uint32_t instrumentCount() const { return instrumentCount_; }
+    uint32_t maxInstruments() const { return adaptive::config::kMaxInstruments; }
+    /// The demo's name for one of its instruments, or "" for one made in the app.
     const char* instrumentName(uint32_t i) const;
+    /// Add an instrument with `values` (Instrument::kNumParams floats), or the
+    /// defaults when null. Returns its index, or -1 when the song is full.
+    int addInstrument(const float* values);
     /// Copies instrument i's parameter values (Instrument::kNumParams floats).
     /// Only call before editing it; afterwards the UI keeps its own copy.
     bool readInstrument(uint32_t i, float* out, uint32_t capacity) const;
     bool setInstrumentParam(uint32_t i, int param, float value);
     /// Instrument index used by a channel's column, or -1 (no instrument, or no such column).
     int columnInstrument(int channel, int column) const;
+    /// Channel's column plays instrument `instrument` from now on.
+    bool assignInstrument(int channel, int column, int instrument);
+    /// Which instrument the monitor output carries (-1: none).
+    bool setMonitor(int instrument);
+    /// Copies the latest `n` monitor samples (oldest first) into `out`; n <= kMonitorFrames.
+    void readMonitor(float* out, uint32_t n) const;
+    static constexpr uint32_t kMonitorFrames = 8192;
 
     /// Song's home key: [root, scale mask].
     void homeKey(int32_t out[2]) const;
@@ -117,4 +134,17 @@ private:
     std::atomic<int32_t> keyRoot_{0};
     std::atomic<int32_t> keyScale_{adaptive::scales::kMajor};
     std::atomic<bool> resetStatsRequested_{false};
+
+    // The monitored instrument's output: a ring the audio thread writes and
+    // the UI reads. A read can overlap a write at its oldest end; that's fine
+    // for drawing.
+    static constexpr uint32_t kMonitorScratch = 1024;
+    float monitorScratch_[kMonitorScratch] = {};
+    float monitorRing_[kMonitorFrames] = {};
+    std::atomic<uint32_t> monitorWrite_{0};  // total frames written, wraps
+
+    // The UI thread's view of the song's instrument table: the audio thread
+    // owns the song while it plays, and changes it only on command.
+    uint32_t instrumentCount_ = 0;
+    uint8_t columnInstrument_[adaptive::config::kMaxChannels][adaptive::config::kMaxColumns] = {};
 };

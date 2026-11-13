@@ -238,12 +238,16 @@ public:
     const Pattern* playingPattern() const { return currentPattern(); }
     int32_t playingRow() const { return currentPattern() != nullptr ? playingRow_ : -1; }
 
-    /// Add `numFrames` samples of this channel into `mix`.
-    void render(float* mix, uint32_t numFrames) {
+    /// Add `numFrames` samples of this channel into `mix`. If `tap` is set,
+    /// the voices of the columns in `tapColumns` that are heard are also
+    /// added into it, before the channel's filter and gain.
+    void render(float* mix, uint32_t numFrames, float* tap = nullptr, uint32_t tapColumns = 0) {
+        if (tap == nullptr) tapColumns = 0;
         while (numFrames > 0) {
             const uint32_t n = numFrames < kScratchFrames ? numFrames : kScratchFrames;
-            renderBlock(mix, n);
+            renderBlock(mix, n, tap, tapColumns);
             mix += n;
+            if (tap != nullptr) tap += n;
             numFrames -= n;
         }
     }
@@ -254,7 +258,7 @@ private:
     /// start of playback, so output does not depend on audio buffer sizes).
     static constexpr uint32_t kCutoffBlock = 16;
 
-    void renderBlock(float* mix, uint32_t n) {
+    void renderBlock(float* mix, uint32_t n, float* tap, uint32_t tapColumns) {
         bool any = false;
         for (uint32_t c = 0; c < numColumns_; ++c) any = any || voices_[c].isActive();
         if (!any) {
@@ -267,7 +271,13 @@ private:
         for (uint32_t c = 0; c < numColumns_; ++c) {
             synth::WavetableSynth& v = voices_[c];
             if (!v.isActive()) continue;
-            if (columnMask_ & (1u << c)) {
+            if ((columnMask_ & tapColumns) & (1u << c)) {
+                for (uint32_t i = 0; i < n; ++i) {
+                    const float x = v.nextSample(timer_);
+                    scratch_[i] += x;
+                    tap[i] += x;
+                }
+            } else if (columnMask_ & (1u << c)) {
                 for (uint32_t i = 0; i < n; ++i) scratch_[i] += v.nextSample(timer_);
             } else {
                 for (uint32_t i = 0; i < n; ++i) v.nextSample(timer_);  // keep time, stay silent

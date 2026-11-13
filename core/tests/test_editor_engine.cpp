@@ -260,3 +260,70 @@ TEST_CASE("Instruments: changing sustain also updates the envelope's decay rate"
     }
     CHECK(decaySamples == doctest::Approx(100).epsilon(0.05));  // 100 ms, not 900
 }
+
+TEST_CASE("Instruments: AddInstrument makes an app-written entry playable") {
+    Fixture f;
+    using P = Instrument::Param;
+    f.song->instruments[0] = Instrument().set(P::Cutoff, 700.0f);  // written by the app, not yet in use
+    f.engine->post(Command::previewOn(0, 0, 60));  // no such instrument yet: ignored
+    f.reachTick(1);
+    CHECK_FALSE(f.engine->channel(0).voice(0).isActive());
+    f.engine->post(Command::addInstrument(0));
+    f.engine->post(Command::assignInstrument(0, 1, 0));
+    f.reachTick(2);
+    CHECK(f.song->numInstruments == 1);
+    CHECK(f.song->columnInstrument[0][1] == 0);
+    CHECK(f.song->columnInstrument[0][0] == kNoIndex);
+    CHECK(f.engine->channel(0).voice(1).getBaseCutoff() == doctest::Approx(700.0f));
+    CHECK(f.engine->channel(0).voice(0).getBaseCutoff() == doctest::Approx(1000.0f));
+}
+
+TEST_CASE("Instruments: assigning a missing instrument leaves the column with none") {
+    Fixture f;
+    f.song->addInstrument(Instrument());
+    f.song->assign(0, 0);
+    f.engine->setSong(f.song.get());
+    f.engine->post(Command::assignInstrument(0, 2, 5));
+    f.reachTick(1);
+    CHECK(f.song->columnInstrument[0][2] == kNoIndex);
+    CHECK(f.song->columnInstrument[0][1] == 0);
+}
+
+TEST_CASE("Monitor: render's monitor output carries only the monitored instrument's voices") {
+    Fixture f;
+    const uint8_t lead = f.song->addInstrument(Instrument());
+    const uint8_t other = f.song->addInstrument(Instrument());
+    f.song->assign(0, lead);  // the fixture's patterns play on channel 0
+    f.song->assign(1, other);
+    f.engine->setSong(f.song.get());
+    f.engine->channel(0).setNumColumns(1);
+    f.engine->post(Command::gotoSection(0, Quantize::Now));
+
+    std::vector<float> out(4800), mon(4800);
+    auto energy = [](const std::vector<float>& v) {
+        double e = 0;
+        for (float x : v) e += double(x) * x;
+        return e;
+    };
+
+    // Nothing monitored: silence on the monitor output.
+    f.engine->render(out.data(), 4800, mon.data());
+    CHECK(energy(out) > 0.0);
+    CHECK(energy(mon) == 0.0);
+
+    // Monitoring the instrument that plays: the monitor hears it.
+    f.engine->post(Command::setMonitor(lead));
+    f.engine->render(out.data(), 4800, mon.data());
+    CHECK(energy(mon) > 0.0);
+
+    // Monitoring another instrument: only its preview is heard. (Commands
+    // apply at the next tick, so let one pass first.)
+    f.engine->post(Command::setMonitor(other));
+    f.engine->render(out.data(), kSamplesPerTick, mon.data());
+    f.engine->render(out.data(), 4800, mon.data());
+    CHECK(energy(mon) == 0.0);
+    f.engine->post(Command::previewOn(other, 0, 72));
+    f.engine->render(out.data(), 4800, mon.data());
+    CHECK(energy(mon) > 0.0);
+    CHECK(f.engine->monitoredInstrument() == other);
+}

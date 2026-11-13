@@ -2,6 +2,7 @@
 
 #include <android/log.h>
 
+#include <algorithm>
 #include <chrono>
 
 
@@ -25,6 +26,13 @@ AudioPlayer::AudioPlayer()
     : engine_(std::make_unique<adaptive::Engine>(kSampleRate)),
       song_(std::make_unique<adaptive::demo::AdaptiveDemo>()) {
     song_->setUp(*engine_);
+    const adaptive::Song& song = song_->song();
+    instrumentCount_ = song.numInstruments;
+    for (uint32_t ch = 0; ch < adaptive::config::kMaxChannels; ++ch) {
+        for (uint32_t col = 0; col < adaptive::config::kMaxColumns; ++col) {
+            columnInstrument_[ch][col] = song.columnInstrument[ch][col];
+        }
+    }
     for (auto& a : playingPattern_) a.store(-1);
     for (auto& a : playingRow_) a.store(-1);
 }
@@ -176,18 +184,61 @@ const char* AudioPlayer::instrumentName(uint32_t i) const {
     return i < n ? Demo::kInstrumentNames[i] : "";
 }
 
+int AudioPlayer::addInstrument(const float* values) {
+    if (instrumentCount_ >= adaptive::config::kMaxInstruments) return -1;
+    const uint32_t i = instrumentCount_;
+    // Not yet in use, so the audio thread doesn't read it until AddInstrument.
+    adaptive::Instrument& inst = song_->song().instruments[i];
+    inst = adaptive::Instrument();
+    if (values != nullptr) {
+        for (uint32_t p = 0; p < adaptive::Instrument::kNumParams; ++p) {
+            inst.set(static_cast<adaptive::Instrument::Param>(p), values[p]);
+        }
+    }
+    if (!engine_->post(adaptive::Command::addInstrument(static_cast<uint8_t>(i)))) return -1;
+    ++instrumentCount_;
+    return static_cast<int>(i);
+}
+
+bool AudioPlayer::assignInstrument(int channel, int column, int instrument) {
+    if (channel < 0 || channel >= static_cast<int>(adaptive::config::kMaxChannels) || column < 0 ||
+        column >= static_cast<int>(engine_->channel(static_cast<uint32_t>(channel)).numColumns()) ||
+        instrument < 0 || instrument >= static_cast<int>(instrumentCount_)) {
+        return false;
+    }
+    if (!engine_->post(adaptive::Command::assignInstrument(static_cast<uint8_t>(channel),
+                                                          static_cast<uint8_t>(column),
+                                                          static_cast<uint8_t>(instrument)))) {
+        return false;
+    }
+    columnInstrument_[channel][column] = static_cast<uint8_t>(instrument);
+    return true;
+}
+
+bool AudioPlayer::setMonitor(int instrument) {
+    const uint8_t i = instrument < 0 || instrument >= static_cast<int>(instrumentCount_)
+                          ? adaptive::kNoIndex : static_cast<uint8_t>(instrument);
+    return engine_->post(adaptive::Command::setMonitor(i));
+}
+
+void AudioPlayer::readMonitor(float* out, uint32_t n) const {
+    if (n > kMonitorFrames) n = kMonitorFrames;
+    const uint32_t end = monitorWrite_.load(std::memory_order_acquire);
+    for (uint32_t k = 0; k < n; ++k) out[k] = monitorRing_[(end - n + k) % kMonitorFrames];
+}
+
 bool AudioPlayer::readInstrument(uint32_t i, float* out, uint32_t capacity) const {
     // The audio thread writes instruments only for SetInstrumentParam, which
     // the UI sends after it has taken its copy, so this read doesn't race.
     const adaptive::Song& song = song_->song();
-    if (i >= song.numInstruments || capacity < adaptive::Instrument::kNumParams) return false;
+    if (i >= instrumentCount_ || capacity < adaptive::Instrument::kNumParams) return false;
     for (uint32_t p = 0; p < adaptive::Instrument::kNumParams; ++p) out[p] = song.instruments[i].values[p];
     return true;
 }
 
 bool AudioPlayer::setInstrumentParam(uint32_t i, int param, float value) {
     adaptive::Song& song = song_->song();
-    if (i >= song.numInstruments || param < 0 || param >= adaptive::Instrument::kNumParams) return false;
+    if (i >= instrumentCount_ || param < 0 || param >= adaptive::Instrument::kNumParams) return false;
     return engine_->post(adaptive::Command::setInstrumentParam(
         &song.instruments[i], static_cast<uint8_t>(i), static_cast<adaptive::Instrument::Param>(param), value));
 }
@@ -197,7 +248,7 @@ int AudioPlayer::columnInstrument(int channel, int column) const {
         column >= static_cast<int>(engine_->channel(static_cast<uint32_t>(channel)).numColumns())) {
         return -1;  // the column count is set up before audio starts and never changes
     }
-    const uint8_t i = song_->song().columnInstrument[channel][column];
+    const uint8_t i = columnInstrument_[channel][column];
     return i == adaptive::kNoIndex ? -1 : i;
 }
 
@@ -246,7 +297,18 @@ oboe::DataCallbackResult AudioPlayer::onAudioReady(oboe::AudioStream* stream, vo
                                                    int32_t numFrames) {
     const auto t0 = std::chrono::steady_clock::now();
     if (latencyTuner_) latencyTuner_->tune();
-    engine_->render(static_cast<float*>(audioData), static_cast<uint32_t>(numFrames));
+    // Render in pieces that fit the monitor scratch buffer, copying each
+    // piece's monitor output into the ring.
+    float* out = static_cast<float*>(audioData);
+    uint32_t write = monitorWrite_.load(std::memory_order_relaxed);
+    for (int32_t done = 0; done < numFrames;) {
+        const uint32_t n = std::min<uint32_t>(static_cast<uint32_t>(numFrames - done), kMonitorScratch);
+        engine_->render(out + done, n, monitorScratch_);
+        for (uint32_t k = 0; k < n; ++k) monitorRing_[(write + k) % kMonitorFrames] = monitorScratch_[k];
+        write += n;
+        done += static_cast<int32_t>(n);
+    }
+    monitorWrite_.store(write, std::memory_order_release);
     const int64_t ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
                            std::chrono::steady_clock::now() - t0).count();
     updateStats(stream, ns, numFrames);

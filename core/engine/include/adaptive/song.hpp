@@ -61,6 +61,9 @@ struct Command {
         SoloPattern,  ///< stop everything, then loop `target` alone on channel a; data = column mask
         SetColumnMask,///< channel a plays only the columns in bitmask `data`
         SetInstrumentParam, ///< song instrument a, parameter b = value; updates voices using it
+        AddInstrument,///< make song instrument a (already written by the app) available
+        AssignInstrument, ///< channel a, column b plays song instrument `data` (kNoIndex: none)
+        SetMonitor,   ///< render() copies instrument a's voices to its monitor output (kNoIndex: off)
     };
 
     Kind kind = Kind::None;
@@ -112,6 +115,22 @@ struct Command {
                   nullptr, value};
         c.instrument = instrument;
         return c;
+    }
+    /// Make `song.instruments[index]` playable. The app writes that entry
+    /// first: entries at or past `numInstruments` are never read by the
+    /// audio thread, so writing one is safe while it plays.
+    static constexpr Command addInstrument(uint8_t index) {
+        return Command{Kind::AddInstrument, Quantize::Now, Entry::Restart, index, 0, nullptr};
+    }
+    /// Channel `channel`'s column `column` plays song instrument `instrument`
+    /// from now on; its voice takes the instrument's settings straight away.
+    static constexpr Command assignInstrument(uint8_t channel, uint8_t column, uint8_t instrument) {
+        return Command{Kind::AssignInstrument, Quantize::Now, Entry::Restart, channel, column, nullptr, 0.0f,
+                       instrument};
+    }
+    /// Listen to one instrument on render()'s monitor output (kNoIndex: none).
+    static constexpr Command setMonitor(uint8_t instrument) {
+        return Command{Kind::SetMonitor, Quantize::Now, Entry::Restart, instrument, 0, nullptr};
     }
     /// Loop one pattern on its own (e.g. the one being edited). `columnMask`
     /// selects which of its columns are heard (bit 0 = column 0).

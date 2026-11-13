@@ -108,6 +108,8 @@ object NativeAudio {
 
     external fun getChannelCount(): Int
     external fun getChannelName(index: Int): String
+    /** Number of columns (voices) on channel [index]. */
+    external fun getChannelColumns(index: Int): Int
     external fun getInstrumentCount(): Int
     external fun getInstrumentName(index: Int): String
 
@@ -116,6 +118,27 @@ object NativeAudio {
      * instrument once, before editing it; InstrumentStore keeps the UI's copy.
      */
     external fun readInstrument(index: Int): FloatArray?
+
+    /** How many instruments a song can have. */
+    external fun getMaxInstruments(): Int
+
+    /**
+     * Adds an instrument with [values] (engine parameter order), or the synth's
+     * defaults when null. Returns its index, or -1 if the song is full.
+     */
+    external fun addInstrument(values: FloatArray?): Int
+
+    /** [channel]'s [column] plays instrument [instrument] from now on. */
+    external fun assignInstrument(channel: Int, column: Int, instrument: Int): Boolean
+
+    /** Which instrument [readMonitor] hears (-1: none). */
+    external fun setMonitor(instrument: Int): Boolean
+
+    /**
+     * The latest [n] samples (up to 8192, oldest first) of the monitored
+     * instrument's voices alone, before channel effects and the master stage.
+     */
+    external fun readMonitor(n: Int): FloatArray?
 
     /** Sets one parameter; applied on the audio thread to every voice using the instrument. */
     external fun setInstrumentParam(index: Int, param: Int, value: Float): Boolean

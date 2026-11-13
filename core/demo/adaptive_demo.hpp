@@ -58,7 +58,7 @@ public:
     /// Pitch modes, column counts, and the song (which brings the
     /// instruments). Call before audio starts. Then post
     /// Command::gotoSection(kExplore, Quantize::Now) to play.
-    void setUp(Engine& engine) const {
+    void setUp(Engine& engine) {
         auto setUpChannel = [&](uint8_t ch, PitchMode mode, uint32_t columns) {
             Channel& c = engine.channel(ch);
             c.setPitchMode(mode);

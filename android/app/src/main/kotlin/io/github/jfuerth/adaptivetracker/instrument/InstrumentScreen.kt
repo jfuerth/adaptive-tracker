@@ -18,8 +18,15 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Text
@@ -68,6 +75,7 @@ fun InstrumentScreen(modifier: Modifier = Modifier) {
         return
     }
     var index by rememberSaveable { mutableIntStateOf(0) }
+    if (index !in names.indices) index = 0
     var selected by rememberSaveable { mutableStateOf(P.CUTOFF) }
     var octave by rememberSaveable { mutableIntStateOf(4) }
     val values = remember(index) { InstrumentStore.values(index) }
@@ -75,7 +83,9 @@ fun InstrumentScreen(modifier: Modifier = Modifier) {
         Text("This instrument could not be loaded.", modifier.padding(16.dp))
         return
     }
-    val usedBy = remember(index) { InstrumentStore.usedBy(index) }
+    val usedBy = remember(index, InstrumentStore.assignments) { InstrumentStore.usedBy(index) }
+    var renaming by remember { mutableStateOf(false) }
+    var assigning by remember { mutableStateOf(false) }
     val specs = InstrumentStore.specs
     fun v(p: P) = specs[p]?.let { values.getOrNull(it.index) } ?: 0f
 
@@ -130,15 +140,40 @@ fun InstrumentScreen(modifier: Modifier = Modifier) {
                             menuOpen = false
                         })
                     }
+                    HorizontalDivider()
+                    val full = InstrumentStore.isFull
+                    DropdownMenuItem(text = { Text("New instrument") }, enabled = !full, onClick = {
+                        InstrumentStore.create()?.let { index = it }
+                        menuOpen = false
+                    })
+                    DropdownMenuItem(text = { Text("Duplicate ${names[index]}") }, enabled = !full, onClick = {
+                        InstrumentStore.create(copyOf = index)?.let { index = it }
+                        menuOpen = false
+                    })
+                    DropdownMenuItem(text = { Text("Rename ${names[index]}…") }, onClick = {
+                        renaming = true
+                        menuOpen = false
+                    })
+                    if (full) DropdownMenuItem(
+                        text = { Text("The song has ${InstrumentStore.capacity}, the most it can hold") },
+                        enabled = false,
+                        onClick = {},
+                    )
                 }
             }
             Text(
-                if (usedBy.isEmpty()) "Not used" else "Plays on " + usedBy.joinToString(" · "),
+                if (usedBy.isEmpty()) "Not played · assign…" else "Plays on " + usedBy.joinToString(" · ") + " ▾",
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = MaterialTheme.colorScheme.primary,
                 maxLines = 1,
+                modifier = Modifier.clip(RoundedCornerShape(4.dp)).clickable { assigning = true }.padding(4.dp),
             )
         }
+        if (renaming) RenameDialog(names[index], onDone = { name ->
+            if (name != null) InstrumentStore.rename(index, name)
+            renaming = false
+        })
+        if (assigning) AssignDialog(index, onDismiss = { assigning = false })
 
         // ---- Signal flow ----
         Column(
@@ -179,7 +214,8 @@ fun InstrumentScreen(modifier: Modifier = Modifier) {
                     Block("Amp") { Chip(P.LEVEL, Modifier.fillMaxWidth()) }
                 },
             )
-            DownArrow("Out")
+            DownArrow()
+            Block("Out") { OutputMonitor(index, Modifier.fillMaxWidth()) }
         }
 
         // ---- Slider for the selected parameter ----
@@ -367,4 +403,53 @@ private fun EnvelopeGraph(attack: Float, decay: Float, sustain: Float, release: 
         }
         drawPath(path, color, style = Stroke(width = 1.5.dp.toPx()))
     }
+}
+
+@Composable
+private fun RenameDialog(current: String, onDone: (String?) -> Unit) {
+    var text by remember { mutableStateOf(current) }
+    AlertDialog(
+        onDismissRequest = { onDone(null) },
+        title = { Text("Rename instrument") },
+        text = { OutlinedTextField(text, onValueChange = { text = it }, singleLine = true) },
+        confirmButton = { TextButton(onClick = { onDone(text) }, enabled = text.isNotBlank()) { Text("Rename") } },
+        dismissButton = { TextButton(onClick = { onDone(null) }) { Text("Cancel") } },
+    )
+}
+
+/**
+ * Which columns play instrument [index]. Ticking a column gives it this
+ * instrument; to take it away, give the column another instrument (here, or
+ * from the column's heading in the pattern editor).
+ */
+@Composable
+private fun AssignDialog(index: Int, onDismiss: () -> Unit) {
+    val names = InstrumentStore.names
+    val slots = remember(InstrumentStore.assignments) { InstrumentStore.slots() }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Play ${names[index]} on") },
+        text = {
+            LazyColumn {
+                items(slots) { slot ->
+                    val mine = slot.instrument == index
+                    Row(
+                        Modifier.fillMaxWidth().clickable(enabled = !mine) {
+                            InstrumentStore.assign(slot.channel, slot.column, index)
+                        },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(checked = mine, onCheckedChange = null, modifier = Modifier.size(40.dp))
+                        Text(slot.label, Modifier.weight(1f))
+                        Text(
+                            names.getOrNull(slot.instrument) ?: "—",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Done") } },
+    )
 }

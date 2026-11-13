@@ -74,9 +74,10 @@ public:
     /**
      * The adaptive structure to play. Must outlive its use. Applies every
      * mapping once with the current parameter values. Call before audio starts,
-     * or on the audio thread.
+     * or on the audio thread. While it plays, the song is changed only through
+     * commands (instrument edits and assignments), on the audio thread.
      */
-    void setSong(const Song* song) {
+    void setSong(Song* song) {
         song_ = song;
         if (song_ == nullptr) return;
         for (uint32_t ch = 0; ch < config::kMaxChannels; ++ch) {
@@ -119,9 +120,20 @@ public:
     /// current tick if its processing has not happened yet, else the next one.
     uint64_t nextTick() const { return tickPending_ ? clock_.tick() : clock_.tick() + 1; }
 
-    /// Render `numFrames` mono samples into `out` (overwrites it).
-    void render(float* out, uint32_t numFrames) {
+    /// Instrument heard on the monitor output, or kNoIndex.
+    uint8_t monitoredInstrument() const { return monitor_; }
+
+    /**
+     * Render `numFrames` mono samples into `out` (overwrites it). If `monitor`
+     * is set, it gets the monitored instrument's voices alone (see
+     * Command::setMonitor), before channel filters, gains and the master stage;
+     * silence when nothing is monitored.
+     */
+    void render(float* out, uint32_t numFrames, float* monitor = nullptr) {
         for (uint32_t i = 0; i < numFrames; ++i) out[i] = 0.0f;
+        if (monitor != nullptr) {
+            for (uint32_t i = 0; i < numFrames; ++i) monitor[i] = 0.0f;
+        }
 
         // Glides that move once per audio buffer.
         if (tempoScale_.isMoving()) {
@@ -141,8 +153,11 @@ public:
             }
             uint32_t chunk = clock_.samplesUntilNextTick();
             if (chunk > numFrames - done) chunk = numFrames - done;
-            for (auto& ch : channels_) ch.render(out + done, chunk);
-            renderPreviews(out + done, chunk);
+            float* tap = monitor != nullptr ? monitor + done : nullptr;
+            for (uint32_t c = 0; c < config::kMaxChannels; ++c) {
+                channels_[c].render(out + done, chunk, tap, tap != nullptr ? monitoredColumns(c) : 0);
+            }
+            renderPreviews(out + done, chunk, tap);
             tickPending_ = clock_.advance(chunk);
             done += chunk;
         }
@@ -178,11 +193,30 @@ private:
         }
     }
 
-    void renderPreviews(float* out, uint32_t n) {
-        for (auto& v : previews_) {
+    void renderPreviews(float* out, uint32_t n, float* tap) {
+        for (uint32_t s = 0; s < config::kPreviewVoices; ++s) {
+            synth::WavetableSynth& v = previews_[s];
             if (!v.isActive()) continue;
-            for (uint32_t i = 0; i < n; ++i) out[i] += v.nextSample(previewTimer_);
+            if (tap != nullptr && monitor_ != kNoIndex && previewInstrument_[s] == monitor_) {
+                for (uint32_t i = 0; i < n; ++i) {
+                    const float x = v.nextSample(previewTimer_);
+                    out[i] += x;
+                    tap[i] += x;
+                }
+            } else {
+                for (uint32_t i = 0; i < n; ++i) out[i] += v.nextSample(previewTimer_);
+            }
         }
+    }
+
+    /// Bitmask of channel `c`'s columns that play the monitored instrument.
+    uint32_t monitoredColumns(uint32_t c) const {
+        if (song_ == nullptr || monitor_ == kNoIndex) return 0;
+        uint32_t mask = 0;
+        for (uint32_t col = 0; col < config::kMaxColumns; ++col) {
+            if (song_->columnInstrument[c][col] == monitor_) mask |= 1u << col;
+        }
+        return mask;
     }
 
     /// First tick at or after `tick` that is on the requested boundary.
@@ -323,6 +357,21 @@ private:
                 applyInstrumentParam(c.a, *c.instrument, p);
             }
             break;
+        case Command::Kind::AddInstrument:
+            if (song_ != nullptr && c.a < config::kMaxInstruments && c.a >= song_->numInstruments) {
+                song_->numInstruments = static_cast<uint8_t>(c.a + 1);
+            }
+            break;
+        case Command::Kind::AssignInstrument:
+            if (song_ != nullptr && c.a < config::kMaxChannels && c.b < config::kMaxColumns) {
+                const uint8_t i = static_cast<uint8_t>(c.data);
+                song_->columnInstrument[c.a][c.b] = i < song_->numInstruments ? i : kNoIndex;
+                if (i < song_->numInstruments) song_->instruments[i].applyTo(channels_[c.a].voice(c.b));
+            }
+            break;
+        case Command::Kind::SetMonitor:
+            monitor_ = c.a;
+            break;
         case Command::Kind::FireEvent:  // expanded in schedule()
         case Command::Kind::None:
             break;
@@ -454,7 +503,8 @@ private:
     PitchContext pitch_;
     bool tickPending_ = true;  // tick 0 starts at the first sample
 
-    const Song* song_ = nullptr;
+    Song* song_ = nullptr;
+    uint8_t monitor_ = kNoIndex;
     SpscQueue<Command, config::kCommandQueueSize> queue_;
     Pending pending_[config::kMaxPendingCommands] = {};
     uint32_t numPending_ = 0;

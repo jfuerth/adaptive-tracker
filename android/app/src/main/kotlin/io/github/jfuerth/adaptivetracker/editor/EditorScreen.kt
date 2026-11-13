@@ -48,7 +48,11 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import io.github.jfuerth.adaptivetracker.NativeAudio
+import io.github.jfuerth.adaptivetracker.instrument.InstrumentStore
 import io.github.jfuerth.adaptivetracker.ui.NoteKeyboard
 import io.github.jfuerth.adaptivetracker.ui.ToolButton
 import kotlinx.coroutines.delay
@@ -218,6 +222,14 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
             })
         }
 
+        // ---- Column headings: the instrument each column plays ----
+        val measurer = rememberTextMeasurer()
+        val density = LocalDensity.current
+        val columnWidth = remember(measurer, density) {
+            with(density) { measurer.measure("C-4 .. ...", MONO).size.width.toDp() } + 12.dp
+        }
+        ColumnHeadings(info, column, columnWidth, onSelect = { c -> column = c; anchor = null })
+
         // ---- Pattern ----
         var viewportPx by remember { mutableIntStateOf(0) }
         val padding = with(LocalDensity.current) {
@@ -269,6 +281,7 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
                         isPlaying = row == playingRow,
                         selectedColumn = column,
                         selectedField = field,
+                        columnWidth = columnWidth,
                         onTap = { c, f ->
                             column = c
                             field = f
@@ -370,6 +383,50 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
     }
 }
 
+/**
+ * One heading per column, lined up over the cells, naming the instrument the
+ * column plays. Tapping a heading selects the column and offers the song's
+ * instruments for it.
+ */
+@Composable
+private fun ColumnHeadings(info: PatternInfo, selectedColumn: Int, columnWidth: Dp, onSelect: (Int) -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val names = InstrumentStore.names
+    InstrumentStore.assignments  // read, so a new assignment redraws the headings
+    Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.width(30.dp))
+        for (c in 0 until info.columns) {
+            val current = NativeAudio.getColumnInstrument(info.channel, c)
+            var open by remember { mutableStateOf(false) }
+            Box(Modifier.padding(start = 6.dp).width(columnWidth)) {
+                Text(
+                    (names.getOrNull(current) ?: "—") + " ▾",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (c == selectedColumn) colors.primary else colors.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(4.dp))
+                        .clickable { onSelect(c); open = true }
+                        .padding(horizontal = 2.dp, vertical = 4.dp),
+                )
+                DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                    names.forEachIndexed { i, name ->
+                        DropdownMenuItem(
+                            text = { Text(if (i == current) "✓ $name" else name) },
+                            onClick = {
+                                InstrumentStore.assign(info.channel, c, i)
+                                open = false
+                            },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
 @Composable
 private fun PatternRow(
     row: Int,
@@ -379,6 +436,7 @@ private fun PatternRow(
     isPlaying: Boolean,
     selectedColumn: Int,
     selectedField: Field,
+    columnWidth: Dp,
     onTap: (column: Int, field: Field) -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -412,7 +470,7 @@ private fun PatternRow(
                         .padding(horizontal = 1.dp),
                 )
             }
-            Row(Modifier.padding(start = 6.dp)) {
+            Row(Modifier.padding(start = 6.dp).width(columnWidth)) {
                 part(CellFormat.note(cell, info.mode, ctx), Field.NOTE)
                 Text(" ", style = MONO)
                 val vol = CellFormat.volume(cell)

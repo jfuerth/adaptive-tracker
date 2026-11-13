@@ -128,6 +128,10 @@ JNIEXPORT jstring JNICALL JNI_FN(getChannelName)(JNIEnv* env, jobject, jint i) {
     return env->NewStringUTF(player().channelName(static_cast<uint32_t>(i)));
 }
 
+JNIEXPORT jint JNICALL JNI_FN(getChannelColumns)(JNIEnv*, jobject, jint i) {
+    return player().channelColumns(i);
+}
+
 JNIEXPORT jint JNICALL JNI_FN(getInstrumentCount)(JNIEnv*, jobject) {
     return static_cast<jint>(player().instrumentCount());
 }
@@ -142,6 +146,37 @@ JNIEXPORT jfloatArray JNICALL JNI_FN(readInstrument)(JNIEnv* env, jobject, jint 
     if (!player().readInstrument(static_cast<uint32_t>(i), values, adaptive::Instrument::kNumParams)) return nullptr;
     jfloatArray result = env->NewFloatArray(adaptive::Instrument::kNumParams);
     if (result != nullptr) env->SetFloatArrayRegion(result, 0, adaptive::Instrument::kNumParams, values);
+    return result;
+}
+
+JNIEXPORT jint JNICALL JNI_FN(getMaxInstruments)(JNIEnv*, jobject) {
+    return static_cast<jint>(player().maxInstruments());
+}
+
+/// New instrument with `values` (null: defaults). Its index, or -1.
+JNIEXPORT jint JNICALL JNI_FN(addInstrument)(JNIEnv* env, jobject, jfloatArray values) {
+    if (values == nullptr) return player().addInstrument(nullptr);
+    if (env->GetArrayLength(values) != adaptive::Instrument::kNumParams) return -1;
+    float v[adaptive::Instrument::kNumParams];
+    env->GetFloatArrayRegion(values, 0, adaptive::Instrument::kNumParams, v);
+    return player().addInstrument(v);
+}
+
+JNIEXPORT jboolean JNICALL JNI_FN(assignInstrument)(JNIEnv*, jobject, jint channel, jint column, jint instrument) {
+    return toJ(player().assignInstrument(channel, column, instrument));
+}
+
+JNIEXPORT jboolean JNICALL JNI_FN(setMonitor)(JNIEnv*, jobject, jint instrument) {
+    return toJ(player().setMonitor(instrument));
+}
+
+/// The latest `n` samples of the monitored instrument, oldest first.
+JNIEXPORT jfloatArray JNICALL JNI_FN(readMonitor)(JNIEnv* env, jobject, jint n) {
+    if (n <= 0 || n > static_cast<jint>(AudioPlayer::kMonitorFrames)) return nullptr;
+    std::unique_ptr<float[]> samples(new float[static_cast<size_t>(n)]);
+    player().readMonitor(samples.get(), static_cast<uint32_t>(n));
+    jfloatArray result = env->NewFloatArray(n);
+    if (result != nullptr) env->SetFloatArrayRegion(result, 0, n, samples.get());
     return result;
 }
 
