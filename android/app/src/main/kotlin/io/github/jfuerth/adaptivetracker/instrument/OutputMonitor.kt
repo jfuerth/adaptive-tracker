@@ -32,9 +32,16 @@ private const val SAMPLE_RATE = 48000f
 private const val FFT_SIZE = 4096
 /** The oscilloscope shows this many samples (32 ms). */
 private const val SCOPE_WINDOW = 1536
-/** How far back the scope looks for a rising zero crossing: periods down to ~40 Hz. */
+/**
+ * How far back the scope searches for the best match with the last frame (or
+ * for a zero crossing): one full period of notes down to ~40 Hz.
+ */
 private const val SCOPE_SEARCH = 1200
 private const val READ_SIZE = FFT_SIZE
+/** The scope keeps its reference while frames match it at least this well (1 = identical shape). */
+private const val KEEP_REFERENCE_SIMILARITY = 0.9f
+/** Below this (sum of squares), the scope's reference counts as silence. */
+private const val MIN_REFERENCE_ENERGY = 1e-4f
 
 private const val BANDS = 160
 private const val MIN_HZ = 30f
@@ -62,13 +69,30 @@ fun OutputMonitor(instrument: Int, modifier: Modifier = Modifier) {
 
     LaunchedEffect(Unit) {
         var last = 0L
+        var reference: FloatArray? = null
         while (true) {
             val now = withFrameNanos { it }
             val seconds = if (last == 0L) 0f else (now - last) / 1e9f
             last = now
             val samples = NativeAudio.readMonitor(READ_SIZE) ?: continue
-            val start = Analysis.triggerStart(samples, SCOPE_WINDOW, SCOPE_SEARCH)
-            scope = samples.copyOfRange(start, start + SCOPE_WINDOW)
+            // Line each frame up with what was shown before; with nothing to
+            // match (start, or after silence), use a zero crossing.
+            val ref = reference
+            val start = if (ref != null && Analysis.energy(ref) > MIN_REFERENCE_ENERGY) {
+                Analysis.alignTo(ref, samples, SCOPE_SEARCH)
+            } else {
+                Analysis.triggerStart(samples, SCOPE_WINDOW, SCOPE_SEARCH)
+            }
+            val shown = samples.copyOfRange(start, start + SCOPE_WINDOW)
+            scope = shown
+            // Keep matching the same reference while the sound keeps its shape,
+            // so rounding can't make the picture creep; take a new one when
+            // the shape changes (a new note, a filter sweep) or after silence.
+            if (ref == null || Analysis.energy(ref) <= MIN_REFERENCE_ENERGY ||
+                Analysis.similarity(ref, shown) < KEEP_REFERENCE_SIMILARITY
+            ) {
+                reference = shown
+            }
 
             val bands = Analysis.logBands(Analysis.spectrum(samples), SAMPLE_RATE, BANDS, MIN_HZ, MAX_HZ)
             levels = Analysis.fall(levels, bands, FALL_DB_PER_SECOND * seconds, FLOOR_DB)

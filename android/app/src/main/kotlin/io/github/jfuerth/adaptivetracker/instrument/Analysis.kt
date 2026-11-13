@@ -124,4 +124,62 @@ object Analysis {
             val before = previous.getOrElse(i) { floorDb }
             if (now >= before) now else maxOf(now, before - maxFallDb)
         }
+
+    /** Normalised correlation of two equal-length signals: 1 for the same shape at any level. */
+    fun similarity(a: FloatArray, b: FloatArray): Float {
+        var dot = 0f
+        for (i in a.indices) dot += a[i] * b[i]
+        val norm = kotlin.math.sqrt(energy(a) * energy(b))
+        return if (norm > 0f) dot / norm else 0f
+    }
+
+    fun energy(x: FloatArray): Float {
+        var e = 0f
+        for (v in x) e += v * v
+        return e
+    }
+
+    /**
+     * Correlation trigger: where in [samples] a window the size of [reference]
+     * best matches it, searching back [searchSpan] samples from the newest
+     * window. Unlike a zero-crossing trigger this holds still for any wave
+     * shape, e.g. a resonant saw that crosses zero several times per cycle.
+     * Searches every 4th sample of every 4th offset, then refines.
+     */
+    fun alignTo(reference: FloatArray, samples: FloatArray, searchSpan: Int): Int {
+        val window = reference.size
+        val newest = samples.size - window
+        if (newest <= 0) return 0
+        val oldest = (newest - searchSpan).coerceAtLeast(0)
+        fun score(start: Int, step: Int): Float {
+            var sum = 0f
+            var k = 0
+            while (k < window) {
+                sum += reference[k] * samples[start + k]
+                k += step
+            }
+            return sum
+        }
+        var best = newest
+        var bestScore = Float.NEGATIVE_INFINITY
+        var s = newest
+        while (s >= oldest) {
+            val sc = score(s, 4)
+            if (sc > bestScore) {
+                bestScore = sc
+                best = s
+            }
+            s -= 4
+        }
+        val coarse = best
+        bestScore = Float.NEGATIVE_INFINITY
+        for (c in (coarse - 4).coerceAtLeast(oldest)..(coarse + 4).coerceAtMost(newest)) {
+            val sc = score(c, 1)
+            if (sc > bestScore) {
+                bestScore = sc
+                best = c
+            }
+        }
+        return best
+    }
 }
