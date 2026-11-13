@@ -9,6 +9,7 @@
     {
       "id": "lead",
       "name": "Lead",
+      "voice": "subtractive",
       "params": {
         "shape": 0.5,
         "cutoff": 2200,
@@ -32,6 +33,7 @@
     {
       "id": "bass",
       "name": "Bass",
+      "voice": "subtractive",
       "params": {
         "shape": 0,
         "cutoff": 320,
@@ -55,6 +57,7 @@
     {
       "id": "pad",
       "name": "Pad",
+      "voice": "subtractive",
       "params": {
         "shape": 0.3,
         "cutoff": 1000,
@@ -78,6 +81,7 @@
     {
       "id": "arp",
       "name": "Arp",
+      "voice": "subtractive",
       "params": {
         "shape": 1,
         "cutoff": 4000,
@@ -101,6 +105,7 @@
     {
       "id": "kick",
       "name": "Kick",
+      "voice": "subtractive",
       "params": {
         "shape": 0.5,
         "cutoff": 900,
@@ -124,6 +129,7 @@
     {
       "id": "hat",
       "name": "Hat",
+      "voice": "subtractive",
       "params": {
         "shape": 1,
         "cutoff": 12000,
@@ -147,6 +153,7 @@
     {
       "id": "stinger",
       "name": "Stinger",
+      "voice": "subtractive",
       "params": {
         "shape": 0.9,
         "cutoff": 5000,

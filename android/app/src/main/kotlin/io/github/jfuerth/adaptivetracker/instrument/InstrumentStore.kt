@@ -9,18 +9,22 @@ import androidx.compose.runtime.toMutableStateList
 import io.github.jfuerth.adaptivetracker.NativeAudio
 
 /**
- * The UI's copy of each instrument. Each one is read from the engine once,
- * before it is first edited; after that, edits update this copy and are sent
- * to the engine, which applies them on the audio thread.
- *
- * Names live only here: the engine refers to instruments by index.
+ * The UI's copy of each instrument. Each one is read from the engine the
+ * first time it's shown; after that, edits update this copy and are sent to
+ * the engine, which keeps the song (and saves it).
  */
 object InstrumentStore {
-    /** Each instrument's name, by index. Starts with the song's own names. */
-    val names: SnapshotStateList<String> by lazy {
-        List(NativeAudio.getInstrumentCount()) { i ->
+    /** Each instrument's name, by index. */
+    val names: SnapshotStateList<String> = mutableStateListOf()
+
+    /** Forgets everything read from the engine: a different song has loaded. */
+    fun reset() {
+        loaded.clear()
+        names.clear()
+        names.addAll(List(NativeAudio.getInstrumentCount()) { i ->
             NativeAudio.getInstrumentName(i).ifEmpty { "Instrument ${i + 1}" }
-        }.toMutableStateList()
+        })
+        assignments++
     }
 
     val capacity: Int by lazy { NativeAudio.getMaxInstruments() }
@@ -58,15 +62,18 @@ object InstrumentStore {
      */
     fun create(copyOf: Int? = null): Int? {
         val source = copyOf?.let { values(it) }?.toFloatArray()
-        val index = NativeAudio.addInstrument(source)
+        val name = if (copyOf != null) uniqueName("${names[copyOf]} copy") else uniqueName("Instrument ${names.size + 1}")
+        val index = NativeAudio.addInstrument(source, name)
         if (index < 0) return null
-        names += if (copyOf != null) uniqueName("${names[copyOf]} copy") else uniqueName("Instrument ${index + 1}")
+        names += name
         return index
     }
 
     fun rename(index: Int, name: String) {
         val trimmed = name.trim()
-        if (index in names.indices && trimmed.isNotEmpty()) names[index] = trimmed
+        if (index in names.indices && trimmed.isNotEmpty() && NativeAudio.renameInstrument(index, trimmed)) {
+            names[index] = trimmed
+        }
     }
 
     private fun uniqueName(base: String): String {

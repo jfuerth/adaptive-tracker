@@ -19,6 +19,29 @@ AudioPlayer& player() {
 }
 
 jboolean toJ(bool b) { return b ? JNI_TRUE : JNI_FALSE; }
+
+// Strings cross as UTF-8 bytes: JNI's own "UTF" functions use modified UTF-8,
+// which garbles characters outside the BMP (emoji in a name, say).
+jstring toJ(JNIEnv* env, const std::string& s) {
+    jbyteArray bytes = env->NewByteArray(static_cast<jsize>(s.size()));
+    if (bytes == nullptr) return nullptr;
+    env->SetByteArrayRegion(bytes, 0, static_cast<jsize>(s.size()), reinterpret_cast<const jbyte*>(s.data()));
+    jclass stringClass = env->FindClass("java/lang/String");
+    jmethodID ctor = env->GetMethodID(stringClass, "<init>", "([BLjava/lang/String;)V");
+    jstring charset = env->NewStringUTF("UTF-8");
+    auto result = static_cast<jstring>(env->NewObject(stringClass, ctor, bytes, charset));
+    env->DeleteLocalRef(charset);
+    env->DeleteLocalRef(stringClass);
+    env->DeleteLocalRef(bytes);
+    return result;
+}
+
+std::string fromJ(JNIEnv* env, jbyteArray utf8) {
+    if (utf8 == nullptr) return {};
+    std::string s(static_cast<size_t>(env->GetArrayLength(utf8)), '\0');
+    env->GetByteArrayRegion(utf8, 0, static_cast<jsize>(s.size()), reinterpret_cast<jbyte*>(s.data()));
+    return s;
+}
 } // namespace
 
 #define JNI_FN(name) Java_io_github_jfuerth_adaptivetracker_NativeAudio_##name
@@ -81,20 +104,35 @@ JNIEXPORT jint JNICALL JNI_FN(getPatternCount)(JNIEnv*, jobject) {
 }
 
 JNIEXPORT jstring JNICALL JNI_FN(getPatternName)(JNIEnv* env, jobject, jint i) {
-    return env->NewStringUTF(player().patternName(static_cast<uint32_t>(i)).c_str());
+    return toJ(env, player().patternName(static_cast<uint32_t>(i)));
 }
 
 /// Replace the song with a song file. Null on success, else why it failed.
-JNIEXPORT jstring JNICALL JNI_FN(loadSong)(JNIEnv* env, jobject, jstring json) {
-    const char* chars = env->GetStringUTFChars(json, nullptr);
-    if (chars == nullptr) return env->NewStringUTF("out of memory");
-    const std::string error = player().loadSong(chars);
-    env->ReleaseStringUTFChars(json, chars);
-    return error.empty() ? nullptr : env->NewStringUTF(error.c_str());
+JNIEXPORT jstring JNICALL JNI_FN(loadSong)(JNIEnv* env, jobject, jbyteArray json) {
+    const std::string error = player().loadSong(fromJ(env, json));
+    return error.empty() ? nullptr : toJ(env, error);
+}
+
+/// The song as a song file (UTF-8), with every edit so far.
+JNIEXPORT jbyteArray JNICALL JNI_FN(saveSong)(JNIEnv* env, jobject) {
+    const std::string json = player().saveSong();
+    jbyteArray result = env->NewByteArray(static_cast<jsize>(json.size()));
+    if (result != nullptr) {
+        env->SetByteArrayRegion(result, 0, static_cast<jsize>(json.size()), reinterpret_cast<const jbyte*>(json.data()));
+    }
+    return result;
+}
+
+JNIEXPORT jlong JNICALL JNI_FN(getEditCount)(JNIEnv*, jobject) {
+    return static_cast<jlong>(player().editCount());
 }
 
 JNIEXPORT jstring JNICALL JNI_FN(getSongTitle)(JNIEnv* env, jobject) {
-    return env->NewStringUTF(player().songInfo().title.c_str());
+    return toJ(env, player().songInfo().title);
+}
+
+JNIEXPORT void JNICALL JNI_FN(setSongTitle)(JNIEnv* env, jobject, jbyteArray title) {
+    player().setTitle(fromJ(env, title));
 }
 
 /// Names of one kind of thing in the song: 0 sections, 1 layers, 2 params, 3 events.
@@ -114,7 +152,7 @@ JNIEXPORT jobjectArray JNICALL JNI_FN(getSongNames)(JNIEnv* env, jobject, jint k
     if (result == nullptr) return nullptr;
     for (uint32_t i = 0; i < count; ++i) {
         const std::string name = labels != nullptr && i < labels->size() ? (*labels)[i].name : std::to_string(i + 1);
-        jstring s = env->NewStringUTF(name.c_str());
+        jstring s = toJ(env, name);
         env->SetObjectArrayElement(result, static_cast<jsize>(i), s);
         env->DeleteLocalRef(s);
     }
@@ -186,7 +224,7 @@ JNIEXPORT jint JNICALL JNI_FN(getChannelCount)(JNIEnv*, jobject) {
 }
 
 JNIEXPORT jstring JNICALL JNI_FN(getChannelName)(JNIEnv* env, jobject, jint i) {
-    return env->NewStringUTF(player().channelName(static_cast<uint32_t>(i)).c_str());
+    return toJ(env, player().channelName(static_cast<uint32_t>(i)));
 }
 
 JNIEXPORT jint JNICALL JNI_FN(getChannelColumns)(JNIEnv*, jobject, jint i) {
@@ -198,7 +236,11 @@ JNIEXPORT jint JNICALL JNI_FN(getInstrumentCount)(JNIEnv*, jobject) {
 }
 
 JNIEXPORT jstring JNICALL JNI_FN(getInstrumentName)(JNIEnv* env, jobject, jint i) {
-    return env->NewStringUTF(player().instrumentName(static_cast<uint32_t>(i)).c_str());
+    return toJ(env, player().instrumentName(static_cast<uint32_t>(i)));
+}
+
+JNIEXPORT jboolean JNICALL JNI_FN(renameInstrument)(JNIEnv* env, jobject, jint i, jbyteArray name) {
+    return toJ(player().renameInstrument(static_cast<uint32_t>(i), fromJ(env, name)));
 }
 
 /// Instrument::kNumParams values, or null.
@@ -214,13 +256,14 @@ JNIEXPORT jint JNICALL JNI_FN(getMaxInstruments)(JNIEnv*, jobject) {
     return static_cast<jint>(player().maxInstruments());
 }
 
-/// New instrument with `values` (null: defaults). Its index, or -1.
-JNIEXPORT jint JNICALL JNI_FN(addInstrument)(JNIEnv* env, jobject, jfloatArray values) {
-    if (values == nullptr) return player().addInstrument(nullptr);
+/// New instrument called `name` with `values` (null: defaults). Its index, or -1.
+JNIEXPORT jint JNICALL JNI_FN(addInstrument)(JNIEnv* env, jobject, jfloatArray values, jbyteArray name) {
+    const std::string n = fromJ(env, name);
+    if (values == nullptr) return player().addInstrument(nullptr, n);
     if (env->GetArrayLength(values) != adaptive::Instrument::kNumParams) return -1;
     float v[adaptive::Instrument::kNumParams];
     env->GetFloatArrayRegion(values, 0, adaptive::Instrument::kNumParams, v);
-    return player().addInstrument(v);
+    return player().addInstrument(v, n);
 }
 
 JNIEXPORT jboolean JNICALL JNI_FN(assignInstrument)(JNIEnv*, jobject, jint channel, jint column, jint instrument) {

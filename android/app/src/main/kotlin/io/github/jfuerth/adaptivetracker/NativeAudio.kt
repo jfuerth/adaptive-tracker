@@ -41,9 +41,17 @@ object NativeAudio {
      * Replaces the song with a song file's text; playback stops. Returns null,
      * or why the file couldn't be loaded (the old song stays).
      */
-    external fun loadSong(json: String): String?
+    external fun loadSong(json: ByteArray): String?
+
+    /** The song as a song file (UTF-8), with every edit made so far. */
+    external fun saveSong(): ByteArray
+
+    /** Goes up with every edit; unchanged means there's nothing new to save. */
+    external fun getEditCount(): Long
 
     external fun getSongTitle(): String
+    private external fun setSongTitle(title: ByteArray)
+    fun setSongTitle(title: String) = setSongTitle(title.encodeToByteArray())
 
     /** Names in the song: [kind] 0 sections, 1 layers, 2 parameters, 3 events. */
     external fun getSongNames(kind: Int): Array<String>
@@ -116,6 +124,9 @@ object NativeAudio {
     external fun getChannelColumns(index: Int): Int
     external fun getInstrumentCount(): Int
     external fun getInstrumentName(index: Int): String
+    private external fun renameInstrument(index: Int, name: ByteArray): Boolean
+    /** Renames an instrument; the song file keeps referring to it by its id. */
+    fun renameInstrument(index: Int, name: String) = renameInstrument(index, name.encodeToByteArray())
 
     /**
      * Instrument [index]'s parameter values, in InstrumentParam order. Read each
@@ -127,10 +138,11 @@ object NativeAudio {
     external fun getMaxInstruments(): Int
 
     /**
-     * Adds an instrument with [values] (engine parameter order), or the synth's
-     * defaults when null. Returns its index, or -1 if the song is full.
+     * Adds an instrument called [name] with [values] (engine parameter order),
+     * or the synth's defaults when null. Returns its index, or -1 if the song is full.
      */
-    external fun addInstrument(values: FloatArray?): Int
+    private external fun addInstrument(values: FloatArray?, name: ByteArray): Int
+    fun addInstrument(values: FloatArray?, name: String) = addInstrument(values, name.encodeToByteArray())
 
     /** [channel]'s [column] plays instrument [instrument] from now on. */
     external fun assignInstrument(channel: Int, column: Int, instrument: Int): Boolean

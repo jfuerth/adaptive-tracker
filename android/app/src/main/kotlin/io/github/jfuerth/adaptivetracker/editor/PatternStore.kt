@@ -32,8 +32,7 @@ data class PatternInfo(
 /**
  * The UI's copy of each pattern. Loaded from the engine the first time a
  * pattern is opened; after that, edits update this copy and are sent to the
- * engine with NativeAudio.setCell, so the UI never reads memory the audio
- * thread writes.
+ * engine with NativeAudio.setCell.
  */
 object PatternStore {
     class Loaded(val info: PatternInfo, val cells: SnapshotStateList<CellData>) {
@@ -43,7 +42,14 @@ object PatternStore {
     private val cache = mutableMapOf<Int, Loaded>()
     private val ticksPerBeat by lazy { NativeAudio.getTicksPerBeat() }
 
-    val names: List<String> by lazy { List(NativeAudio.getPatternCount()) { NativeAudio.getPatternName(it) } }
+    var names: List<String> = emptyList()
+        private set
+
+    /** Forgets everything read from the engine: a different song has loaded. */
+    fun reset() {
+        cache.clear()
+        names = List(NativeAudio.getPatternCount()) { NativeAudio.getPatternName(it) }
+    }
 
     fun get(index: Int): Loaded? = cache[index] ?: load(index)?.also { cache[index] = it }
 

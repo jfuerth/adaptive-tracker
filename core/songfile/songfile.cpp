@@ -142,6 +142,9 @@ void checkCapacity(size_t n, uint32_t max, const std::string& where, const char*
 // ---------------------------------------------------------------- vocabulary
 
 const char* const kPitchModes[] = {"absolute", "transpose", "degree"};
+/// Voice types this version knows. A file naming any other is refused rather
+/// than played with the wrong voice.
+const char* const kVoices[] = {"subtractive"};
 const char* const kQuantize[] = {"now", "beat", "bar"};
 const char* const kEntries[] = {"restart", "keepPhase"};
 const char* const kCurves[] = {"linear", "exponential"};
@@ -347,6 +350,14 @@ void readInstruments(const Json& root, Song& song, SongInfo& info, Ids& ids) {
         const Json& j = object(list[i], where);
         info.instruments.push_back(label(j, where));
         ids.instruments.add(info.instruments.back().id, uint8_t(i), where);
+        if (field(j, "voice") != nullptr) {
+            const std::string v = string(j, "voice", where);
+            bool known = false;
+            for (const char* name : kVoices) known = known || v == name;
+            if (!known) {
+                fail(at(where, "voice"), "'" + v + "' is a voice this version doesn't have; the song needs a newer version");
+            }
+        }
         Instrument inst;  // parameters left out keep the synth's defaults
         if (const Json* params = field(j, "params")) {
             object(*params, at(where, "params"));
@@ -714,6 +725,7 @@ std::string save(const Song& song, const SongInfo& info) {
     Json& instruments = root["instruments"] = Json::array();
     for (uint8_t i = 0; i < song.numInstruments; ++i) {
         Json j = labelJson(info.instruments, i, "instrument");
+        j["voice"] = kVoices[0];
         Json params;
         for (uint8_t p = 0; p < Instrument::kNumParams; ++p) {
             const auto param = static_cast<Instrument::Param>(p);

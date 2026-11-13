@@ -24,18 +24,13 @@ constexpr int kNumScales = sizeof(kScales) / sizeof(kScales[0]);
 
 AudioPlayer::AudioPlayer()
     : engine_(std::make_unique<adaptive::Engine>(kSampleRate)),
-      song_(std::make_unique<adaptive::Song>()) {
+      song_(std::make_unique<adaptive::Song>()),
+      edit_(std::make_unique<adaptive::Song>()) {
     engine_->setSong(song_.get());
-    resetMirrors();
+    resetPositions();
 }
 
-void AudioPlayer::resetMirrors() {
-    instrumentCount_ = song_->numInstruments;
-    for (uint32_t ch = 0; ch < adaptive::config::kMaxChannels; ++ch) {
-        for (uint32_t col = 0; col < adaptive::config::kMaxColumns; ++col) {
-            columnInstrument_[ch][col] = song_->columnInstrument(ch, col);
-        }
-    }
+void AudioPlayer::resetPositions() {
     for (auto& a : playingPattern_) a.store(-1);
     for (auto& a : playingRow_) a.store(-1);
 }
@@ -50,15 +45,19 @@ std::string AudioPlayer::loadSong(std::string_view json) {
     const bool wasOpen = wantOpen_.load();
     close();
     engine_ = std::make_unique<adaptive::Engine>(kSampleRate);
+    *edit_ = *song;
     song_ = std::move(song);
     info_ = std::move(info);
     engine_->setSong(song_.get());
-    resetMirrors();
+    resetPositions();
+    edits_ = 0;
     if (wasOpen) open();
     LOGI("Loaded song \"%s\": %u channels, %u patterns, %u sections", info_.title.c_str(),
-         song_->numChannels, song_->numPatterns, song_->numSections);
+         edit_->numChannels, edit_->numPatterns, edit_->numSections);
     return "";
 }
+
+std::string AudioPlayer::saveSong() const { return adaptive::songfile::save(*edit_, info_); }
 
 AudioPlayer::~AudioPlayer() { close(); }
 
@@ -124,15 +123,15 @@ void AudioPlayer::close() {
 }
 
 bool AudioPlayer::play() {
-    if (song_->numSections == 0) return false;
-    return engine_->post(adaptive::Command::gotoSection(song_->startSection, adaptive::Quantize::Now));
+    if (edit_->numSections == 0) return false;
+    return engine_->post(adaptive::Command::gotoSection(edit_->startSection, adaptive::Quantize::Now));
 }
 
 bool AudioPlayer::stop() { return engine_->post(adaptive::Command::stop()); }
 
 int AudioPlayer::firstBridge() const {
-    for (uint8_t i = 0; i < song_->numSections; ++i) {
-        if (song_->sections[i].bridgeBeats > 0) return i;
+    for (uint8_t i = 0; i < edit_->numSections; ++i) {
+        if (edit_->sections[i].bridgeBeats > 0) return i;
     }
     return -1;
 }
@@ -163,13 +162,10 @@ bool AudioPlayer::setKey(int root, int scaleIndex) {
     return engine_->post(adaptive::Command::setKey(static_cast<uint8_t>(r), kScales[s], adaptive::Quantize::Bar));
 }
 
-// Pattern shapes and channel setups are changed only by the UI thread (not
-// yet at all), so it can read them while audio plays. Cells it reads only
-// before editing them, as with instruments.
 bool AudioPlayer::patternInfo(uint32_t i, int32_t out[5]) {
-    if (i >= song_->numPatterns) return false;
-    const adaptive::Pattern& p = song_->patterns[i];
-    const adaptive::ChannelSetup& ch = song_->channels[p.channel];
+    if (i >= edit_->numPatterns) return false;
+    const adaptive::Pattern& p = edit_->patterns[i];
+    const adaptive::ChannelSetup& ch = edit_->channels[p.channel];
     out[0] = p.channel;
     out[1] = p.numRows;
     out[2] = p.ticksPerRow;
@@ -179,9 +175,9 @@ bool AudioPlayer::patternInfo(uint32_t i, int32_t out[5]) {
 }
 
 bool AudioPlayer::readPattern(uint32_t i, uint8_t* out, uint32_t capacity) {
-    if (i >= song_->numPatterns) return false;
-    const adaptive::Pattern& p = song_->patterns[i];
-    const uint32_t columns = song_->channels[p.channel].numColumns;
+    if (i >= edit_->numPatterns) return false;
+    const adaptive::Pattern& p = edit_->patterns[i];
+    const uint32_t columns = edit_->channels[p.channel].numColumns;
     if (capacity < p.numRows * columns * 5u) return false;
     for (uint32_t r = 0; r < p.numRows; ++r) {
         for (uint32_t c = 0; c < columns; ++c) {
@@ -197,34 +193,49 @@ bool AudioPlayer::readPattern(uint32_t i, uint8_t* out, uint32_t capacity) {
 }
 
 bool AudioPlayer::setCell(uint32_t pattern, int row, int column, const adaptive::Cell& cell) {
-    if (pattern >= song_->numPatterns || row < 0 || row >= song_->patterns[pattern].numRows || column < 0 ||
+    if (pattern >= edit_->numPatterns || row < 0 || row >= edit_->patterns[pattern].numRows || column < 0 ||
         column >= static_cast<int>(adaptive::config::kMaxColumns)) {
         return false;
     }
-    return engine_->post(adaptive::Command::setCell(static_cast<uint8_t>(pattern), static_cast<uint16_t>(row),
-                                                    static_cast<uint8_t>(column), cell));
+    if (!engine_->post(adaptive::Command::setCell(static_cast<uint8_t>(pattern), static_cast<uint16_t>(row),
+                                                  static_cast<uint8_t>(column), cell))) {
+        return false;
+    }
+    edit_->patterns[pattern].cells[row][column] = cell;
+    ++edits_;
+    return true;
 }
 
-int AudioPlayer::addInstrument(const float* values) {
-    if (instrumentCount_ >= adaptive::config::kMaxInstruments) return -1;
-    const uint32_t i = instrumentCount_;
-    // Not yet in use, so the audio thread doesn't read it until AddInstrument.
-    adaptive::Instrument& inst = song_->instruments[i];
-    inst = adaptive::Instrument();
+int AudioPlayer::addInstrument(const float* values, const std::string& name) {
+    if (edit_->numInstruments >= adaptive::config::kMaxInstruments) return -1;
+    const uint32_t i = edit_->numInstruments;
+    adaptive::Instrument inst;
     if (values != nullptr) {
         for (uint32_t p = 0; p < adaptive::Instrument::kNumParams; ++p) {
             inst.set(static_cast<adaptive::Instrument::Param>(p), values[p]);
         }
     }
+    // Not yet in use, so the audio thread doesn't read it until AddInstrument.
+    song_->instruments[i] = inst;
     if (!engine_->post(adaptive::Command::addInstrument(static_cast<uint8_t>(i)))) return -1;
-    ++instrumentCount_;
+    edit_->addInstrument(inst);
+    info_.instruments.resize(i);  // labels go index for index with instruments
+    info_.instruments.push_back({adaptive::songfile::makeId(name, info_.instruments), name});
+    ++edits_;
     return static_cast<int>(i);
+}
+
+bool AudioPlayer::renameInstrument(uint32_t i, const std::string& name) {
+    if (i >= edit_->numInstruments || i >= info_.instruments.size() || name.empty()) return false;
+    info_.instruments[i].name = name;
+    ++edits_;
+    return true;
 }
 
 bool AudioPlayer::assignInstrument(int channel, int column, int instrument) {
     if (channel < 0 || channel >= static_cast<int>(adaptive::config::kMaxChannels) || column < 0 ||
-        column >= static_cast<int>(song_->channels[channel].numColumns) ||
-        instrument < 0 || instrument >= static_cast<int>(instrumentCount_)) {
+        column >= static_cast<int>(edit_->channels[channel].numColumns) ||
+        instrument < 0 || instrument >= static_cast<int>(edit_->numInstruments)) {
         return false;
     }
     if (!engine_->post(adaptive::Command::assignInstrument(static_cast<uint8_t>(channel),
@@ -232,12 +243,13 @@ bool AudioPlayer::assignInstrument(int channel, int column, int instrument) {
                                                           static_cast<uint8_t>(instrument)))) {
         return false;
     }
-    columnInstrument_[channel][column] = static_cast<uint8_t>(instrument);
+    edit_->channels[channel].instruments[column] = static_cast<uint8_t>(instrument);
+    ++edits_;
     return true;
 }
 
 bool AudioPlayer::setMonitor(int instrument) {
-    const uint8_t i = instrument < 0 || instrument >= static_cast<int>(instrumentCount_)
+    const uint8_t i = instrument < 0 || instrument >= static_cast<int>(edit_->numInstruments)
                           ? adaptive::kNoIndex : static_cast<uint8_t>(instrument);
     return engine_->post(adaptive::Command::setMonitor(i));
 }
@@ -249,26 +261,27 @@ void AudioPlayer::readMonitor(float* out, uint32_t n) const {
 }
 
 bool AudioPlayer::readInstrument(uint32_t i, float* out, uint32_t capacity) const {
-    // The audio thread writes instruments only for SetInstrumentParam, which
-    // the UI sends after it has taken its copy, so this read doesn't race.
-    const adaptive::Song& song = *song_;
-    if (i >= instrumentCount_ || capacity < adaptive::Instrument::kNumParams) return false;
+    const adaptive::Song& song = *edit_;
+    if (i >= song.numInstruments || capacity < adaptive::Instrument::kNumParams) return false;
     for (uint32_t p = 0; p < adaptive::Instrument::kNumParams; ++p) out[p] = song.instruments[i].values[p];
     return true;
 }
 
 bool AudioPlayer::setInstrumentParam(uint32_t i, int param, float value) {
-    if (i >= instrumentCount_ || param < 0 || param >= adaptive::Instrument::kNumParams) return false;
-    return engine_->post(adaptive::Command::setInstrumentParam(
-        static_cast<uint8_t>(i), static_cast<adaptive::Instrument::Param>(param), value));
+    if (i >= edit_->numInstruments || param < 0 || param >= adaptive::Instrument::kNumParams) return false;
+    const auto p = static_cast<adaptive::Instrument::Param>(param);
+    if (!engine_->post(adaptive::Command::setInstrumentParam(static_cast<uint8_t>(i), p, value))) return false;
+    edit_->instruments[i].set(p, value);
+    ++edits_;
+    return true;
 }
 
 int AudioPlayer::columnInstrument(int channel, int column) const {
     if (channel < 0 || channel >= static_cast<int>(adaptive::config::kMaxChannels) || column < 0 ||
-        column >= static_cast<int>(song_->channels[channel].numColumns)) {
+        column >= static_cast<int>(edit_->channels[channel].numColumns)) {
         return -1;
     }
-    const uint8_t i = columnInstrument_[channel][column];
+    const uint8_t i = edit_->channels[channel].instruments[column];
     return i == adaptive::kNoIndex ? -1 : i;
 }
 
@@ -279,8 +292,8 @@ bool AudioPlayer::previewOn(int instrument, int slot, int midiNote) {
 }
 
 bool AudioPlayer::soloPattern(uint32_t pattern, int columnMask) {
-    if (song_->pattern(pattern) == nullptr) return false;
-    return engine_->post(adaptive::Command::soloPattern(song_->patterns[pattern].channel, static_cast<uint8_t>(pattern),
+    if (edit_->pattern(pattern) == nullptr) return false;
+    return engine_->post(adaptive::Command::soloPattern(edit_->patterns[pattern].channel, static_cast<uint8_t>(pattern),
                                                        static_cast<uint16_t>(columnMask)));
 }
 

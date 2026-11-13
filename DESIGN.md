@@ -25,7 +25,7 @@ microcontrollers (ESP32, RP2350) later.
 | Pattern scope | **Per channel.** Each pattern belongs to one channel (its pitch mode, columns and instruments). Each channel plays its own sequence of patterns, which can have different lengths. A section says which pattern(s) each channel plays |
 | Columns | **Fixed per channel**, 1-4, in the song: every pattern on the channel has that many. Patterns store all 4, so removing a column and adding it back loses nothing |
 | Song data | `adaptive::Song` holds everything the engine plays, by index, with no pointers: channel setups, a pool of patterns, sections with per-channel sequences, layers, events, parameters (with initial values), mappings, instruments, start tempo, key and section. The engine changes it only on command, on the audio thread |
-| Song file | **JSON**, see `docs/song-format.md`. Tolerant reader (unknown fields ignored, defaults for missing ones), refuses newer versions, references by stable id, names separate from ids, errors say where. The app's own format; MCU builds will take a converted binary, so the MCU side can change freely. The demo is a file now (`songs/adaptive-demo.json`, bundled as an app asset, written by `export_demo` from `core/demo/adaptive_demo.hpp`; a test fails if they drift) |
+| Song file | **JSON**, see `docs/song-format.md`. Tolerant reader (unknown fields ignored, defaults for missing ones), refuses newer versions, references by stable id, names separate from ids, errors say where. Instruments carry a `voice` type that decides what their parameters mean; readers refuse voices they don't know, so new voices need no version bump. The app's own format; MCU builds will take a converted binary, so the MCU side can change freely. The demo is a file now (`songs/adaptive-demo.json`, bundled as an app asset, written by `export_demo` from `core/demo/adaptive_demo.hpp`; a test fails if they drift) |
 | Memory (MCU, later) | Patterns are fixed at 256 rows x 4 columns (5 KB each), fine on the phone but not for an MCU's pattern pool. The file stores only what's used; an MCU build will want a shared cell arena |
 | Timing | Engine clock in ticks at 96 PPQ; effects move every 4 ticks (24 **effect ticks** per beat). Each pattern sets its own **length in rows** and **speed: effect ticks per row**, as in trackers (6 = four rows per beat; 5 is fine too, rows needn't line up with beats), so channels can play polyrhythms. **Beats per bar is set per section** and defines bar quantisation, counted from section start. Patterns needn't fill whole bars |
 | Tempo | Comes only from the section plus adaptive mappings (a multiplier). **Patterns cannot change tempo** |
@@ -244,7 +244,12 @@ android/         Gradle project: app (Compose) + :native (CMake → core + Oboe)
    editing, creating patterns and arranging sequences.
 6. **Lua**: control thread, API, script editor; measure footprint.
 7. ✅ Song file format (done 2026-11-13): JSON load/save, the demo as a
-   file. Still to do: saving from the app, opening songs. Later: the MCU
+   file; instruments name their voice type, and unknown voices are refused.
+   The app autosaves to private storage (a few seconds after edits and when
+   it goes to the background) and exports/imports files through the system
+   file picker. Saving reads the native player's UI-thread copy of the song,
+   which every edit updates alongside the engine's, so it never races the
+   audio thread. Later: the MCU
    build (RP2350 first, reusing pressense's I2S sink) with a converted binary song.
 
 ## Future enhancement ideas

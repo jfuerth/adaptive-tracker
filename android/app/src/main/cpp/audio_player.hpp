@@ -35,8 +35,14 @@ public:
     /// restarts with a fresh engine). Returns "" or why it failed, in which
     /// case the old song stays. UI thread only.
     std::string loadSong(std::string_view json);
+    /// The song as a song file, with every edit made so far. UI thread only.
+    std::string saveSong() const;
     const adaptive::songfile::SongInfo& songInfo() const { return info_; }
-    const adaptive::Song& song() const { return *song_; }
+    /// The UI thread's copy of the song (see edit_).
+    const adaptive::Song& song() const { return *edit_; }
+    void setTitle(std::string title) { info_.title = std::move(title); ++edits_; }
+    /// Counts edits to the song, for autosave: unchanged count, nothing to save.
+    uint64_t editCount() const { return edits_; }
 
     // Control (UI thread only). Each returns false if the command queue was full.
     bool play();
@@ -52,13 +58,12 @@ public:
     bool setKey(int root, int scaleIndex);
 
     // Pattern editing (UI thread only).
-    uint32_t patternCount() const { return song_->numPatterns; }
+    uint32_t patternCount() const { return edit_->numPatterns; }
     std::string patternName(uint32_t i) const { return name(info_.patterns, i); }
     /// [channel, numRows, ticksPerRow, numColumns, pitchMode (0 Absolute, 1 Transpose, 2 Degree)]
     bool patternInfo(uint32_t i, int32_t out[5]);
     /// Copies the pattern's cells, 5 bytes each (note, accidental, volume, effect,
-    /// param), row by row, numColumns per row. Only call before editing that
-    /// pattern; afterwards the UI keeps its own copy.
+    /// param), row by row, numColumns per row.
     bool readPattern(uint32_t i, uint8_t* out, uint32_t capacity);
     bool setCell(uint32_t pattern, int row, int column, const adaptive::Cell& cell);
     /// Sound `midiNote` with song instrument `instrument` on preview voice `slot`.
@@ -69,22 +74,22 @@ public:
     bool setColumnMask(int channel, int columnMask);
 
     // Instruments (UI thread only).
-    uint32_t channelCount() const { return song_->numChannels; }
+    uint32_t channelCount() const { return edit_->numChannels; }
     std::string channelName(uint32_t i) const { return name(info_.channels, i); }
-    /// Columns (voices) on channel i; set up before audio starts and never changed.
+    /// Columns (voices) on channel i.
     int channelColumns(int i) const {
         return i >= 0 && i < static_cast<int>(channelCount())
-                   ? static_cast<int>(song_->channels[i].numColumns) : 0;
+                   ? static_cast<int>(edit_->channels[i].numColumns) : 0;
     }
-    uint32_t instrumentCount() const { return instrumentCount_; }
+    uint32_t instrumentCount() const { return edit_->numInstruments; }
     uint32_t maxInstruments() const { return adaptive::config::kMaxInstruments; }
-    /// The song file's name for one of its instruments, or "" for one made in the app.
     std::string instrumentName(uint32_t i) const { return name(info_.instruments, i); }
-    /// Add an instrument with `values` (Instrument::kNumParams floats), or the
-    /// defaults when null. Returns its index, or -1 when the song is full.
-    int addInstrument(const float* values);
+    /// Add an instrument called `name` with `values` (Instrument::kNumParams
+    /// floats), or the defaults when null. Returns its index, or -1 when the song is full.
+    int addInstrument(const float* values, const std::string& name);
+    /// Renames instrument i; its id (what the song file refers to it by) stays.
+    bool renameInstrument(uint32_t i, const std::string& name);
     /// Copies instrument i's parameter values (Instrument::kNumParams floats).
-    /// Only call before editing it; afterwards the UI keeps its own copy.
     bool readInstrument(uint32_t i, float* out, uint32_t capacity) const;
     bool setInstrumentParam(uint32_t i, int param, float value);
     /// Instrument index used by a channel's column, or -1 (no instrument, or no such column).
@@ -126,14 +131,20 @@ private:
     static std::string name(const std::vector<adaptive::songfile::Label>& labels, uint32_t i) {
         return i < labels.size() ? labels[i].name : std::string();
     }
-    /// The UI thread's view of the instrument table, from the song.
-    void resetMirrors();
+    void resetPositions();
     bool openLocked();  // streamMutex_ must be held
     void updateStats(oboe::AudioStream* stream, int64_t callbackNs, int32_t numFrames);
 
     std::unique_ptr<adaptive::Engine> engine_;
+    /// The song the engine plays. Once audio runs, only the audio thread
+    /// touches it (edits reach it as commands).
     std::unique_ptr<adaptive::Song> song_;
+    /// The UI thread's copy of the song: every edit is made here as well as
+    /// sent to the engine, so the UI can read it, and save it, without racing
+    /// the audio thread.
+    std::unique_ptr<adaptive::Song> edit_;
     adaptive::songfile::SongInfo info_;
+    uint64_t edits_ = 0;
     std::shared_ptr<oboe::AudioStream> stream_;
     std::mutex streamMutex_;  // guards stream_ between UI thread and error-restart thread
     std::atomic<bool> wantOpen_{false};
@@ -160,9 +171,4 @@ private:
     float monitorScratch_[kMonitorScratch] = {};
     float monitorRing_[kMonitorFrames] = {};
     std::atomic<uint32_t> monitorWrite_{0};  // total frames written, wraps
-
-    // The UI thread's view of the song's instrument table: the audio thread
-    // owns the song while it plays, and changes it only on command.
-    uint32_t instrumentCount_ = 0;
-    uint8_t columnInstrument_[adaptive::config::kMaxChannels][adaptive::config::kMaxColumns] = {};
 };

@@ -144,6 +144,19 @@ TEST_CASE("Song file: errors say what is wrong and where") {
           std::string::npos);
     CHECK(loadError(demoWith(R"("id": "bass")", R"("id": "lead")")) ==
           "instruments[1].id: another instrument has id 'lead'");
+    CHECK(loadError(demoWith(R"("voice": "subtractive")", R"("voice": "noise")")) ==
+          "instruments[0].voice: 'noise' is a voice this version doesn't have; the song needs a newer version");
+}
+
+TEST_CASE("Song file: an instrument without a voice is subtractive") {
+    auto song = std::make_unique<Song>();
+    songfile::SongInfo info;
+    // Written before voices had types: every "voice" renamed to a field the reader ignores.
+    std::string json = demoJson();
+    for (size_t at; (at = json.find(R"("voice")")) != std::string::npos;) json.replace(at, 7, R"("old")");
+    const auto result = songfile::load(json, *song, info);
+    REQUIRE_MESSAGE(result.ok, result.error);
+    CHECK(songfile::save(*song, info) == demoJson());
 }
 
 TEST_CASE("Song file: ids from names") {

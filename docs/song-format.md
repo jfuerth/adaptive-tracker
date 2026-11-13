@@ -54,10 +54,17 @@ or `b`. Scales are `major`, `minor`, `harmonicMinor`, `dorian`, `phrygian`,
 ## Instruments
 
 ```json
-{"id": "bass", "name": "Bass", "params": {"shape": 0, "cutoff": 320, "resonance": 3, ...}}
+{"id": "bass", "name": "Bass", "voice": "subtractive", "params": {"shape": 0, "cutoff": 320, "resonance": 3, ...}}
 ```
 
-`params` uses the engine's parameter keys (`shape`, `cutoff`, `resonance`,
+`voice` is the kind of sound source; it decides what `params` means. A
+reader refuses a voice it doesn't know ("needs a newer version") rather than
+playing the instrument with the wrong one, so new voices can be added
+without changing `version`. Absent means `subtractive`.
+
+Voices:
+
+**`subtractive`**: pressense's oscillator, filter and envelopes. `params` uses the engine's parameter keys (`shape`, `cutoff`, `resonance`,
 `filterEnvAmount`, `filterAttack`, `filterDecay`, `filterSustain`,
 `filterRelease`, `ampAttack`, `ampDecay`, `ampSustain`, `ampRelease`, `level`,
 `vibratoRate`, `vibratoDepth`, `tremoloRate`, `tremoloDepth`) in natural units:
