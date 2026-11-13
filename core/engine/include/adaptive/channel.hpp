@@ -71,8 +71,12 @@ public:
         float volume = 1.0f;   ///< 0..1
         uint8_t effect = fx::kNone;
         uint8_t effectParam = 0;
-        uint8_t portaMemory = 0;      ///< Last nonzero 1xx/2xx parameter.
         uint8_t tonePortaMemory = 0;  ///< Last nonzero 3xx parameter.
+        /// 1xx/2xx: semitones per effect tick (0 = none). 3xx: glide speed
+        /// toward `target` (0 = none). Both persist across rows until a new
+        /// note, another pitch command, or (for a glide) reaching the target.
+        float slide = 0.0f;
+        float glide = 0.0f;
         uint8_t volSlideMemory = 0;   ///< Last nonzero Axy parameter.
         int8_t arpOffset[3] = {0, 0, 0};  ///< Semitones for arpeggio steps 0, 1, 2.
         /// 8xx/9xx: cutoff change per effect tick in Fxx steps (0 = no sweep).
@@ -301,7 +305,7 @@ private:
         entryStartTick_ = startTick;
         entryIndex_ = 0;
         totalTicks_ = 0;
-        for (auto& c : columns_) c.filterSweep = 0.0f;
+        for (auto& c : columns_) c.filterSweep = c.slide = c.glide = 0.0f;
         if (sequence_ != nullptr) {
             for (uint32_t i = 0; i < sequence_->length; ++i) totalTicks_ += sequence_->entries[i]->lengthTicks();
         } else if (single_ != nullptr) {
@@ -354,16 +358,28 @@ private:
             cell.effect != fx::kFilterSweepDown) {
             sweepFilter(s, v);
         }
+        // Pitch motion from earlier rows also continues on row starts, unless
+        // this row has a new note or pitch command, which ends it.
+        const bool pitchCommand = cell.effect == fx::kPortaUp || cell.effect == fx::kPortaDown ||
+                                  cell.effect == fx::kTonePorta;
+        if (pitchCommand || cell.isNote()) {
+            s.slide = s.glide = 0.0f;
+        } else {
+            stepPitch(s);
+        }
         s.effect = cell.effect;
         s.effectParam = cell.effectParam;
         s.effectTickInRow = 0;
         switch (cell.effect) {
         case fx::kPortaUp:
+            s.slide = cell.effectParam / 16.0f;
+            break;
         case fx::kPortaDown:
-            if (cell.effectParam != 0) s.portaMemory = cell.effectParam;
+            s.slide = -cell.effectParam / 16.0f;
             break;
         case fx::kTonePorta:
             if (cell.effectParam != 0) s.tonePortaMemory = cell.effectParam;
+            s.glide = s.tonePortaMemory / 16.0f;
             break;
         case fx::kVolumeSlide:
             if (cell.effectParam != 0) s.volSlideMemory = cell.effectParam;
@@ -455,46 +471,43 @@ private:
         v.setBaseCutoff(fxmap::cutoffHz(now < 0.0f ? 0.0f : (now > 255.0f ? 255.0f : now)));
     }
 
+    /// One step of 1xx/2xx slide or 3xx glide.
+    static void stepPitch(ColumnState& s) {
+        if (s.slide != 0.0f) {
+            s.pitch += s.slide;
+            if (s.pitch > 127.0f || s.pitch < 0.0f) {
+                s.pitch = s.pitch > 127.0f ? 127.0f : 0.0f;
+                s.slide = 0.0f;
+            }
+        }
+        if (s.glide != 0.0f) {
+            if (s.pitch < s.target) {
+                s.pitch = (s.pitch + s.glide > s.target) ? s.target : s.pitch + s.glide;
+            } else if (s.pitch > s.target) {
+                s.pitch = (s.pitch - s.glide < s.target) ? s.target : s.pitch - s.glide;
+            }
+            if (s.pitch == s.target) s.glide = 0.0f;
+        }
+    }
+
     void effectTick(uint32_t c) {
         ColumnState& s = columns_[c];
         synth::WavetableSynth& v = voices_[c];
         ++s.effectTickInRow;
 
         sweepFilter(s, v);
+        const bool moving = s.slide != 0.0f || s.glide != 0.0f;
+        stepPitch(s);
+        if (moving || s.effect == fx::kArpeggio) v.setFrequency(midiNoteToHz(s.soundingPitch()));
 
-        switch (s.effect) {
-        case fx::kArpeggio:
-            break;  // soundingPitch() steps through the offsets
-        case fx::kPortaUp:
-            s.pitch += s.portaMemory / 16.0f;
-            if (s.pitch > 127.0f) s.pitch = 127.0f;
-            break;
-        case fx::kPortaDown:
-            s.pitch -= s.portaMemory / 16.0f;
-            if (s.pitch < 0.0f) s.pitch = 0.0f;
-            break;
-        case fx::kTonePorta: {
-            const float step = s.tonePortaMemory / 16.0f;
-            if (s.pitch < s.target) {
-                s.pitch = (s.pitch + step > s.target) ? s.target : s.pitch + step;
-            } else if (s.pitch > s.target) {
-                s.pitch = (s.pitch - step < s.target) ? s.target : s.pitch - step;
-            }
-            break;
-        }
-        case fx::kVolumeSlide: {
+        if (s.effect == fx::kVolumeSlide) {
             const int up = s.volSlideMemory >> 4;
             const int down = s.volSlideMemory & 0x0F;
             s.volume += (up != 0 ? up : -down) / 64.0f;
             if (s.volume < 0.0f) s.volume = 0.0f;
             if (s.volume > 1.0f) s.volume = 1.0f;
             v.setVolume(s.volume);
-            return;
         }
-        default:
-            return;
-        }
-        v.setFrequency(midiNoteToHz(s.soundingPitch()));
     }
 
     std::array<synth::WavetableSynth, config::kMaxColumns> voices_;

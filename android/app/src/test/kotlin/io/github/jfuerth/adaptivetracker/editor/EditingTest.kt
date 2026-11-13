@@ -150,7 +150,7 @@ class HexEntryTest {
 
 class DescriptionTest {
     @Test fun describesEffects() {
-        assertEquals("305 · Slide to note · 5/16 semitone per tick",
+        assertEquals("305 · Glide to note · 5/16 semitone per tick",
             EffectDescription.describe(CellData(effect = '3'.code, param = 5), PitchMode.ABSOLUTE))
         assertEquals("024 · Arpeggio · note, +2, +4 scale steps",
             EffectDescription.describe(CellData(effect = '0'.code, param = 0x24), PitchMode.DEGREE))

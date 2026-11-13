@@ -113,10 +113,29 @@ TEST_CASE("Effects: portamento up and down move by xx/16 semitone per effect tic
 
     f.reachTick(95);  // effect ticks 4, 8, ..., 92: 23 steps; none on the row's first tick
     CHECK(f.ch().column(0).pitch == doctest::Approx(60.0f + 23 * 0.5f));
-    f.reachTick(96);  // row 1 starts: no slide yet
+    f.reachTick(96);  // row 1 starts: the new command replaces the slide
     CHECK(f.ch().column(0).pitch == doctest::Approx(71.5f));
     f.reachTick(104);  // ticks 100 and 104
     CHECK(f.ch().column(0).pitch == doctest::Approx(71.5f - 2.0f));
+}
+
+TEST_CASE("Effects: slides continue across rows until stopped or a new note") {
+    Fixture f;
+    auto p = makePattern(5, 1);
+    p->cells[0][0] = Cell::on(60).with(fx::kPortaUp, 0x10);  // 1 semitone per effect tick
+    p->cells[2][0] = Cell::effectOnly(fx::kPortaUp, 0x00);   // stop
+    p->cells[3][0] = Cell::on(50).with(fx::kPortaDown, 0x08);
+    p->cells[4][0] = Cell::on(40);                            // a new note ends the slide
+    f.ch().play(p.get(), 0);
+
+    f.reachTick(191);  // 23 steps in row 0, then 24 in row 1 (including its first tick)
+    CHECK(f.ch().column(0).pitch == doctest::Approx(60.0f + 47.0f));
+    f.reachTick(287);
+    CHECK(f.ch().column(0).pitch == doctest::Approx(107.0f));
+    f.reachTick(383);
+    CHECK(f.ch().column(0).pitch == doctest::Approx(50.0f - 23 * 0.5f));
+    f.reachTick(400);
+    CHECK(f.ch().column(0).pitch == 40.0f);
 }
 
 TEST_CASE("Effects: tone portamento slides to the note without retriggering or overshooting") {
@@ -137,6 +156,10 @@ TEST_CASE("Effects: tone portamento slides to the note without retriggering or o
 
     f.reachTick(200);  // row 2 at 192: slide down with remembered speed
     CHECK(f.ch().column(0).pitch == doctest::Approx(62.0f - 2 * 5 / 16.0f));
+    // 7 semitones at 5/16 needs 23 ticks: it carries on into row 3, which is empty.
+    f.reachTick(300);
+    CHECK(f.ch().column(0).pitch == 55.0f);
+    CHECK(f.ch().column(0).glide == 0.0f);
 }
 
 TEST_CASE("Effects: volume column and volume slide") {

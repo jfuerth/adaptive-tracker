@@ -14,9 +14,9 @@ namespace adaptive {
 namespace fx {
 inline constexpr uint8_t kNone = 0;
 inline constexpr uint8_t kArpeggio = '0';         ///< 0xy: cycle note, +x, +y (scale steps in degree mode)
-inline constexpr uint8_t kPortaUp = '1';          ///< 1xx: pitch up xx/16 semitone per effect tick
-inline constexpr uint8_t kPortaDown = '2';        ///< 2xx: pitch down xx/16 semitone per effect tick
-inline constexpr uint8_t kTonePorta = '3';        ///< 3xx: slide to this row's note at xx/16 semitone per effect tick
+inline constexpr uint8_t kPortaUp = '1';          ///< 1xx: pitch up xx/16 semitone per effect tick (persists; 100 stops)
+inline constexpr uint8_t kPortaDown = '2';        ///< 2xx: pitch down xx/16 semitone per effect tick (persists; 200 stops)
+inline constexpr uint8_t kTonePorta = '3';        ///< 3xx: glide to this row's note at xx/16 semitone per effect tick, across rows (300 reuses the speed)
 inline constexpr uint8_t kVibrato = '4';          ///< 4xy: vibrato rate x, depth y (persists; 400 = off)
 inline constexpr uint8_t kFilterResonance = '5';  ///< 5xx: filter Q across the synth's full range
 inline constexpr uint8_t kWaveShape = '6';        ///< 6xx: waveform shape 0..1

@@ -160,8 +160,13 @@ Effects follow ProTracker conventions where they make sense. Notes, volume and
 the parameter effects apply on a row's first tick. Slides and arpeggios update
 on every later **effect tick** of the row. An effect tick is 4 engine ticks
 (1/24 beat), which is ProTracker's default rate at 125 BPM and follows the tempo.
-A row with no effect ends the previous row's effect. For `1`, `2`, `3` and `A`,
-a parameter of `00` reuses the last nonzero one.
+A row with no effect ends the previous row's arpeggio or volume slide. **Pitch
+slides and filter sweeps persist** across rows (a deliberate break from
+ProTracker): `1xx`/`2xx` until `100`/`200`, another pitch command or a new
+note; `3xx` until it reaches its note; `8xx`/`9xx` until another filter
+command. A motion carried over from an earlier row also steps on row starts,
+so it moves evenly. For `3` and `A`, a parameter of `00` reuses the last
+nonzero one.
 
 Every effect command is a single hex digit, so the editor's hex pad enters the
 command and its two parameter digits.
@@ -169,9 +174,9 @@ command and its two parameter digits.
 | Code | Effect | Parameter |
 |---|---|---|
 | `0xy` | Arpeggio: note, +x, +y, cycling each effect tick | Semitones (scale steps in Degree mode) |
-| `1xx` | Pitch slide up | xx/16 semitone per effect tick |
-| `2xx` | Pitch slide down | xx/16 semitone per effect tick |
-| `3xx` | Slide to the row's note (no retrigger, no overshoot) | xx/16 semitone per effect tick |
+| `1xx` | Pitch slide up (persists; `100` stops) | xx/16 semitone per effect tick |
+| `2xx` | Pitch slide down (persists; `200` stops) | xx/16 semitone per effect tick |
+| `3xx` | Glide to the row's note (no retrigger, no overshoot; carries on across rows until it arrives) | xx/16 semitone per effect tick |
 | `4xy` | Vibrato (persists; `400` turns it off) | x = rate 0.5–8 Hz, y = depth in 1/10 semitone |
 | `5xx` | Filter resonance (persists) | Quadratic over the synth's Q range |
 | `6xx` | Waveform shape (persists) | 00 … FF = 0 … 1 |

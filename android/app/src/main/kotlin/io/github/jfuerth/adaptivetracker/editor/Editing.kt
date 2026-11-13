@@ -104,9 +104,9 @@ object EffectDescription {
         val units = if (mode == PitchMode.DEGREE) "scale steps" else "semitones"
         val text = when (cell.effect.toChar()) {
             '0' -> if (p == 0) "Arpeggio · 000 does nothing" else "Arpeggio · note, +$x, +$y $units"
-            '1' -> "Slide up · " + speed(p)
-            '2' -> "Slide down · " + speed(p)
-            '3' -> "Slide to note · " + speed(p)
+            '1' -> if (p == 0) "Slide · 100 stops the slide" else "Slide up · $p/16 semitone per tick, until stopped"
+            '2' -> if (p == 0) "Slide · 200 stops the slide" else "Slide down · $p/16 semitone per tick, until stopped"
+            '3' -> "Glide to note · " + if (p == 0) "300 reuses the last speed" else "$p/16 semitone per tick"
             '4' -> if (p == 0) "Vibrato off" else
                 "Vibrato · rate %.1f Hz, depth %.1f semitone".format(Locale.US, 0.5 + x * 0.5, y * 0.1)
             '5' -> "Filter resonance · Q %.1f".format(Locale.US, 0.1 + 19.9 * (p / 255.0).pow(2))
@@ -125,8 +125,6 @@ object EffectDescription {
         }
         return "$code · $text"
     }
-
-    private fun speed(p: Int) = if (p == 0) "00 reuses the last speed" else "$p/16 semitone per tick"
 
     /** 8xx/9xx: xx/16 Fxx steps per effect tick, 24 effect ticks per beat. */
     private fun sweep(p: Int) = "%.2f octave per beat, until stopped".format(Locale.US, p * 1.5 * 9.965784 / 255.0)
