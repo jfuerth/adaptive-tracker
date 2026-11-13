@@ -83,6 +83,7 @@ public:
     void playSequence(const Sequence* sequence, uint64_t startTick) {
         sequence_ = (sequence != nullptr && sequence->length > 0) ? sequence : nullptr;
         single_ = nullptr;
+        loop_ = true;
         restart(startTick);
     }
 
@@ -90,8 +91,34 @@ public:
     void play(const Pattern* pattern, uint64_t startTick) {
         sequence_ = nullptr;
         single_ = (pattern != nullptr && pattern->isValid()) ? pattern : nullptr;
+        loop_ = true;
         restart(startTick);
     }
+
+    /// Play a pattern once from `startTick`, then stop (used for stingers).
+    void playOnce(const Pattern* pattern, uint64_t startTick) {
+        play(pattern, startTick);
+        loop_ = false;
+    }
+
+    /// True while a sequence or pattern is assigned (including a stinger that
+    /// hasn't finished).
+    bool isPlaying() const { return currentPattern() != nullptr; }
+    /// True while playing a one-shot pattern (a stinger).
+    bool isOneShot() const { return isPlaying() && !loop_; }
+
+    /**
+     * Musical mute: while muted, rows trigger no new notes (note-offs still
+     * apply) and the sequence keeps its position, so unmuting resumes in time.
+     * Muting releases sounding notes, which fade out with their own release.
+     */
+    void setMuted(bool muted) {
+        if (muted && !muted_) {
+            for (auto& v : voices_) v.release();
+        }
+        muted_ = muted;
+    }
+    bool isMuted() const { return muted_; }
 
     void setPitchMode(PitchMode mode) { pitchMode_ = mode; }
     PitchMode pitchMode() const { return pitchMode_; }
@@ -123,8 +150,7 @@ public:
         if (pattern == nullptr || tick < startTick_) return;
 
         if (tick - entryStartTick_ >= pattern->lengthTicks()) {
-            entryStartTick_ += pattern->lengthTicks();
-            if (sequence_ != nullptr) entryIndex_ = (entryIndex_ + 1) % sequence_->length;
+            if (!locate(tick)) return;  // a one-shot pattern finished
             pattern = currentPattern();
         }
 
@@ -158,9 +184,47 @@ private:
         startTick_ = startTick;
         entryStartTick_ = startTick;
         entryIndex_ = 0;
-        if (currentPattern() == nullptr) {
+        totalTicks_ = 0;
+        if (sequence_ != nullptr) {
+            for (uint32_t i = 0; i < sequence_->length; ++i) totalTicks_ += sequence_->entries[i]->lengthTicks();
+        } else if (single_ != nullptr) {
+            totalTicks_ = single_->lengthTicks();
+        } else {
             for (auto& v : voices_) v.release();
         }
+    }
+
+    /**
+     * Find the sequence entry that contains `tick`. Handles any distance from
+     * the start, including a start in the past (sections entered with
+     * Entry::KeepPhase). Returns false, and stops the channel, when a one-shot
+     * pattern has finished.
+     */
+    bool locate(uint64_t tick) {
+        uint64_t offset = tick - startTick_;
+        if (offset >= totalTicks_) {
+            if (!loop_) {
+                sequence_ = nullptr;
+                single_ = nullptr;
+                for (auto& v : voices_) v.release();
+                return false;
+            }
+        }
+        const uint64_t loopStart = startTick_ + (offset / totalTicks_) * totalTicks_;
+        offset %= totalTicks_;
+        uint64_t entryStart = loopStart;
+        uint32_t index = 0;
+        if (sequence_ != nullptr) {
+            while (offset >= sequence_->entries[index]->lengthTicks()) {
+                const uint32_t len = sequence_->entries[index]->lengthTicks();
+                offset -= len;
+                entryStart += len;
+                ++index;
+            }
+        }
+        entryIndex_ = index;
+        entryStartTick_ = entryStart;
+        return true;
     }
 
     void startRow(uint32_t c, const Cell& cell, const PitchContext& ctx) {
@@ -185,7 +249,7 @@ private:
             break;
         }
 
-        if (cell.isNote()) {
+        if (cell.isNote() && !muted_) {
             const float p = static_cast<float>(resolvePitch(pitchMode_, cell.note, cell.accidental, ctx));
             s.lastNote = cell.note;
             s.lastAccidental = cell.accidental;
@@ -289,8 +353,11 @@ private:
     const Pattern* single_ = nullptr;
     uint64_t startTick_ = 0;
     uint64_t entryStartTick_ = 0;
+    uint64_t totalTicks_ = 0;  ///< Length of the whole sequence (or single pattern).
     uint32_t entryIndex_ = 0;
     uint32_t numColumns_ = 1;
+    bool loop_ = true;
+    bool muted_ = false;
     PitchMode pitchMode_ = PitchMode::Absolute;
     float gain_ = 1.0f;
 };

@@ -36,7 +36,10 @@ if(ADAPTIVE_BUILD_HOST_TOOLS)
         core/tests/test_main.cpp
         core/tests/test_engine.cpp
         core/tests/test_pitch.cpp
-        core/tests/test_sequencer.cpp)
+        core/tests/test_sequencer.cpp
+        core/tests/test_adaptive.cpp)
+    find_package(Threads REQUIRED)
+    target_link_libraries(adaptive_tests PRIVATE Threads::Threads)
     target_link_libraries(adaptive_tests PRIVATE adaptive_engine)
     target_include_directories(adaptive_tests SYSTEM PRIVATE core/third_party/doctest)
     target_compile_options(adaptive_tests PRIVATE ${ADAPTIVE_WARNINGS})

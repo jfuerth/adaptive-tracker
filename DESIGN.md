@@ -23,6 +23,8 @@ microcontrollers (ESP32, RP2350) later.
 | Timing | Engine clock in ticks at 96 PPQ (divisible by 2, 3, 4, 8, 16, 32). Each pattern sets its own **length in rows** and **rows per beat**, so channels can play polyrhythms. **Beats per bar is set per section** and defines bar quantisation, counted from section start. Patterns needn't fill whole bars |
 | Tempo | Comes only from the section plus adaptive mappings (a multiplier). **Patterns cannot change tempo** |
 | Degree mapping | **Wrap** is the default (chosen by listening test, 2026-11-12). Snap stays available per song |
+| Section transitions | Each transition chooses **Restart** (default: channels start their new sequences from the top) or **Keep phase** (channels continue at the same position, and the bar count carries on). A transition can play a **bridge** section once before entering the target |
+| Game events | Named one-shot triggers (buttons in the app; later the host game or Lua). Each fires a short list of actions: play a stinger, go to a section, mute/unmute a layer. Actions are immediate by default, or quantised to the next beat or bar |
 | Android toolchain | Command-line only, via `sdkmanager`: NDK 30.0.16248370, CMake 4.1.2 and platform-tools in `~/Android/Sdk`. The Gradle wrapper fetches Gradle. Android Studio is optional |
 | PKTrekker | Reference only (effect semantics, tests). Not linked. Check licence before copying anything: `Modplay.*` is co-copyright Andrew Kilpatrick |
 

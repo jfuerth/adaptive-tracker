@@ -29,6 +29,22 @@ inline constexpr uint32_t kTicksPerBeat = 96;
 #define ADAPTIVE_MAX_SEQUENCE_LENGTH 64
 #endif
 
+#ifndef ADAPTIVE_MAX_SECTIONS
+#define ADAPTIVE_MAX_SECTIONS 16
+#endif
+#ifndef ADAPTIVE_MAX_LAYERS
+#define ADAPTIVE_MAX_LAYERS 8
+#endif
+#ifndef ADAPTIVE_MAX_EVENTS
+#define ADAPTIVE_MAX_EVENTS 16
+#endif
+#ifndef ADAPTIVE_MAX_EVENT_ACTIONS
+#define ADAPTIVE_MAX_EVENT_ACTIONS 4
+#endif
+#ifndef ADAPTIVE_MAX_PENDING_COMMANDS
+#define ADAPTIVE_MAX_PENDING_COMMANDS 32
+#endif
+
 /// Engine ticks per effect tick. 96 / 4 = 24 effect ticks per beat, which is
 /// ProTracker's default rate (6 ticks per row at 4 rows per beat), so slides and
 /// arpeggios behave the way tracker users expect and follow the tempo.
@@ -42,5 +58,13 @@ inline constexpr uint32_t kMaxColumns = ADAPTIVE_MAX_COLUMNS;
 inline constexpr uint32_t kMaxRows = ADAPTIVE_MAX_ROWS;
 /// Entries in a channel's pattern sequence.
 inline constexpr uint32_t kMaxSequenceLength = ADAPTIVE_MAX_SEQUENCE_LENGTH;
+inline constexpr uint32_t kMaxSections = ADAPTIVE_MAX_SECTIONS;
+inline constexpr uint32_t kMaxLayers = ADAPTIVE_MAX_LAYERS;
+inline constexpr uint32_t kMaxEvents = ADAPTIVE_MAX_EVENTS;
+inline constexpr uint32_t kMaxEventActions = ADAPTIVE_MAX_EVENT_ACTIONS;
+/// Commands waiting for their quantised time (e.g. "at the next bar").
+inline constexpr uint32_t kMaxPendingCommands = ADAPTIVE_MAX_PENDING_COMMANDS;
+/// Commands in flight from the UI/control thread to the audio thread (power of two).
+inline constexpr uint32_t kCommandQueueSize = 64;
 
 } // namespace adaptive::config
