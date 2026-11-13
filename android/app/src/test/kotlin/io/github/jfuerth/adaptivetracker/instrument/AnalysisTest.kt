@@ -44,3 +44,15 @@ class AnalysisTest {
         assertTrue(start <= 3000 - 1536 && start > 3000 - 1536 - 480)
     }
 }
+
+class FallTest {
+    @Test
+    fun levelsRiseAtOnceAndFallGently() {
+        val prev = floatArrayOf(-10f, -50f, -80f)
+        val now = floatArrayOf(-40f, -20f, Float.NEGATIVE_INFINITY)
+        val out = Analysis.fall(prev, now, maxFallDb = 5f, floorDb = -90f)
+        assertEquals(-15f, out[0], 0f)   // falls by at most 5 dB
+        assertEquals(-20f, out[1], 0f)   // rises straight away
+        assertEquals(-85f, out[2], 0f)   // silence falls towards the floor
+    }
+}

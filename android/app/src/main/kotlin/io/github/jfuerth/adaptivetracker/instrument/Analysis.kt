@@ -112,4 +112,16 @@ object Analysis {
         }
         return newest
     }
+
+    /**
+     * Analyser ballistics: each band jumps up to its new level at once but
+     * falls by at most [maxFallDb] since the last frame. Levels stay at or
+     * above [floorDb] (silence, -inf, reads as the floor).
+     */
+    fun fall(previous: FloatArray, current: FloatArray, maxFallDb: Float, floorDb: Float): FloatArray =
+        FloatArray(current.size) { i ->
+            val now = current[i].coerceAtLeast(floorDb)
+            val before = previous.getOrElse(i) { floorDb }
+            if (now >= before) now else maxOf(now, before - maxFallDb)
+        }
 }

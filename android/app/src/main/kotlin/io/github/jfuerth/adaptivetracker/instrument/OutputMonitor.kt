@@ -1,6 +1,5 @@
 package io.github.jfuerth.adaptivetracker.instrument
 
-import android.graphics.Bitmap
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,7 +12,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -21,36 +19,33 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import io.github.jfuerth.adaptivetracker.NativeAudio
+import kotlin.math.ln
 
 private const val SAMPLE_RATE = 48000f
-private const val FFT_SIZE = 2048
+/** 4096 points: 11.7 Hz bins, so the low octaves still resolve. */
+private const val FFT_SIZE = 4096
 /** The oscilloscope shows this many samples (32 ms). */
 private const val SCOPE_WINDOW = 1536
 /** How far back the scope looks for a rising zero crossing: periods down to ~40 Hz. */
 private const val SCOPE_SEARCH = 1200
-private const val READ_SIZE = SCOPE_WINDOW + SCOPE_SEARCH + 1
+private const val READ_SIZE = FFT_SIZE
 
-/** Spectrogram history: one column per frame, about 2.5 s at 60 fps. */
-private const val SPECTRO_COLUMNS = 150
-private const val SPECTRO_BANDS = 96
+private const val BANDS = 160
 private const val MIN_HZ = 30f
 private const val MAX_HZ = 16000f
 private const val FLOOR_DB = -90f
+/** How fast a band falls when its level drops, like an analyser's release. */
+private const val FALL_DB_PER_SECOND = 60f
 
 /**
- * Live view of one instrument's output: an oscilloscope over a scrolling
- * spectrogram. Everything the instrument plays is shown (keyboard previews
+ * Live view of one instrument's output: an oscilloscope over a spectrum
+ * (level against frequency, both on log scales, falling back gently). Everything the instrument plays is shown (keyboard previews
  * and any columns playing it), before channel effects and the master stage.
  */
 @Composable
@@ -62,38 +57,21 @@ fun OutputMonitor(instrument: Int, modifier: Modifier = Modifier) {
 
     val colors = MaterialTheme.colorScheme
     val background = colors.surfaceContainerLowest
-    val palette = remember(background) { heatPalette(background) }
-    val pixels = remember { IntArray(SPECTRO_COLUMNS * SPECTRO_BANDS) }
-    val bitmap = remember { Bitmap.createBitmap(SPECTRO_COLUMNS, SPECTRO_BANDS, Bitmap.Config.ARGB_8888) }
-    val image = remember(bitmap) { bitmap.asImageBitmap() }
     var scope by remember { mutableStateOf(FloatArray(0)) }
-    var frame by remember { mutableIntStateOf(0) }  // redraws the spectrogram
+    var levels by remember { mutableStateOf(FloatArray(BANDS) { FLOOR_DB }) }
 
-    LaunchedEffect(palette) {
-        pixels.fill(palette[0])
+    LaunchedEffect(Unit) {
         var last = 0L
         while (true) {
             val now = withFrameNanos { it }
-            if (now - last < 15_000_000L) continue  // ~60 columns per second, whatever the display rate
+            val seconds = if (last == 0L) 0f else (now - last) / 1e9f
             last = now
             val samples = NativeAudio.readMonitor(READ_SIZE) ?: continue
             val start = Analysis.triggerStart(samples, SCOPE_WINDOW, SCOPE_SEARCH)
             scope = samples.copyOfRange(start, start + SCOPE_WINDOW)
 
-            val bands = Analysis.logBands(
-                Analysis.spectrum(samples.copyOfRange(samples.size - FFT_SIZE, samples.size)),
-                SAMPLE_RATE, SPECTRO_BANDS, MIN_HZ, MAX_HZ,
-            )
-            // Scroll left one column (each row's first pixel lands at the end
-            // of the row above, which the new column then overwrites).
-            System.arraycopy(pixels, 1, pixels, 0, pixels.size - 1)
-            for (b in 0 until SPECTRO_BANDS) {
-                val t = ((bands[b] - FLOOR_DB) / -FLOOR_DB).coerceIn(0f, 1f)
-                val row = SPECTRO_BANDS - 1 - b  // low frequencies at the bottom
-                pixels[row * SPECTRO_COLUMNS + SPECTRO_COLUMNS - 1] = palette[(t * (palette.size - 1)).toInt()]
-            }
-            bitmap.setPixels(pixels, 0, SPECTRO_COLUMNS, 0, 0, SPECTRO_COLUMNS, SPECTRO_BANDS)
-            frame++
+            val bands = Analysis.logBands(Analysis.spectrum(samples), SAMPLE_RATE, BANDS, MIN_HZ, MAX_HZ)
+            levels = Analysis.fall(levels, bands, FALL_DB_PER_SECOND * seconds, FLOOR_DB)
         }
     }
 
@@ -121,37 +99,44 @@ fun OutputMonitor(instrument: Int, modifier: Modifier = Modifier) {
                 modifier = Modifier.align(Alignment.TopEnd).padding(4.dp))
         }
         Box(Modifier.padding(top = 2.dp)) {
+            val fill = colors.tertiary.copy(alpha = 0.35f)
+            val line = colors.tertiary
+            val grid = colors.outlineVariant
+            val measurer = rememberTextMeasurer()
+            val gridLabel = label.copy(color = colors.onSurfaceVariant)
             Canvas(Modifier.fillMaxWidth().height(96.dp)) {
-                frame  // read so each new column redraws
-                drawImage(
-                    image,
-                    srcOffset = IntOffset.Zero,
-                    srcSize = IntSize(SPECTRO_COLUMNS, SPECTRO_BANDS),
-                    dstSize = IntSize(size.width.toInt(), size.height.toInt()),
-                    filterQuality = FilterQuality.Low,
-                )
+                drawRect(background)
+                fun x(hz: Float) = size.width * ln(hz / MIN_HZ) / ln(MAX_HZ / MIN_HZ)
+                fun y(db: Float) = size.height * (db / FLOOR_DB).coerceIn(0f, 1f)
+                for ((hz, name) in GRID_HZ) {
+                    drawLine(grid, Offset(x(hz), 0f), Offset(x(hz), size.height))
+                    val text = measurer.measure(name, gridLabel)
+                    drawText(text, topLeft = Offset(x(hz) + 3.dp.toPx(), size.height - text.size.height - 2.dp.toPx()))
+                }
+                for (db in GRID_DB) drawLine(grid, Offset(0f, y(db)), Offset(size.width, y(db)))
+                val l = levels
+                val outline = Path()
+                for (b in l.indices) {
+                    val px = size.width * (b + 0.5f) / l.size
+                    if (b == 0) outline.moveTo(px, y(l[b])) else outline.lineTo(px, y(l[b]))
+                }
+                val area = Path().apply {
+                    addPath(outline)
+                    lineTo(size.width * (l.size - 0.5f) / l.size, size.height)
+                    lineTo(size.width * 0.5f / l.size, size.height)
+                    close()
+                }
+                drawPath(area, fill)
+                drawPath(outline, line, style = Stroke(width = 1.5.dp.toPx()))
             }
-            Text("16 kHz", style = label, color = colors.onSurfaceVariant,
+            Text("0 dB", style = label, color = colors.onSurfaceVariant,
                 modifier = Modifier.align(Alignment.TopStart).padding(4.dp))
-            Text("30 Hz", style = label, color = colors.onSurfaceVariant,
-                modifier = Modifier.align(Alignment.BottomStart).padding(4.dp))
+            Text("−20 dB per line", style = label, color = colors.onSurfaceVariant,
+                modifier = Modifier.align(Alignment.TopEnd).padding(4.dp))
         }
     }
 }
 
-/** 256 colours from [background] (silence) through violet and orange to pale yellow (0 dB). */
-private fun heatPalette(background: Color): IntArray {
-    val stops = listOf(
-        background,
-        Color(0xFF3B0F70),
-        Color(0xFF8C2981),
-        Color(0xFFDE4968),
-        Color(0xFFFE9F6D),
-        Color(0xFFFCFDBF),
-    )
-    return IntArray(256) { i ->
-        val x = i / 255f * (stops.size - 1)
-        val k = x.toInt().coerceAtMost(stops.size - 2)
-        lerp(stops[k], stops[k + 1], x - k).toArgb()
-    }
-}
+/** Vertical grid lines, and horizontal ones every 20 dB. */
+private val GRID_HZ = listOf(100f to "100 Hz", 1000f to "1 kHz", 10000f to "10 kHz")
+private val GRID_DB = listOf(-20f, -40f, -60f, -80f)
