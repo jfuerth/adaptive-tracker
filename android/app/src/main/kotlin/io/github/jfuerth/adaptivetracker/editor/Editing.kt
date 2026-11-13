@@ -1,7 +1,9 @@
 package io.github.jfuerth.adaptivetracker.editor
 
+import io.github.jfuerth.adaptivetracker.instrument.InstrumentParam
 import java.util.Locale
-import kotlin.math.pow
+import kotlin.math.log2
+import kotlin.math.roundToInt
 
 /**
  * Where the cursor is in a cell: the note, or one hex digit. Typing a digit
@@ -93,9 +95,19 @@ object CellFormat {
     }
 }
 
-/** The live description line: what an effect (as typed so far) will do. */
+/**
+ * The live description line: what an effect (as typed so far) will do.
+ * [effectValue] gives an effect parameter in natural units as the engine maps
+ * it (NativeAudio.effectValue: Hz for F, Q for 5, 0..1 for 6), so the mapping
+ * lives in one place.
+ */
 object EffectDescription {
-    fun describe(cell: CellData, mode: PitchMode, eventNames: List<String> = emptyList()): String {
+    fun describe(
+        cell: CellData,
+        mode: PitchMode,
+        eventNames: List<String> = emptyList(),
+        effectValue: (effect: Int, param: Int) -> Float = { _, _ -> Float.NaN },
+    ): String {
         if (cell.effect == CellData.EFFECT_NONE) return "No effect · type a command digit"
         val p = cell.param
         val x = p shr 4
@@ -109,10 +121,10 @@ object EffectDescription {
             '3' -> "Glide to note · " + if (p == 0) "300 reuses the last speed" else "$p/16 semitone per tick"
             '4' -> if (p == 0) "Vibrato off" else
                 "Vibrato · rate %.1f Hz, depth %.1f semitone".format(Locale.US, 0.5 + x * 0.5, y * 0.1)
-            '5' -> "Filter resonance · Q %.1f".format(Locale.US, 0.1 + 19.9 * (p / 255.0).pow(2))
-            '6' -> "Waveform shape · ${p * 100 / 255}%"
-            '8' -> if (p == 0) "Filter sweep · 800 stops the sweep" else "Filter sweep up · " + sweep(p)
-            '9' -> if (p == 0) "Filter sweep · 900 stops the sweep" else "Filter sweep down · " + sweep(p)
+            '5' -> "Filter resonance · " + value(effectValue, cell) { "Q %.1f".format(Locale.US, it) }
+            '6' -> "Waveform shape · " + value(effectValue, cell) { "${(it * 100).roundToInt()}%" }
+            '8' -> if (p == 0) "Filter sweep · 800 stops the sweep" else "Filter sweep up · " + sweep(p, effectValue)
+            '9' -> if (p == 0) "Filter sweep · 900 stops the sweep" else "Filter sweep down · " + sweep(p, effectValue)
             'A' -> when {
                 x != 0 -> "Volume slide up · $x/64 per tick"
                 y != 0 -> "Volume slide down · $y/64 per tick"
@@ -120,17 +132,28 @@ object EffectDescription {
             }
             'B' -> "Fire event $p" + (eventNames.getOrNull(p)?.let { " · $it" } ?: " · no such event")
             'C' -> "Set volume · ${p.coerceAtMost(0x7F)}/127"
-            'F' -> "Filter cutoff · ${cutoffHz(p)}"
+            'F' -> "Filter cutoff · " + value(effectValue, cell) { InstrumentParam.hz(it) }
             else -> "Reserved · no effect"
         }
         return "$code · $text"
     }
 
     /** 8xx/9xx: xx/16 Fxx steps per effect tick, 24 effect ticks per beat. */
-    private fun sweep(p: Int) = "%.2f octave per beat, until stopped".format(Locale.US, p * 1.5 * 9.965784 / 255.0)
+    /**
+     * 8xx/9xx move the cutoff by xx/16 Fxx steps per effect tick (24 per beat).
+     * Octaves per Fxx step come from the engine's Fxx mapping.
+     */
+    private fun sweep(p: Int, effectValue: (Int, Int) -> Float): String {
+        val lowest = effectValue('F'.code, 0)
+        val highest = effectValue('F'.code, 255)
+        if (lowest.isNaN() || highest.isNaN()) return "$p/16 cutoff step per tick, until stopped"
+        val octavesPerStep = log2(highest / lowest) / 255.0
+        return "%.2f octave per beat, until stopped".format(Locale.US, p / 16.0 * 24 * octavesPerStep)
+    }
 
-    private fun cutoffHz(p: Int): String {
-        val hz = 20.0 * 2.0.pow(9.965784 * p / 255.0)
-        return if (hz >= 1000) "%.1f kHz".format(Locale.US, hz / 1000) else "${hz.toInt()} Hz"
+    /** The parameter in natural units, or its raw hex if the engine isn't available. */
+    private fun value(effectValue: (Int, Int) -> Float, cell: CellData, format: (Float) -> String): String {
+        val v = effectValue(cell.effect, cell.param)
+        return if (v.isNaN()) "%02X".format(cell.param) else format(v)
     }
 }

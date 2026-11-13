@@ -120,6 +120,25 @@ object NativeAudio {
     /** Sets one parameter; applied on the audio thread to every voice using the instrument. */
     external fun setInstrumentParam(index: Int, param: Int, value: Float): Boolean
 
+    /** Each instrument parameter's stable key, in the engine's order. */
+    external fun getInstrumentParamKeys(): Array<String>
+
+    /** [min, max] per instrument parameter, in the engine's order. */
+    external fun getInstrumentParamRanges(): FloatArray
+
+    /** [n] samples of the synth's own oscillator at [shape], spanning [cycles] cycles. */
+    external fun renderWaveform(shape: Float, cycles: Float, n: Int): FloatArray?
+
+    /**
+     * The synth's own envelope for a note held until sustain, then released:
+     * [attack s, decay s, release s, releaseUnfinished (0/1), then 32 levels
+     * each for attack, decay and release].
+     */
+    external fun traceEnvelope(attack: Float, decay: Float, sustain: Float, release: Float): FloatArray
+
+    /** An effect parameter in natural units (Hz for F, Q for 5, 0..1 for 6), or NaN. */
+    external fun effectValue(effect: Int, param: Int): Float
+
     /** Instrument index played by [channel]'s [column], or -1. */
     external fun getColumnInstrument(channel: Int, column: Int): Int
 

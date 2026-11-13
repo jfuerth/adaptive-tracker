@@ -76,11 +76,14 @@ fun InstrumentScreen(modifier: Modifier = Modifier) {
         return
     }
     val usedBy = remember(index) { InstrumentStore.usedBy(index) }
-    fun v(p: P) = values[p.ordinal]
+    val specs = InstrumentStore.specs
+    fun v(p: P) = specs[p]?.let { values.getOrNull(it.index) } ?: 0f
 
     // A chip showing one parameter; tapping selects it for the slider.
+    // Parameters the engine doesn't have are left out.
     @Composable
     fun Chip(p: P, modifier: Modifier = Modifier, label: String = p.label) {
+        if (p !in specs) return
         val colors = MaterialTheme.colorScheme
         val isSelected = p == selected
         Column(
@@ -109,7 +112,7 @@ fun InstrumentScreen(modifier: Modifier = Modifier) {
 
     @Composable
     fun EnvelopeChips(a: P, d: P, s: P, r: P) {
-        EnvelopeGraph(v(a), v(d), v(s), v(r), a, d, r)
+        EnvelopeGraph(v(a), v(d), v(s), v(r), specs[a])
         Row { Chip(a, Modifier.weight(1f)); Chip(d, Modifier.weight(1f)) }
         Row { Chip(s, Modifier.weight(1f)); Chip(r, Modifier.weight(1f)) }
     }
@@ -187,13 +190,14 @@ fun InstrumentScreen(modifier: Modifier = Modifier) {
                 Box(Modifier.weight(1f))
                 Text(selected.format(v(selected)), fontFamily = FontFamily.Monospace, fontSize = 14.sp)
             }
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            val spec = specs[selected]
+            if (spec != null) Row(verticalAlignment = Alignment.CenterVertically) {
                 val p = selected
-                fun nudge(dir: Int) = InstrumentStore.set(index, p, p.fromPosition(p.toPosition(v(p)) + dir * FINE_STEP))
+                fun nudge(dir: Int) = InstrumentStore.set(index, p, spec.fromPosition(spec.toPosition(v(p)) + dir * FINE_STEP))
                 ToolButton("◀", onClick = { nudge(-1) })
                 Slider(
-                    value = p.toPosition(v(p)),
-                    onValueChange = { InstrumentStore.set(index, p, p.fromPosition(it)) },
+                    value = spec.toPosition(v(p)),
+                    onValueChange = { InstrumentStore.set(index, p, spec.fromPosition(it)) },
                     modifier = Modifier.weight(1f).padding(horizontal = 6.dp),
                 )
                 ToolButton("▶", onClick = { nudge(1) })
@@ -312,17 +316,15 @@ private fun DownArrow(label: String? = null) {
     }
 }
 
-/** One cycle-and-a-half of the oscillator's waveform: saw → triangle → square as shape goes 0 → 1. */
+/** One and a half cycles of the synth's own oscillator at [shape]. */
 @Composable
 private fun WaveformGraph(shape: Float, height: Dp = 28.dp) {
     val color = MaterialTheme.colorScheme.tertiary
+    val samples = remember(shape) { NativeAudio.renderWaveform(shape, 1.5f, 96) } ?: return
     Canvas(Modifier.fillMaxWidth().height(height).padding(horizontal = 4.dp, vertical = 2.dp)) {
         val path = Path()
-        val points = 96
-        for (i in 0..points) {
-            val x = i / points.toFloat()
-            val y = Waveform.sample(shape, x * 1.5f)
-            val px = x * size.width
+        samples.forEachIndexed { i, y ->
+            val px = i / (samples.size - 1f) * size.width
             val py = size.height * (0.5f - 0.45f * y)
             if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
         }
@@ -331,46 +333,38 @@ private fun WaveformGraph(shape: Float, height: Dp = 28.dp) {
 }
 
 /**
- * ADSR shape. Times are drawn on the same log scale as their sliders, so
- * short and long envelopes are both readable.
+ * The synth's own envelope for a note held until it reaches sustain, then
+ * released. Each stage gets a width from its real duration on the time
+ * sliders' log scale ([timeSpec]), so short and long envelopes both read
+ * well; the sustain hold has a fixed width.
  */
 @Composable
-private fun EnvelopeGraph(attack: Float, decay: Float, sustain: Float, release: Float, a: P, d: P, r: P) {
+private fun EnvelopeGraph(attack: Float, decay: Float, sustain: Float, release: Float, timeSpec: ParamSpec?) {
     val color = MaterialTheme.colorScheme.tertiary
+    val trace = remember(attack, decay, sustain, release) { NativeAudio.traceEnvelope(attack, decay, sustain, release) }
     Canvas(Modifier.fillMaxWidth().height(32.dp).padding(horizontal = 4.dp, vertical = 2.dp)) {
         val segment = size.width / 4f
-        val top = 0f
-        val bottom = size.height
-        val sy = bottom - (bottom - top) * sustain
-        val x1 = a.toPosition(attack) * segment
-        val x2 = x1 + d.toPosition(decay) * segment
-        val x3 = x2 + segment
-        val x4 = x3 + r.toPosition(release) * segment
-        val path = Path().apply {
-            moveTo(0f, bottom)
-            lineTo(x1, top)
-            lineTo(x2, sy)
-            lineTo(x3, sy)
-            lineTo(x4, bottom)
+        fun width(seconds: Float) = when {
+            seconds <= 0f -> 0f
+            timeSpec == null -> segment
+            else -> timeSpec.toPosition(seconds) * segment
+        }
+        fun y(level: Float) = size.height * (1f - level)
+        val points = (trace.size - 4) / 3
+        val path = Path().apply { moveTo(0f, y(0f)) }
+        var x = 0f
+        for (stage in 0..2) {
+            if (stage == 2) {  // sustain hold before the release
+                val level = trace[4 + points * 2 - 1]
+                x += segment
+                path.lineTo(x, y(level))
+            }
+            val w = width(trace[stage])
+            for (k in 0 until points) {
+                path.lineTo(x + w * k / (points - 1f), y(trace[4 + stage * points + k]))
+            }
+            x += w
         }
         drawPath(path, color, style = Stroke(width = 1.5.dp.toPx()))
-    }
-}
-
-/** The oscillator's shape morph, for drawing (matches pressense's saw → triangle → square). */
-object Waveform {
-    /** Value in -1..1 at [phase] (cycles) for [shape] 0..1. */
-    fun sample(shape: Float, phase: Float): Float {
-        val p = phase - kotlin.math.floor(phase)
-        val saw = 2f * p - 1f
-        val tri = if (p < 0.5f) 4f * p - 1f else 3f - 4f * p
-        val square = if (p < 0.5f) 1f else -1f
-        return if (shape < 0.5f) {
-            val t = shape * 2f
-            saw + (tri - saw) * t
-        } else {
-            val t = (shape - 0.5f) * 2f
-            tri + (square - tri) * t
-        }
     }
 }

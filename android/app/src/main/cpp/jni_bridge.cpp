@@ -1,7 +1,10 @@
 #include "audio_player.hpp"
 
+#include <adaptive/inspect.hpp>
+
 #include <jni.h>
 
+#include <cmath>
 #include <memory>
 
 namespace {
@@ -144,6 +147,77 @@ JNIEXPORT jfloatArray JNICALL JNI_FN(readInstrument)(JNIEnv* env, jobject, jint 
 
 JNIEXPORT jboolean JNICALL JNI_FN(setInstrumentParam)(JNIEnv*, jobject, jint i, jint param, jfloat value) {
     return toJ(player().setInstrumentParam(static_cast<uint32_t>(i), param, value));
+}
+
+// ---- Read from pressense and the engine, so the UI doesn't duplicate them ----
+
+/// Each instrument parameter's stable key, in the engine's order.
+JNIEXPORT jobjectArray JNICALL JNI_FN(getInstrumentParamKeys)(JNIEnv* env, jobject) {
+    using adaptive::Instrument;
+    jobjectArray result =
+        env->NewObjectArray(Instrument::kNumParams, env->FindClass("java/lang/String"), nullptr);
+    if (result == nullptr) return nullptr;
+    for (uint8_t i = 0; i < Instrument::kNumParams; ++i) {
+        jstring key = env->NewStringUTF(Instrument::key(static_cast<Instrument::Param>(i)));
+        env->SetObjectArrayElement(result, i, key);
+        env->DeleteLocalRef(key);
+    }
+    return result;
+}
+
+/// [min, max] per parameter, in the engine's order.
+JNIEXPORT jfloatArray JNICALL JNI_FN(getInstrumentParamRanges)(JNIEnv* env, jobject) {
+    using adaptive::Instrument;
+    float ranges[Instrument::kNumParams * 2];
+    for (uint8_t i = 0; i < Instrument::kNumParams; ++i) {
+        const auto r = Instrument::range(static_cast<Instrument::Param>(i));
+        ranges[i * 2] = r.min;
+        ranges[i * 2 + 1] = r.max;
+    }
+    jfloatArray result = env->NewFloatArray(Instrument::kNumParams * 2);
+    if (result != nullptr) env->SetFloatArrayRegion(result, 0, Instrument::kNumParams * 2, ranges);
+    return result;
+}
+
+/// `n` samples of pressense's oscillator at `shape`, spanning `cycles` cycles.
+JNIEXPORT jfloatArray JNICALL JNI_FN(renderWaveform)(JNIEnv* env, jobject, jfloat shape, jfloat cycles, jint n) {
+    if (n <= 0 || n > 4096) return nullptr;
+    std::unique_ptr<float[]> samples(new float[static_cast<size_t>(n)]);
+    adaptive::inspect::renderWaveform(shape, cycles, samples.get(), static_cast<uint32_t>(n));
+    jfloatArray result = env->NewFloatArray(n);
+    if (result != nullptr) env->SetFloatArrayRegion(result, 0, n, samples.get());
+    return result;
+}
+
+/// pressense's envelope for a held-then-released note:
+/// [attack s, decay s, release s, releaseUnfinished (0/1), then 32 levels each
+/// for attack, decay and release].
+JNIEXPORT jfloatArray JNICALL JNI_FN(traceEnvelope)(JNIEnv* env, jobject, jfloat a, jfloat d, jfloat s, jfloat r) {
+    using adaptive::inspect::EnvelopeTrace;
+    const EnvelopeTrace t = adaptive::inspect::traceEnvelope(a, d, s, r);
+    constexpr jsize kSize = 4 + EnvelopeTrace::kStages * EnvelopeTrace::kPoints;
+    float out[kSize];
+    for (uint32_t i = 0; i < EnvelopeTrace::kStages; ++i) out[i] = t.seconds[i];
+    out[3] = t.releaseUnfinished ? 1.0f : 0.0f;
+    for (uint32_t i = 0; i < EnvelopeTrace::kStages; ++i) {
+        for (uint32_t k = 0; k < EnvelopeTrace::kPoints; ++k) out[4 + i * EnvelopeTrace::kPoints + k] = t.levels[i][k];
+    }
+    jfloatArray result = env->NewFloatArray(kSize);
+    if (result != nullptr) env->SetFloatArrayRegion(result, 0, kSize, out);
+    return result;
+}
+
+/// What an effect's parameter means, in natural units: Hz for F, Q for 5,
+/// shape 0..1 for 6. NaN for other effects.
+JNIEXPORT jfloat JNICALL JNI_FN(effectValue)(JNIEnv*, jobject, jint effect, jint param) {
+    namespace fxmap = adaptive::fxmap;
+    const auto p = static_cast<uint8_t>(param);
+    switch (effect) {
+    case adaptive::fx::kFilterCutoff: return fxmap::cutoffHz(p);
+    case adaptive::fx::kFilterResonance: return fxmap::resonanceQ(p);
+    case adaptive::fx::kWaveShape: return fxmap::waveShape(p);
+    default: return NAN;
+    }
 }
 
 JNIEXPORT jint JNICALL JNI_FN(getColumnInstrument)(JNIEnv*, jobject, jint channel, jint column) {

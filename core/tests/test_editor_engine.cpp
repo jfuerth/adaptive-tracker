@@ -233,5 +233,30 @@ TEST_CASE("Instruments: SetInstrumentParam edits the song and every voice using 
     CHECK(f.engine->channel(1).voice(0).getBaseCutoff() == doctest::Approx(1000.0f));
 }
 
-static_assert(Instrument().get(Instrument::Param::Cutoff) == 1000.0f);
-static_assert(Instrument().set(Instrument::Param::Shape, -1.0f).get(Instrument::Param::Shape) == 0.0f);
+TEST_CASE("Instruments: defaults are a default pressense voice's settings") {
+    using P = Instrument::Param;
+    synth::WavetableSynth v;
+    const Instrument i;
+    CHECK(i.get(P::Cutoff) == v.getBaseCutoff());
+    CHECK(i.get(P::AmpRelease) == v.getAmpEnvelope().getReleaseTime());
+    CHECK(i.get(P::FilterSustain) == v.getFilterEnvSustain());
+    CHECK(Instrument().set(P::Shape, -1.0f).get(P::Shape) == 0.0f);  // clamped
+}
+
+TEST_CASE("Instruments: changing sustain also updates the envelope's decay rate") {
+    // pressense derives the decay rate from the sustain level but doesn't
+    // recompute it in setSustainLevel(); applyParam works around that.
+    using P = Instrument::Param;
+    synth::WavetableSynth v(1000.0f);  // 1 sample per ms
+    Instrument i;
+    i.set(P::AmpAttack, 0.0005f).set(P::AmpDecay, 0.1f).set(P::AmpSustain, 0.9f).applyTo(v);
+    i.set(P::AmpSustain, 0.1f).applyParam(v, P::AmpSustain);
+    auto& env = v.getAmpEnvelope();
+    env.trigger();
+    int decaySamples = 0;
+    while (env.getPhase() != synth::AdsrEnvelope::Phase::SUSTAIN && decaySamples < 1000) {
+        if (env.getPhase() == synth::AdsrEnvelope::Phase::DECAY) ++decaySamples;
+        env.nextSample();
+    }
+    CHECK(decaySamples == doctest::Approx(100).epsilon(0.05));  // 100 ms, not 900
+}

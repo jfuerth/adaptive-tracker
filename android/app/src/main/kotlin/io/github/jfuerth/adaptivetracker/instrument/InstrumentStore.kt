@@ -12,20 +12,25 @@ import io.github.jfuerth.adaptivetracker.NativeAudio
 object InstrumentStore {
     val names: List<String> by lazy { List(NativeAudio.getInstrumentCount()) { NativeAudio.getInstrumentName(it) } }
 
+    /** The parameters the engine has and the editor knows, with the engine's ranges. */
+    val specs: Map<InstrumentParam, ParamSpec> by lazy {
+        ParamSpec.fromEngine(NativeAudio.getInstrumentParamKeys().toList(), NativeAudio.getInstrumentParamRanges())
+    }
+
     private val loaded = HashMap<Int, SnapshotStateList<Float>>()
 
-    /** Instrument [index]'s values in InstrumentParam order, or null if it can't be read. */
+    /** Instrument [index]'s values in the engine's parameter order, or null if it can't be read. */
     fun values(index: Int): SnapshotStateList<Float>? = loaded[index] ?: NativeAudio.readInstrument(index)
-        ?.takeIf { it.size == InstrumentParam.entries.size }
         ?.toList()?.toMutableStateList()
         ?.also { loaded[index] = it }
 
     fun set(index: Int, param: InstrumentParam, value: Float) {
-        val v = param.clamp(value)
+        val spec = specs[param] ?: return
         val values = values(index) ?: return
-        if (values[param.ordinal] == v) return
-        values[param.ordinal] = v
-        NativeAudio.setInstrumentParam(index, param.ordinal, v)
+        val v = spec.clamp(value)
+        if (values[spec.index] == v) return
+        values[spec.index] = v
+        NativeAudio.setInstrumentParam(index, spec.index, v)
     }
 
     /**

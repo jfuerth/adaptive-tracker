@@ -284,7 +284,7 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
         val description = when {
             field.isVolume -> if (cell.volume == CellData.VOLUME_DEFAULT) "Volume · default (full)"
                 else "Volume · ${cell.volume}/127"
-            else -> EffectDescription.describe(cell, info.mode, NativeAudio.EVENT_NAMES)
+            else -> EffectDescription.describe(cell, info.mode, NativeAudio.EVENT_NAMES, NativeAudio::effectValue)
         }
         Text(
             description,

@@ -15,35 +15,29 @@ enum class Curve {
     SQUARE,
 }
 
-private const val TIME_MIN = 0.0005f
-private const val TIME_MAX = 10f
-private const val Q_MIN = 0.1f
-private const val Q_MAX = 20f
-private const val RATE_MIN = 0.1f
-private const val RATE_MAX = 20f
-
 /**
- * An instrument parameter. The order and ranges match
- * `adaptive::Instrument::Param` in core/engine/include/adaptive/instrument.hpp.
+ * An instrument parameter as the editor presents it: label, slider curve and
+ * formatting. Its range, default and position in the engine come from the
+ * engine at runtime (see [ParamSpec]), matched by [key].
  */
-enum class InstrumentParam(val label: String, val min: Float, val max: Float, val curve: Curve) {
-    SHAPE("Shape", 0f, 1f, Curve.LINEAR),
-    CUTOFF("Cutoff", 20f, 20000f, Curve.LOG),
-    RESONANCE("Resonance", Q_MIN, Q_MAX, Curve.SQUARE),
-    FILTER_ENV_AMOUNT("Amount", 0f, 1f, Curve.LINEAR),
-    FILTER_ATTACK("Attack", TIME_MIN, TIME_MAX, Curve.LOG),
-    FILTER_DECAY("Decay", TIME_MIN, TIME_MAX, Curve.LOG),
-    FILTER_SUSTAIN("Sustain", 0f, 1f, Curve.LINEAR),
-    FILTER_RELEASE("Release", TIME_MIN, TIME_MAX, Curve.LOG),
-    AMP_ATTACK("Attack", TIME_MIN, TIME_MAX, Curve.LOG),
-    AMP_DECAY("Decay", TIME_MIN, TIME_MAX, Curve.LOG),
-    AMP_SUSTAIN("Sustain", 0f, 1f, Curve.LINEAR),
-    AMP_RELEASE("Release", TIME_MIN, TIME_MAX, Curve.LOG),
-    LEVEL("Level", 0f, 1f, Curve.LINEAR),
-    VIBRATO_RATE("Rate", RATE_MIN, RATE_MAX, Curve.LOG),
-    VIBRATO_DEPTH("Depth", 0f, 2f, Curve.SQUARE),
-    TREMOLO_RATE("Rate", RATE_MIN, RATE_MAX, Curve.LOG),
-    TREMOLO_DEPTH("Depth", 0f, 1f, Curve.LINEAR);
+enum class InstrumentParam(val key: String, val label: String, val curve: Curve) {
+    SHAPE("shape", "Shape", Curve.LINEAR),
+    CUTOFF("cutoff", "Cutoff", Curve.LOG),
+    RESONANCE("resonance", "Resonance", Curve.SQUARE),
+    FILTER_ENV_AMOUNT("filterEnvAmount", "Amount", Curve.LINEAR),
+    FILTER_ATTACK("filterAttack", "Attack", Curve.LOG),
+    FILTER_DECAY("filterDecay", "Decay", Curve.LOG),
+    FILTER_SUSTAIN("filterSustain", "Sustain", Curve.LINEAR),
+    FILTER_RELEASE("filterRelease", "Release", Curve.LOG),
+    AMP_ATTACK("ampAttack", "Attack", Curve.LOG),
+    AMP_DECAY("ampDecay", "Decay", Curve.LOG),
+    AMP_SUSTAIN("ampSustain", "Sustain", Curve.LINEAR),
+    AMP_RELEASE("ampRelease", "Release", Curve.LOG),
+    LEVEL("level", "Level", Curve.LINEAR),
+    VIBRATO_RATE("vibratoRate", "Rate", Curve.LOG),
+    VIBRATO_DEPTH("vibratoDepth", "Depth", Curve.SQUARE),
+    TREMOLO_RATE("tremoloRate", "Rate", Curve.LOG),
+    TREMOLO_DEPTH("tremoloDepth", "Depth", Curve.LINEAR);
 
     /** Where in the signal flow it lives, for the slider's title. */
     val group: String
@@ -56,30 +50,6 @@ enum class InstrumentParam(val label: String, val min: Float, val max: Float, va
             VIBRATO_RATE, VIBRATO_DEPTH -> "Vibrato"
             TREMOLO_RATE, TREMOLO_DEPTH -> "Tremolo"
         }
-
-    fun clamp(value: Float) = value.coerceIn(min, max)
-
-    /** Slider position 0..1 for [value]. */
-    fun toPosition(value: Float): Float {
-        val v = clamp(value)
-        return when (curve) {
-            Curve.LINEAR -> (v - min) / (max - min)
-            Curve.LOG -> (ln(v / min) / ln(max / min))
-            Curve.SQUARE -> sqrt((v - min) / (max - min))
-        }.coerceIn(0f, 1f)
-    }
-
-    /** Value for slider position [t] (0..1). */
-    fun fromPosition(t: Float): Float {
-        val p = t.coerceIn(0f, 1f)
-        return clamp(
-            when (curve) {
-                Curve.LINEAR -> min + (max - min) * p
-                Curve.LOG -> min * exp(ln(max / min) * p)
-                Curve.SQUARE -> min + (max - min) * p * p
-            },
-        )
-    }
 
     /** The value as shown on the chip and slider. */
     fun format(value: Float): String = when (this) {
@@ -110,5 +80,49 @@ enum class InstrumentParam(val label: String, val min: Float, val max: Float, va
             v < 1f -> "${(v * 1000f).toInt()} ms"
             else -> "%.2f s".format(Locale.US, v)
         }
+    }
+}
+
+/**
+ * A parameter as the engine defines it: its index in the engine's parameter
+ * list and its range. Maps slider positions to values with the parameter's curve.
+ */
+data class ParamSpec(val param: InstrumentParam, val index: Int, val min: Float, val max: Float) {
+    fun clamp(value: Float) = value.coerceIn(min, max)
+
+    /** Slider position 0..1 for [value]. */
+    fun toPosition(value: Float): Float {
+        val v = clamp(value)
+        if (max <= min) return 0f
+        return when (param.curve) {
+            Curve.LINEAR -> (v - min) / (max - min)
+            Curve.LOG -> ln(v / min) / ln(max / min)
+            Curve.SQUARE -> sqrt((v - min) / (max - min))
+        }.coerceIn(0f, 1f)
+    }
+
+    /** Value for slider position [t] (0..1). */
+    fun fromPosition(t: Float): Float {
+        val p = t.coerceIn(0f, 1f)
+        return clamp(
+            when (param.curve) {
+                Curve.LINEAR -> min + (max - min) * p
+                Curve.LOG -> min * exp(ln(max / min) * p)
+                Curve.SQUARE -> min + (max - min) * p * p
+            },
+        )
+    }
+
+    companion object {
+        /**
+         * Specs for the parameters the editor knows, from the engine's [keys]
+         * and [ranges] ([min, max] per key). Engine parameters the editor
+         * doesn't know are left out; editor parameters the engine lacks are absent.
+         */
+        fun fromEngine(keys: List<String>, ranges: FloatArray): Map<InstrumentParam, ParamSpec> =
+            keys.mapIndexedNotNull { i, key ->
+                val p = InstrumentParam.entries.firstOrNull { it.key == key } ?: return@mapIndexedNotNull null
+                p to ParamSpec(p, i, ranges[i * 2], ranges[i * 2 + 1])
+            }.toMap()
     }
 }

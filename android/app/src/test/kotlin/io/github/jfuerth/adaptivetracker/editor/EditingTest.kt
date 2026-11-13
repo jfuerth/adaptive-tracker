@@ -149,6 +149,15 @@ class HexEntryTest {
 }
 
 class DescriptionTest {
+    // Stands in for NativeAudio.effectValue (the engine's fxmap).
+    private val engineValues: (Int, Int) -> Float = { effect, p ->
+        when (effect.toChar()) {
+            'F' -> (20.0 * Math.pow(2.0, 9.965784 * p / 255.0)).toFloat()
+            '5' -> 0.1f + 19.9f * (p / 255f) * (p / 255f)
+            else -> Float.NaN
+        }
+    }
+
     @Test fun describesEffects() {
         assertEquals("305 · Glide to note · 5/16 semitone per tick",
             EffectDescription.describe(CellData(effect = '3'.code, param = 5), PitchMode.ABSOLUTE))
@@ -156,11 +165,15 @@ class DescriptionTest {
             EffectDescription.describe(CellData(effect = '0'.code, param = 0x24), PitchMode.DEGREE))
         assertEquals("B01 · Fire event 1 · Pickup",
             EffectDescription.describe(CellData(effect = 'B'.code, param = 1), PitchMode.DEGREE, listOf("Hit", "Pickup")))
-        assertTrue(EffectDescription.describe(CellData(effect = 'F'.code, param = 0xFF), PitchMode.ABSOLUTE)
+        assertTrue(EffectDescription.describe(CellData(effect = 'F'.code, param = 0xFF), PitchMode.ABSOLUTE, effectValue = engineValues)
             .endsWith("20.0 kHz"))
+        assertEquals("580 · Filter resonance · Q 5.1",
+            EffectDescription.describe(CellData(effect = '5'.code, param = 0x80), PitchMode.ABSOLUTE, effectValue = engineValues))
+        // Without the engine, the raw parameter is shown.
+        assertEquals("F80 · Filter cutoff · 80", EffectDescription.describe(CellData(effect = 'F'.code, param = 0x80), PitchMode.ABSOLUTE))
         assertEquals("No effect · type a command digit", EffectDescription.describe(CellData(), PitchMode.ABSOLUTE))
         assertEquals("810 · Filter sweep up · 0.94 octave per beat, until stopped",
-            EffectDescription.describe(CellData(effect = '8'.code, param = 0x10), PitchMode.ABSOLUTE))
+            EffectDescription.describe(CellData(effect = '8'.code, param = 0x10), PitchMode.ABSOLUTE, effectValue = engineValues))
         assertEquals("900 · Filter sweep · 900 stops the sweep",
             EffectDescription.describe(CellData(effect = '9'.code, param = 0), PitchMode.ABSOLUTE))
     }
