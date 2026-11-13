@@ -220,7 +220,11 @@ android/         Gradle project: app (Compose) + :native (CMake → core + Oboe)
 4. ✅ **Adaptive director** (done 2026-11-12): command queue, sections and
    transitions (Restart / Keep phase / bridge), layers with musical mute,
    stingers, events, parameters and mappings, channel filter and gain.
-5. **Pattern editor UI** (touch grid) and patch editor.
+5. **Editors.** ✅ Pattern editor (done 2026-11-12): edit row, 12-key multi-touch
+   keyboard with previews, chords to arpeggios, 2×8 hex pad with live
+   descriptions, follow mode; edits are safe while playing. Still to do: patch
+   (instrument) editor, pattern length / rows-per-beat editing, creating
+   patterns and arranging sequences.
 6. **Lua**: control thread, API, script editor; measure footprint.
 7. Later: song file format, MCU build (RP2350 first, reusing pressense's I2S sink).
 

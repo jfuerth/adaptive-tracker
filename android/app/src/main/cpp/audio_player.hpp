@@ -39,6 +39,22 @@ public:
     /// root: pitch class 0-11. scaleIndex: index into kScales (see .cpp). Applies at the next bar.
     bool setKey(int root, int scaleIndex);
 
+    // Pattern editing (UI thread only).
+    uint32_t patternCount() const { return adaptive::demo::AdaptiveDemo::kNumPatterns; }
+    const char* patternName(uint32_t i) { return song_->patternEntry(i).name; }
+    /// [channel, numRows, rowsPerBeat, numColumns, pitchMode (0 Absolute, 1 Transpose, 2 Degree)]
+    bool patternInfo(uint32_t i, int32_t out[5]);
+    /// Copies the pattern's cells, 5 bytes each (note, accidental, volume, effect,
+    /// param), row by row, numColumns per row. Only call before editing that
+    /// pattern; afterwards the UI keeps its own copy.
+    bool readPattern(uint32_t i, uint8_t* out, uint32_t capacity);
+    bool setCell(uint32_t pattern, int row, int column, const adaptive::Cell& cell);
+    bool previewOn(int channel, int slot, int midiNote);
+    bool previewOff(int slot);
+
+    /// Song's home key: [root, scale mask].
+    void homeKey(int32_t out[2]) const;
+
     /// Playback health and state, for the UI. Safe to call from any thread.
     struct Stats {
         int32_t underruns;         ///< Since the stream opened.
@@ -49,6 +65,11 @@ public:
         int32_t currentSection;    ///< Section playing now, or -1.
     };
     Stats stats() const;
+
+    /// Pattern-table index playing on `channel` (-1 if none) and its row. Any thread.
+    void playPosition(int channel, int32_t out[2]) const;
+    /// The key in effect now: [root, scale mask]. Any thread.
+    void currentKey(int32_t out[2]) const;
     void resetStats() { resetStatsRequested_.store(true); }
 
     oboe::DataCallbackResult onAudioReady(oboe::AudioStream* stream, void* audioData,
@@ -73,5 +94,9 @@ private:
     std::atomic<int32_t> maxCallbackUs_{0};
     std::atomic<int32_t> callbackBudgetUs_{0};
     std::atomic<int32_t> currentSection_{-1};
+    std::atomic<int32_t> playingPattern_[adaptive::config::kMaxChannels];
+    std::atomic<int32_t> playingRow_[adaptive::config::kMaxChannels];
+    std::atomic<int32_t> keyRoot_{0};
+    std::atomic<int32_t> keyScale_{adaptive::scales::kMajor};
     std::atomic<bool> resetStatsRequested_{false};
 };

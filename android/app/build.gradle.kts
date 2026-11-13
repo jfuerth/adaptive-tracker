@@ -12,8 +12,8 @@ android {
         applicationId = "io.github.jfuerth.adaptivetracker"
         minSdk = 26
         targetSdk = 37
-        versionCode = 3
-        versionName = "0.2.0"
+        versionCode = 4
+        versionName = "0.3.0"
 
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
@@ -45,6 +45,11 @@ android {
         }
     }
 
+    testOptions {
+        // Required by AGP's Compose Preview tasks, which share the unit-test setup.
+        unitTests.isIncludeAndroidResources = true
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -57,4 +62,5 @@ dependencies {
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.activity.compose)
     implementation(libs.oboe)
+    testImplementation(libs.junit)
 }

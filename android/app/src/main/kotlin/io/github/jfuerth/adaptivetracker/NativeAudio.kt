@@ -22,6 +22,9 @@ object NativeAudio {
     val LAYERS = listOf("Rhythm", "Melody", "Pad")
     val PARAMS = listOf("Intensity", "Danger")
 
+    /** All of the demo's events, by index (used to describe Bxx effects). */
+    val EVENT_NAMES = listOf("Hit", "Pickup", "Enter combat", "Calm down", "Alarm")
+
     /** Events with buttons: index into the demo's events, and a label. */
     val EVENT_BUTTONS = listOf(0 to "Hit", 1 to "Pickup", 4 to "Alarm")
 
@@ -76,4 +79,40 @@ object NativeAudio {
 
     /** Clears the slowest-callback measurement. */
     external fun resetStats()
+
+    // ---- Pattern editing ----
+
+    external fun getPatternCount(): Int
+
+    external fun getPatternName(index: Int): String
+
+    /** [channel, numRows, rowsPerBeat, numColumns, pitchMode], or null. */
+    external fun getPatternInfo(index: Int): IntArray?
+
+    /**
+     * The pattern's cells, 5 bytes each (note, accidental, volume, effect, param),
+     * row by row. Read each pattern once, before editing it; PatternStore keeps
+     * the UI's copy from then on.
+     */
+    external fun readPattern(index: Int): ByteArray?
+
+    /** Writes one cell; applied on the audio thread, so it is safe while playing. */
+    external fun setCell(
+        pattern: Int, row: Int, column: Int,
+        note: Int, accidental: Int, volume: Int, effect: Int, param: Int,
+    ): Boolean
+
+    /** Sounds [midiNote] with [channel]'s instrument on preview voice [slot] (0-3). */
+    external fun previewOn(channel: Int, slot: Int, midiNote: Int): Boolean
+
+    external fun previewOff(slot: Int): Boolean
+
+    /** [patternIndex or -1, row or -1] playing on [channel]. */
+    external fun getPlayPosition(channel: Int): IntArray
+
+    /** [root, scaleMask] of the key in effect now. */
+    external fun getCurrentKey(): IntArray
+
+    /** [root, scaleMask] of the song's home key. */
+    external fun getHomeKey(): IntArray
 }

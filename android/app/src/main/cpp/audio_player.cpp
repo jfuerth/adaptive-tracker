@@ -25,6 +25,8 @@ AudioPlayer::AudioPlayer()
     : engine_(std::make_unique<adaptive::Engine>(kSampleRate)),
       song_(std::make_unique<adaptive::demo::AdaptiveDemo>()) {
     song_->setUp(*engine_);
+    for (auto& a : playingPattern_) a.store(-1);
+    for (auto& a : playingRow_) a.store(-1);
 }
 
 AudioPlayer::~AudioPlayer() { close(); }
@@ -123,6 +125,76 @@ bool AudioPlayer::setKey(int root, int scaleIndex) {
     return engine_->post(adaptive::Command::setKey(static_cast<uint8_t>(r), kScales[s], adaptive::Quantize::Bar));
 }
 
+bool AudioPlayer::patternInfo(uint32_t i, int32_t out[5]) {
+    const auto e = song_->patternEntry(i);
+    if (e.pattern == nullptr) return false;
+    adaptive::Channel& ch = engine_->channel(e.channel);
+    out[0] = e.channel;
+    out[1] = e.pattern->numRows;
+    out[2] = e.pattern->rowsPerBeat;
+    out[3] = static_cast<int32_t>(ch.numColumns());
+    out[4] = static_cast<int32_t>(ch.pitchMode());
+    return true;
+}
+
+bool AudioPlayer::readPattern(uint32_t i, uint8_t* out, uint32_t capacity) {
+    const auto e = song_->patternEntry(i);
+    if (e.pattern == nullptr) return false;
+    const uint32_t columns = engine_->channel(e.channel).numColumns();
+    if (capacity < e.pattern->numRows * columns * 5u) return false;
+    for (uint32_t r = 0; r < e.pattern->numRows; ++r) {
+        for (uint32_t c = 0; c < columns; ++c) {
+            const adaptive::Cell& cell = e.pattern->cells[r][c];
+            *out++ = cell.note;
+            *out++ = static_cast<uint8_t>(cell.accidental);
+            *out++ = cell.volume;
+            *out++ = cell.effect;
+            *out++ = cell.effectParam;
+        }
+    }
+    return true;
+}
+
+bool AudioPlayer::setCell(uint32_t pattern, int row, int column, const adaptive::Cell& cell) {
+    const auto e = song_->patternEntry(pattern);
+    if (e.pattern == nullptr || row < 0 || row >= e.pattern->numRows || column < 0 ||
+        column >= static_cast<int>(adaptive::config::kMaxColumns)) {
+        return false;
+    }
+    return engine_->post(adaptive::Command::setCell(e.pattern, static_cast<uint16_t>(row),
+                                                    static_cast<uint8_t>(column), cell));
+}
+
+bool AudioPlayer::previewOn(int channel, int slot, int midiNote) {
+    if (midiNote < 0 || midiNote > 127) return false;
+    return engine_->post(adaptive::Command::previewOn(static_cast<uint8_t>(channel), static_cast<uint8_t>(slot),
+                                                     static_cast<uint8_t>(midiNote), 0.8f));
+}
+
+bool AudioPlayer::previewOff(int slot) {
+    return engine_->post(adaptive::Command::previewOff(static_cast<uint8_t>(slot)));
+}
+
+void AudioPlayer::homeKey(int32_t out[2]) const {
+    // Set in setUp() before audio starts and never changed, so this read is safe.
+    out[0] = engine_->pitch().home.root;
+    out[1] = engine_->pitch().home.scale;
+}
+
+void AudioPlayer::playPosition(int channel, int32_t out[2]) const {
+    if (channel < 0 || channel >= static_cast<int>(adaptive::config::kMaxChannels)) {
+        out[0] = out[1] = -1;
+        return;
+    }
+    out[0] = playingPattern_[channel].load(std::memory_order_relaxed);
+    out[1] = playingRow_[channel].load(std::memory_order_relaxed);
+}
+
+void AudioPlayer::currentKey(int32_t out[2]) const {
+    out[0] = keyRoot_.load(std::memory_order_relaxed);
+    out[1] = keyScale_.load(std::memory_order_relaxed);
+}
+
 oboe::DataCallbackResult AudioPlayer::onAudioReady(oboe::AudioStream* stream, void* audioData,
                                                    int32_t numFrames) {
     const auto t0 = std::chrono::steady_clock::now();
@@ -150,6 +222,24 @@ void AudioPlayer::updateStats(oboe::AudioStream* stream, int64_t callbackNs, int
     if (xruns) underruns_.store(xruns.value(), std::memory_order_relaxed);
     const uint8_t section = engine_->currentSection();
     currentSection_.store(section == adaptive::kNoIndex ? -1 : section, std::memory_order_relaxed);
+
+    for (uint32_t c = 0; c < adaptive::config::kMaxChannels; ++c) {
+        const adaptive::Channel& ch = engine_->channel(c);
+        const adaptive::Pattern* p = ch.playingPattern();
+        int32_t index = -1;
+        if (p != nullptr) {
+            for (uint32_t i = 0; i < adaptive::demo::AdaptiveDemo::kNumPatterns; ++i) {
+                if (song_->patternEntry(i).pattern == p) {
+                    index = static_cast<int32_t>(i);
+                    break;
+                }
+            }
+        }
+        playingPattern_[c].store(index, std::memory_order_relaxed);
+        playingRow_[c].store(ch.playingRow(), std::memory_order_relaxed);
+    }
+    keyRoot_.store(engine_->pitch().current.root, std::memory_order_relaxed);
+    keyScale_.store(engine_->pitch().current.scale, std::memory_order_relaxed);
 }
 
 AudioPlayer::Stats AudioPlayer::stats() const {

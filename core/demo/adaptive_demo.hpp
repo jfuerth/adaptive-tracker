@@ -35,6 +35,18 @@ public:
 
     const Song& song() const { return song_; }
 
+    /// Editable patterns, for the pattern editor: name, the pattern, and the
+    /// channel whose instrument and pitch mode it plays with.
+    struct PatternEntry {
+        const char* name;
+        Pattern* pattern;
+        uint8_t channel;
+    };
+    static constexpr uint32_t kNumPatterns = 14;
+    PatternEntry patternEntry(uint32_t i) const {
+        return i < kNumPatterns ? patternTable_[i] : PatternEntry{"", nullptr, 0};
+    }
+
     /// Patches, pitch modes, column counts, and the song. Call before audio
     /// starts. Then post Command::gotoSection(kExplore, Quantize::Now) to play.
     void setUp(Engine& engine) const {
@@ -174,6 +186,18 @@ private:
         put(pickup_, 2, 0, 5, 4, 110);
         put(pickup_, 3, 0, 6, 0, 120);
         put(pickup_, 5, 0, 0, -1);
+
+        // ---- The editor's pattern table ----
+        const PatternEntry table[kNumPatterns] = {
+            {"Explore lead", &exploreLead_, kLead},   {"Explore bass", &exploreBass_, kBass},
+            {"Explore pad", &explorePad_, kPad},      {"Explore arp", &exploreArp_, kArp},
+            {"Combat lead", &combatLead_, kLead},     {"Combat bass", &combatBass_, kBass},
+            {"Combat pad", &combatPad_, kPad},        {"Combat arp", &combatArp_, kArp},
+            {"Combat drums", &combatDrums_, kDrums},  {"Bridge bass", &bridgeBass_, kBass},
+            {"Bridge arp", &bridgeArp_, kArp},        {"Bridge drums", &bridgeDrums_, kDrums},
+            {"Hit stinger", &hit_, kStinger},         {"Pickup stinger", &pickup_, kStinger},
+        };
+        for (uint32_t i = 0; i < kNumPatterns; ++i) patternTable_[i] = table[i];
 
         // ---- Sequences and sections ----
         auto one = [](Sequence& s, const Pattern& p) { s.append(&p); };
@@ -338,6 +362,7 @@ private:
     }
 
     Song song_;
+    PatternEntry patternTable_[kNumPatterns] = {};
     Pattern exploreLead_, exploreBass_, explorePad_, exploreArp_;
     Pattern combatLead_, combatBass_, combatPad_, combatArp_, combatDrums_;
     Pattern bridgeBass_, bridgeArp_, bridgeDrums_;

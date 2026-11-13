@@ -24,7 +24,9 @@ import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -41,10 +43,12 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import io.github.jfuerth.adaptivetracker.editor.EditorScreen
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
@@ -55,7 +59,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             AppTheme {
-                AdaptiveScreen(audioOk)
+                App(audioOk)
             }
         }
     }
@@ -104,20 +108,14 @@ private fun SectionTitle(text: String) {
     Text(text, style = MaterialTheme.typography.titleMedium)
 }
 
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun AdaptiveScreen(audioOk: Boolean) {
+private fun App(audioOk: Boolean) {
     val stats = rememberStats()
-    val currentSection = stats.getOrElse(5) { -1 }
-    val playing = currentSection >= 0
-
+    val playing = stats.getOrElse(5) { -1 } >= 0
+    // Held here so they survive switching tabs.
     val params = remember { mutableStateListOf(0.2f, 0f) }
     val layerOn = remember { mutableStateListOf(true, true, true) }
-    var quantize by rememberSaveable { mutableIntStateOf(NativeAudio.Quantize.BAR.ordinal) }
-    var entry by rememberSaveable { mutableIntStateOf(NativeAudio.Entry.RESTART.ordinal) }
-    var viaBridge by rememberSaveable { mutableStateOf(false) }
-    var root by rememberSaveable { mutableIntStateOf(0) }
-    var scale by rememberSaveable { mutableIntStateOf(0) }
+    var tab by rememberSaveable { mutableIntStateOf(0) }
 
     // Send the starting parameter values once.
     LaunchedEffect(Unit) {
@@ -125,15 +123,49 @@ private fun AdaptiveScreen(audioOk: Boolean) {
     }
 
     Scaffold { padding ->
+        Column(Modifier.fillMaxSize().padding(padding)) {
+            PrimaryTabRow(selectedTabIndex = tab) {
+                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Perform") })
+                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Edit") })
+            }
+            when (tab) {
+                0 -> PerformScreen(audioOk, stats, params, layerOn, Modifier.weight(1f))
+                else -> EditorScreen(
+                    playing = playing,
+                    onPlayToggle = { if (playing) NativeAudio.stop() else NativeAudio.play() },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PerformScreen(
+    audioOk: Boolean,
+    stats: IntArray,
+    params: SnapshotStateList<Float>,
+    layerOn: SnapshotStateList<Boolean>,
+    modifier: Modifier = Modifier,
+) {
+    val currentSection = stats.getOrElse(5) { -1 }
+    val playing = currentSection >= 0
+
+    var quantize by rememberSaveable { mutableIntStateOf(NativeAudio.Quantize.BAR.ordinal) }
+    var entry by rememberSaveable { mutableIntStateOf(NativeAudio.Entry.RESTART.ordinal) }
+    var viaBridge by rememberSaveable { mutableStateOf(false) }
+    var root by rememberSaveable { mutableIntStateOf(0) }
+    var scale by rememberSaveable { mutableIntStateOf(0) }
+
+    run {
         Column(
-            modifier = Modifier
+            modifier = modifier
                 .fillMaxSize()
-                .padding(padding)
                 .padding(horizontal = 16.dp, vertical = 8.dp)
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text("Adaptive Tracker", style = MaterialTheme.typography.headlineMedium)
             if (!audioOk) {
                 Text("Could not open audio output.", color = MaterialTheme.colorScheme.error)
             }
