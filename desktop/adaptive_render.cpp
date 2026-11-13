@@ -1,4 +1,4 @@
-// Plays the adaptive demo through a scripted timeline of game-parameter changes
+// Plays the adaptive demo through a scripted timeline of parameter changes
 // and events, and writes the result to a WAV file.
 //
 //   adaptive_render [out.wav]

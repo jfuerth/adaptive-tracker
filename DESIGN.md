@@ -1,8 +1,9 @@
 # Adaptive Tracker — Design
 
-An Android app for composing **adaptive music** (game-style music that reacts to
-state) by combining a tracker-style sequencer, the Pressense synth engine, and
-Lua scripting. Composed on a phone; the playback core must also be able to run on
+An Android app for composing **adaptive music**: music that reacts to changing
+state, for games, theatre, live performance or anything else. It combines a
+tracker-style sequencer, the Pressense synth engine, and Lua scripting.
+Composed on a phone; the playback core must also be able to run on
 microcontrollers (ESP32, RP2350) later.
 
 ## Decisions so far
@@ -12,7 +13,7 @@ microcontrollers (ESP32, RP2350) later.
 | Synth | Pressense `lib/synth`, synth-only for now (no samples). Repo: `git@github.com:jfuerth/pressense.git`. (The local checkout at `../pressence/pressence` has a misspelled directory name.) |
 | Pressense integration | **Git submodule of the whole repo for now**, using `lib/synth`, `lib/features` and `lib/nlohmann`. Move `lib/synth` into its own repo later, once its interface has settled for this project. Optional upstream cleanup: move the JSON conversion out of `performance_timer.hpp` so the synth no longer needs nlohmann |
 | Programmatic control | Lua, chosen for realistic overhead on MCUs |
-| Export / in-game runtime | Not yet. Phone-only for now, but the core stays portable |
+| Export / embeddable runtime | Not yet. Phone-only for now, but the core stays portable |
 | UI | Kotlin + Jetpack Compose; C++ core behind JNI |
 | Adaptive effects (v1) | Channel mute/unmute, channel effects, master effects (filter, reverb), global tempo, instrument parameter changes, key change |
 | Mute | Musical mute first: stop new notes, let current notes release, quantised. A click-free "audio mute" fade may come later, e.g. for choppy effects |
@@ -24,7 +25,8 @@ microcontrollers (ESP32, RP2350) later.
 | Tempo | Comes only from the section plus adaptive mappings (a multiplier). **Patterns cannot change tempo** |
 | Degree mapping | **Wrap** is the default (chosen by listening test, 2026-11-12). Snap stays available per song |
 | Section transitions | Each transition chooses **Restart** (default: channels start their new sequences from the top) or **Keep phase** (channels continue at the same position, and the bar count carries on). A transition can play a **bridge** section once before entering the target |
-| Game events | Named one-shot triggers (buttons in the app; later the host game or Lua). Each fires a short list of actions: play a stinger, go to a section, mute/unmute a layer. Actions are immediate by default, or quantised to the next beat or bar |
+| UI wording | **Never say "game" in the GUI.** The composer names parameters and events; the music may be for theatre, live performance or anything else. Example names like Intensity, Danger, Hit are fine |
+| Events | Named one-shot triggers (buttons in the app; later a host application or Lua). Each fires a short list of actions: play a stinger, go to a section, mute/unmute a layer. Actions are immediate by default, or quantised to the next beat or bar |
 | Android toolchain | Command-line only, via `sdkmanager`: NDK 30.0.16248370, CMake 4.1.2 and platform-tools in `~/Android/Sdk`. The Gradle wrapper fetches Gradle. Android Studio is optional |
 | PKTrekker | Reference only (effect semantics, tests). Not linked. Check licence before copying anything: `Modplay.*` is co-copyright Andrew Kilpatrick |
 
@@ -45,9 +47,9 @@ don't collide with console terms.
 | **Master / global effects** | The shared output stage: pressense post-filter, drive and clipping, plus reverb. | |
 | **Section** | An adaptive state (explore, combat, and so on) with its own pattern order. | |
 | **Layer** | A named group of channels that are muted, unmuted or faded together. | |
-| **Game parameter** | A named float set by a UI slider, a script, or (later) the host game. | |
+| **Parameter** | A named float set by a UI slider, a script, or (later) a host application. | |
 | **Target** | Any addressable adaptive value, e.g. `channel[2].mute`, `channel[2].filter.cutoff`, `master.filter.cutoff`, `tempo`, `instrument["lead"].filter_q`, `key.root`. | |
-| **Mapping** | Data that drives a target from a game parameter (curve, range, ramp, quantise). | |
+| **Mapping** | Data that drives a target from a parameter (curve, range, ramp, quantise). | |
 
 ## Layers
 
@@ -59,7 +61,7 @@ don't collide with console terms.
 ┌───────────────────────────────▼──────────────────────────────────────────────┐
 │ core/control  (control thread, MCU core 0)                                    │
 │   Lua VM (optional) — runs at tick/row rate, never on the audio thread        │
-│   Game parameters (named floats) · rule evaluation                            │
+│   Parameters (named floats) · rule evaluation                                 │
 └───────────────────────────────┬──────────────────────────────────────────────┘
                                 │ lock-free SPSC command queue (fixed size)
 ┌───────────────────────────────▼──────────────────────────────────────────────┐
@@ -101,8 +103,8 @@ live in the app.
   notes, sounding notes release, and the sequence keeps its place.
 - **Stingers** play a pattern once on a channel kept out of sections. Section
   changes leave a playing stinger alone.
-- **Game events** fire up to four commands, each with its own quantisation.
-- **Game parameters** (0–1) drive **mappings**: channel gain, layer gain,
+- **Events** fire up to four commands, each with its own quantisation.
+- **Parameters** (0–1) drive **mappings**: channel gain, layer gain,
   channel low-pass cutoff, master cutoff, tempo scale or transpose. Curves are
   linear or exponential, with a glide time. A **threshold** mapping fires an
   event when the parameter rises past a value, and another when it falls back.
@@ -208,7 +210,7 @@ android/         Gradle project: app (Compose) + :native (CMake → core + Oboe)
 3. ✅ **Android shell** (done 2026-11-12): Gradle + NDK + Oboe; play/stop a demo song from the phone.
 4. ✅ **Adaptive director** (done 2026-11-12): command queue, sections and
    transitions (Restart / Keep phase / bridge), layers with musical mute,
-   stingers, game events, parameters and mappings, channel filter and gain.
+   stingers, events, parameters and mappings, channel filter and gain.
 5. **Pattern editor UI** (touch grid) and patch editor.
 6. **Lua**: control thread, API, script editor; measure footprint.
 7. Later: song file format, MCU build (RP2350 first, reusing pressense's I2S sink).

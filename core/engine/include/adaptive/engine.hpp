@@ -83,7 +83,7 @@ public:
         }
     }
 
-    /// Current value of a game parameter (audio thread).
+    /// Current value of a parameter (audio thread).
     float param(uint8_t index) const { return index < config::kMaxParams ? params_[index] : 0.0f; }
 
     /**
@@ -167,7 +167,7 @@ private:
     void schedule(const Command& c, uint64_t tick) {
         if (c.kind == Command::Kind::FireEvent) {
             if (song_ == nullptr || c.a >= song_->numEvents) return;
-            const GameEvent& e = song_->events[c.a];
+            const Event& e = song_->events[c.a];
             for (uint8_t i = 0; i < e.numActions; ++i) schedule(e.actions[i], tick);
             return;
         }
@@ -367,7 +367,7 @@ private:
     uint8_t currentSection_ = kNoIndex;
     uint64_t sectionStartTick_ = 0;
 
-    // Game parameters and mapping targets.
+    // Parameters and mapping targets.
     float params_[config::kMaxParams] = {};
     float layerGains_[config::kMaxLayers] = {};  // set to 1 in the constructor
     uint32_t baseTempoMilliBpm_ = 120000;

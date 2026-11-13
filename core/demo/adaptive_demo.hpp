@@ -7,8 +7,8 @@
 namespace adaptive::demo {
 
 /**
- * Adaptive demo song: two sections, a bridge, three layers, two game
- * parameters with mappings, and game events with stingers. Written in C-major
+ * Adaptive demo song: two sections, a bridge, three layers, two
+ * parameters with mappings, and events with stingers. Written in C-major
  * scale degrees (drums excepted), so key and scale changes affect everything.
  *
  * Holds its own patterns and Song, so it must outlive any engine playing it.
@@ -22,9 +22,9 @@ public:
     static constexpr uint8_t kExplore = 0, kCombat = 1, kBridge = 2;
     // Layers.
     static constexpr uint8_t kRhythmLayer = 0, kMelodyLayer = 1, kPadLayer = 2;
-    // Game parameters.
+    // Parameters.
     static constexpr uint8_t kIntensity = 0, kDanger = 1;
-    // Game events.
+    // Events.
     static constexpr uint8_t kHit = 0, kPickup = 1, kEnterCombat = 2, kCalmDown = 3, kAlarm = 4;
 
     static constexpr const char* kSectionNames[] = {"Explore", "Combat", "Bridge"};

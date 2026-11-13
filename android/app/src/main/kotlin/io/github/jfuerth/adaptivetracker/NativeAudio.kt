@@ -22,7 +22,7 @@ object NativeAudio {
     val LAYERS = listOf("Rhythm", "Melody", "Pad")
     val PARAMS = listOf("Intensity", "Danger")
 
-    /** Game events with buttons: index into the demo's events, and a label. */
+    /** Events with buttons: index into the demo's events, and a label. */
     val EVENT_BUTTONS = listOf(0 to "Hit", 1 to "Pickup", 4 to "Alarm")
 
     enum class Quantize(val label: String) { NOW("Now"), BEAT("Beat"), BAR("Bar") }

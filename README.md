@@ -1,6 +1,6 @@
 # Adaptive Tracker
 
-An Android app (in progress) for composing adaptive, game-style music, combining
+An Android app (in progress) for composing adaptive music (for games, theatre, live performance and more), combining
 a tracker-style sequencer, the [pressense](https://github.com/jfuerth/pressense)
 synth engine and Lua scripting. The playback core is portable C++ intended to
 run on microcontrollers (ESP32, RP2350) as well.

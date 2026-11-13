@@ -68,7 +68,7 @@ inline constexpr uint32_t kMaxSections = ADAPTIVE_MAX_SECTIONS;
 inline constexpr uint32_t kMaxLayers = ADAPTIVE_MAX_LAYERS;
 inline constexpr uint32_t kMaxEvents = ADAPTIVE_MAX_EVENTS;
 inline constexpr uint32_t kMaxEventActions = ADAPTIVE_MAX_EVENT_ACTIONS;
-/// Game parameters (named floats 0..1; names live in the app).
+/// Parameters (named floats 0..1; names live in the app).
 inline constexpr uint32_t kMaxParams = ADAPTIVE_MAX_PARAMS;
 inline constexpr uint32_t kMaxMappings = ADAPTIVE_MAX_MAPPINGS;
 /// Commands waiting for their quantised time (e.g. "at the next bar").

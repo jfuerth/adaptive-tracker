@@ -7,7 +7,7 @@
 #include <cstdint>
 
 /**
- * Adaptive song structure: sections, layers and game events, plus the commands
+ * Adaptive song structure: sections, layers and events, plus the commands
  * that control playback. All plain data with fixed capacities; the engine
  * refers to sections, layers and events by index.
  */
@@ -41,7 +41,7 @@ struct Section {
 
 /**
  * One thing to do, now or at a quantised time. Used both for commands posted
- * to the engine and for the actions a game event fires.
+ * to the engine and for the actions an event fires.
  */
 struct Command {
     enum class Kind : uint8_t {
@@ -51,7 +51,7 @@ struct Command {
         SetLayerMute, ///< a = layer, b = 1 to mute, 0 to unmute
         FireEvent,    ///< a = event; runs the event's actions
         Stop,         ///< stop all channels (sounding notes release)
-        SetParam,     ///< a = game parameter, value = 0..1; runs mappings
+        SetParam,     ///< a = parameter, value = 0..1; runs mappings
         SetKey,       ///< a = root pitch class, data = scale mask
         SetTempo,     ///< value = base tempo in BPM (scaled by any TempoScale mapping)
     };
@@ -91,7 +91,7 @@ struct Command {
 };
 
 /**
- * Drives a target from a game parameter. Data only: the engine evaluates
+ * Drives a target from a parameter. Data only: the engine evaluates
  * mappings whenever their parameter changes. If several mappings drive the
  * same target, the most recently evaluated one wins.
  */
@@ -133,7 +133,7 @@ struct Mapping {
 };
 
 /// A named one-shot trigger (the name lives in the app). Fires its actions in order.
-struct GameEvent {
+struct Event {
     Command actions[config::kMaxEventActions] = {};
     uint8_t numActions = 0;
 
@@ -152,7 +152,7 @@ struct Song {
     uint32_t layers[config::kMaxLayers] = {};
     uint8_t numLayers = 0;
 
-    GameEvent events[config::kMaxEvents] = {};
+    Event events[config::kMaxEvents] = {};
     uint8_t numEvents = 0;
 
     Mapping mappings[config::kMaxMappings] = {};

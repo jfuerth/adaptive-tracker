@@ -150,8 +150,8 @@ private fun AdaptiveScreen(audioOk: Boolean) {
                 )
             }
 
-            // Game parameters
-            SectionTitle("Game parameters")
+            // Parameters
+            SectionTitle("Parameters")
             Text(
                 "Intensity brings in the rhythm layer, brightens the arpeggio and pushes the tempo. " +
                     "Danger muffles the pad; past 75% it starts combat, and below it calms down.",
@@ -168,8 +168,8 @@ private fun AdaptiveScreen(audioOk: Boolean) {
                 )
             }
 
-            // Game events
-            SectionTitle("Game events")
+            // Events
+            SectionTitle("Events")
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 NativeAudio.EVENT_BUTTONS.forEach { (index, label) ->
                     FilledTonalButton(onClick = { NativeAudio.fireEvent(index) }, enabled = playing) {
