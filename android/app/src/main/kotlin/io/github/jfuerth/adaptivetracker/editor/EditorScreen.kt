@@ -18,7 +18,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -119,17 +118,19 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
     val ctx = PitchContext(home, currentKey)
     val playingRow = if (playing && playPos[0] == patternIndex) playPos[1] else -1
 
-    val listState = rememberLazyListState()
+    // A fresh scroll state per pattern: the old pattern's position must never
+    // be read against the new pattern's rows.
+    val listState = remember(patternIndex) { LazyListState() }
     val scope = rememberCoroutineScope()
     val rowPx = with(LocalDensity.current) { ROW_HEIGHT.toPx() }
-    val editRow by remember { derivedStateOf { centeredRow(listState) } }
+    // Clamped as well, since the layout can briefly lag the pattern's length.
+    val editRow by remember(listState, info.rows) {
+        derivedStateOf { centeredRow(listState).coerceIn(0, (info.rows - 1).coerceAtLeast(0)) }
+    }
     // Drags and flings come to rest with a row exactly on the edit bar.
     val snapFling = rememberSnapFlingBehavior(listState, SnapPosition.Center)
 
-    LaunchedEffect(patternIndex) {
-        listState.scrollToItem(0)
-        anchor = null
-    }
+    LaunchedEffect(patternIndex) { anchor = null }
     // Dragging the pattern stops following playback.
     LaunchedEffect(listState) {
         listState.interactionSource.interactions.collect { if (it is DragInteraction.Start) follow = false }

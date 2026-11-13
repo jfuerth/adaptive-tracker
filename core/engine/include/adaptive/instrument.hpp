@@ -154,17 +154,11 @@ struct Instrument {
         case Param::FilterEnvAmount: v.setFilterEnvelopeAmount(x); break;
         case Param::FilterAttack: v.getFilterEnvelope().setAttackTime(x); break;
         case Param::FilterDecay: v.getFilterEnvelope().setDecayTime(x); break;
-        case Param::FilterSustain:
-            v.setFilterEnvSustain(x);
-            refreshRates(v.getFilterEnvelope());
-            break;
+        case Param::FilterSustain: v.setFilterEnvSustain(x); break;
         case Param::FilterRelease: v.getFilterEnvelope().setReleaseTime(x); break;
         case Param::AmpAttack: v.getAmpEnvelope().setAttackTime(x); break;
         case Param::AmpDecay: v.getAmpEnvelope().setDecayTime(x); break;
-        case Param::AmpSustain:
-            v.getAmpEnvelope().setSustainLevel(x);
-            refreshRates(v.getAmpEnvelope());
-            break;
+        case Param::AmpSustain: v.getAmpEnvelope().setSustainLevel(x); break;
         case Param::AmpRelease: v.getAmpEnvelope().setReleaseTime(x); break;
         case Param::Level: v.setLevel(x); break;
         case Param::VibratoRate: v.setVibratoRate(x); break;
@@ -178,11 +172,6 @@ struct Instrument {
 private:
     struct Blank {};
     explicit Instrument(Blank) : values{} {}
-
-    /// pressense's AdsrEnvelope derives its decay and release rates from the
-    /// sustain level, but setSustainLevel() doesn't recompute them. Setting a
-    /// time again does.
-    static void refreshRates(synth::AdsrEnvelope& e) { e.setDecayTime(e.getDecayTime()); }
 };
 
 } // namespace adaptive

@@ -1,5 +1,6 @@
 package io.github.jfuerth.adaptivetracker
 
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -30,6 +31,7 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
@@ -55,14 +57,37 @@ import kotlinx.coroutines.delay
 class MainActivity : ComponentActivity() {
     private var audioOk by mutableStateOf(true)
 
+    private var crashReport by mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        CrashReports.install(this)
+        crashReport = CrashReports.pending(this)
         enableEdgeToEdge()
         setContent {
             AppTheme {
-                App(audioOk)
+                App(
+                    audioOk = audioOk,
+                    crashReport = crashReport,
+                    onShareCrash = ::shareCrashReport,
+                    onDismissCrash = {
+                        CrashReports.dismiss(this)
+                        crashReport = null
+                    },
+                )
             }
         }
+    }
+
+    /** Hands the report to any app that takes text (a chat, email, notes). */
+    private fun shareCrashReport() {
+        val report = crashReport ?: return
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, "Adaptive Tracker crash report")
+            putExtra(Intent.EXTRA_TEXT, report)
+        }
+        startActivity(Intent.createChooser(send, "Share crash report"))
     }
 
     override fun onStart() {
@@ -110,7 +135,7 @@ private fun SectionTitle(text: String) {
 }
 
 @Composable
-private fun App(audioOk: Boolean) {
+private fun App(audioOk: Boolean, crashReport: String?, onShareCrash: () -> Unit, onDismissCrash: () -> Unit) {
     val stats = rememberStats()
     val playing = stats.getOrElse(6) { 0 } == 1
     // Held here so they survive switching tabs.
@@ -125,6 +150,7 @@ private fun App(audioOk: Boolean) {
 
     Scaffold { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
+            if (crashReport != null) CrashCard(crashReport, onShareCrash, onDismissCrash)
             PrimaryTabRow(selectedTabIndex = tab) {
                 Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Perform") })
                 Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Patterns") })
@@ -314,6 +340,25 @@ private fun DiagnosticsCard(stats: IntArray) {
                 Text("Slowest callback: $maxUs µs of $budgetUs µs")
                 Spacer(Modifier.width(8.dp))
                 OutlinedButton(onClick = { NativeAudio.resetStats() }) { Text("Reset") }
+            }
+        }
+    }
+}
+
+/** Shown after a crash: share the report (to paste into a chat) or dismiss it. */
+@Composable
+private fun CrashCard(report: String, onShare: () -> Unit, onDismiss: () -> Unit) {
+    Card(Modifier.fillMaxWidth().padding(8.dp)) {
+        Column(Modifier.padding(12.dp)) {
+            Text("The app stopped unexpectedly last time.", style = MaterialTheme.typography.titleSmall)
+            Text(
+                report.lineSequence().drop(3).firstOrNull { it.isNotBlank() } ?: "",
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 2,
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onShare) { Text("Share report") }
+                TextButton(onClick = onDismiss) { Text("Dismiss") }
             }
         }
     }

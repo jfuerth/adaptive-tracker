@@ -244,8 +244,8 @@ TEST_CASE("Instruments: defaults are a default pressense voice's settings") {
 }
 
 TEST_CASE("Instruments: changing sustain also updates the envelope's decay rate") {
-    // pressense derives the decay rate from the sustain level but doesn't
-    // recompute it in setSustainLevel(); applyParam works around that.
+    // The decay rate depends on the sustain level (fixed in pressense's
+    // AdsrEnvelope::setSustainLevel; this guards the submodule version).
     using P = Instrument::Param;
     synth::WavetableSynth v(1000.0f);  // 1 sample per ms
     Instrument i;
