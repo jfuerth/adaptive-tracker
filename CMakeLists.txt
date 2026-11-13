@@ -38,10 +38,11 @@ if(ADAPTIVE_BUILD_HOST_TOOLS)
         core/tests/test_pitch.cpp
         core/tests/test_sequencer.cpp
         core/tests/test_adaptive.cpp
-        core/tests/test_mappings.cpp)
+        core/tests/test_mappings.cpp
+        core/tests/test_demo.cpp)
     find_package(Threads REQUIRED)
     target_link_libraries(adaptive_tests PRIVATE Threads::Threads)
-    target_link_libraries(adaptive_tests PRIVATE adaptive_engine)
+    target_link_libraries(adaptive_tests PRIVATE adaptive_demo)
     target_include_directories(adaptive_tests SYSTEM PRIVATE core/third_party/doctest)
     target_compile_options(adaptive_tests PRIVATE ${ADAPTIVE_WARNINGS})
     add_test(NAME adaptive_tests COMMAND adaptive_tests)
@@ -55,6 +56,10 @@ if(ADAPTIVE_BUILD_HOST_TOOLS)
     add_executable(render_demo desktop/render_demo.cpp)
     target_link_libraries(render_demo PRIVATE adaptive_engine)
     target_compile_options(render_demo PRIVATE ${ADAPTIVE_WARNINGS})
+
+    add_executable(adaptive_render desktop/adaptive_render.cpp)
+    target_link_libraries(adaptive_render PRIVATE adaptive_demo)
+    target_compile_options(adaptive_render PRIVATE ${ADAPTIVE_WARNINGS})
 
     add_executable(key_experiment desktop/key_experiment.cpp)
     target_link_libraries(key_experiment PRIVATE adaptive_demo)

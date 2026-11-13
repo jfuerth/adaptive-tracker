@@ -1,13 +1,32 @@
 package io.github.jfuerth.adaptivetracker
 
 /**
- * Bridge to the C++ engine (android/app/src/main/cpp). Every setter is cheap and
- * thread-safe: it stores a value that the audio thread picks up on its next buffer.
+ * Bridge to the C++ engine (android/app/src/main/cpp), playing the adaptive demo
+ * song (core/demo/adaptive_demo.hpp).
+ *
+ * Control calls post commands to the engine's lock-free queue: they are cheap,
+ * never block, and must all be made from the main (UI) thread. Each returns
+ * false if the queue was full and the command was dropped.
+ *
+ * The index constants mirror AdaptiveDemo in adaptive_demo.hpp.
  */
 object NativeAudio {
     init {
         System.loadLibrary("adaptive_native")
     }
+
+    val SECTIONS = listOf("Explore", "Combat")  // the bridge (index 2) is only used in transitions
+    const val SECTION_BRIDGE = 2
+    val SECTION_NAMES = listOf("Explore", "Combat", "Bridge")
+
+    val LAYERS = listOf("Rhythm", "Melody", "Pad")
+    val PARAMS = listOf("Intensity", "Danger")
+
+    /** Game events with buttons: index into the demo's events, and a label. */
+    val EVENT_BUTTONS = listOf(0 to "Hit", 1 to "Pickup", 4 to "Alarm")
+
+    enum class Quantize(val label: String) { NOW("Now"), BEAT("Beat"), BAR("Bar") }
+    enum class Entry(val label: String) { RESTART("Restart"), KEEP_PHASE("Keep phase") }
 
     /** Scales offered in the UI. Order must match kScales in audio_player.cpp. */
     enum class Scale(val label: String) {
@@ -30,23 +49,31 @@ object NativeAudio {
 
     external fun close()
 
-    external fun setPlaying(playing: Boolean)
+    /** Starts the song at the Explore section. */
+    external fun play(): Boolean
 
-    /** [root] is a pitch class 0-11 (0 = C). */
-    external fun setKey(root: Int, scaleIndex: Int)
+    /** Stops all channels; sounding notes release. */
+    external fun stop(): Boolean
 
-    external fun setTempo(bpm: Float)
+    external fun gotoSection(section: Int, quantize: Int, entry: Int, viaBridge: Boolean): Boolean
+
+    external fun fireEvent(event: Int): Boolean
+
+    /** Musical mute, at the next bar. */
+    external fun setLayerMute(layer: Int, muted: Boolean): Boolean
+
+    /** [value] is 0..1. */
+    external fun setParam(param: Int, value: Float): Boolean
+
+    /** [root] is a pitch class 0-11 (0 = C). Applies at the next bar. */
+    external fun setKey(root: Int, scaleIndex: Int): Boolean
 
     /**
-     * Playback health: [underruns, bufferFrames, burstFrames, maxCallbackUs,
-     * callbackBudgetUs, lastUnderrunRow]. lastUnderrunRow is the demo melody's
-     * row (0-15) when the last underrun was seen, or -1.
+     * [underruns, bufferFrames, burstFrames, maxCallbackUs, callbackBudgetUs,
+     * currentSection]; currentSection is -1 when stopped.
      */
     external fun getStats(): IntArray
 
     /** Clears the slowest-callback measurement. */
     external fun resetStats()
-
-    /** Scale degree played by each of the demo melody's 16 rows (row 15 is a rest). */
-    val MELODY_DEGREES = listOf("1", "3", "5", "7", "8", "7", "6", "5", "4", "6", "5", "3", "4", "2", "1", "rest")
 }

@@ -82,27 +82,44 @@ no heap allocation after setup. In addition:
 - Single-precision floats only in the hot path.
 - `synth::WavetableSynth::nextSample` with `features::NoOpTimingPolicy`.
 
-## Adaptive model (first cut)
+## Adaptive model (implemented in milestone 4)
 
-- **Song** = set of **Sections** (e.g. explore, tension, combat, victory).
-- A **Section** says which pattern sequence each channel plays, its beats per
-  bar, and its tempo, and has a set of **Layers**. A layer is a group of channels
-  that can be muted or faded together (vertical remixing).
-- **Transitions** (horizontal re-sequencing): "go to section X" requests are
-  quantised by the engine to the next beat, bar, or pattern end, with an optional
-  transition pattern (stinger/bridge). Scripts *request*; the engine executes
-  sample-accurately. Timing therefore stays exact even if Lua runs late.
-- **Game parameters** are named floats set by UI sliders (on the phone) or by the
-  host game (later). Simple mappings (parameter → layer gain, parameter threshold
-  → section change) are data and need no Lua.
+Data lives in `adaptive::Song` (`core/engine/include/adaptive/song.hpp`). The
+engine refers to sections, layers, events and parameters by index. Their names
+live in the app.
+
+- **Commands** reach the audio thread through a lock-free single-producer queue
+  (`Engine::post`). Each command can be quantised: **now**, **next beat** or
+  **next bar**. Beats and bars are counted from the start of the current section.
+  Commands: go to section, play stinger, mute/unmute layer, fire event, set
+  parameter, set key, set tempo, stop.
+- **Sections** give each channel a pattern sequence (or none), a beats-per-bar
+  value and an optional tempo. Going to a section uses **Restart** or **Keep
+  phase**, optionally via a **bridge** section that plays for its `bridgeBeats`
+  first. The latest section request cancels any pending one.
+- **Layers** are channel bitmasks. **Musical mute**: muted channels start no new
+  notes, sounding notes release, and the sequence keeps its place.
+- **Stingers** play a pattern once on a channel kept out of sections. Section
+  changes leave a playing stinger alone.
+- **Game events** fire up to four commands, each with its own quantisation.
+- **Game parameters** (0–1) drive **mappings**: channel gain, layer gain,
+  channel low-pass cutoff, master cutoff, tempo scale or transpose. Curves are
+  linear or exponential, with a glide time. A **threshold** mapping fires an
+  event when the parameter rises past a value, and another when it falls back.
+  When a song loads, starting values apply instantly.
+- **Channel strip:** low-pass filter (off at 18 kHz and above) and a smoothed gain
+  (strip × layers). Pan waits for stereo output.
+- **Demo:** `core/demo/adaptive_demo.hpp` (Explore, Combat, a bridge, three
+  layers, Intensity and Danger, Hit/Pickup/Alarm events).
+  `desktop/adaptive_render` plays it through a scripted timeline to a WAV.
 
 ## Android audio and threading (milestone 3)
 
 - Oboe output stream: float, mono, low-latency, exclusive if available, at a fixed
   48 kHz. Oboe resamples if the device runs at another rate. Buffer = 2 bursts.
-- The engine is only touched on the audio thread. UI setters write atomics
-  (playing, key, scale, tempo), and the callback applies them at the start of
-  each buffer. This is a stopgap until the lock-free command queue (milestone 4).
+- The engine is only touched on the audio thread. The UI thread posts commands
+  to the engine's lock-free queue, and is its only producer. The audio thread
+  publishes state for the UI (current section, underruns, timing) through atomics.
 - New playback starts at `Engine::nextTick()` (at most one tick, about 2 ms, later).
 - If the stream dies (e.g. headphones unplugged), it reopens unless the app
   closed it meanwhile. No background playback yet; that needs a foreground
@@ -189,7 +206,9 @@ android/         Gradle project: app (Compose) + :native (CMake → core + Oboe)
    and rows per beat, the effects above, pitch modes and keys, several channels.
    Listening test result: Wrap is the default degree mapping.
 3. **Android shell**: Gradle + NDK + Oboe; play/stop a demo song from the phone.
-4. **Adaptive director**: sections, layers, quantised transitions, parameter sliders.
+4. ✅ **Adaptive director** (done 2026-11-12): command queue, sections and
+   transitions (Restart / Keep phase / bridge), layers with musical mute,
+   stingers, game events, parameters and mappings, channel filter and gain.
 5. **Pattern editor UI** (touch grid) and patch editor.
 6. **Lua**: control thread, API, script editor; measure footprint.
 7. Later: song file format, MCU build (RP2350 first, reusing pressense's I2S sink).
