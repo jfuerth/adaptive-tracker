@@ -36,4 +36,17 @@ object NativeAudio {
     external fun setKey(root: Int, scaleIndex: Int)
 
     external fun setTempo(bpm: Float)
+
+    /**
+     * Playback health: [underruns, bufferFrames, burstFrames, maxCallbackUs,
+     * callbackBudgetUs, lastUnderrunRow]. lastUnderrunRow is the demo melody's
+     * row (0-15) when the last underrun was seen, or -1.
+     */
+    external fun getStats(): IntArray
+
+    /** Clears the slowest-callback measurement. */
+    external fun resetStats()
+
+    /** Scale degree played by each of the demo melody's 16 rows (row 15 is a rest). */
+    val MELODY_DEGREES = listOf("1", "3", "5", "7", "8", "7", "6", "5", "4", "6", "5", "3", "4", "2", "1", "rest")
 }

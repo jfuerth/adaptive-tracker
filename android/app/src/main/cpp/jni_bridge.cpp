@@ -38,4 +38,18 @@ JNIEXPORT void JNICALL JNI_FN(setTempo)(JNIEnv*, jobject, jfloat bpm) {
     player().setTempoBpm(bpm);
 }
 
+/// [underruns, bufferFrames, burstFrames, maxCallbackUs, callbackBudgetUs, lastUnderrunRow]
+JNIEXPORT jintArray JNICALL JNI_FN(getStats)(JNIEnv* env, jobject) {
+    const AudioPlayer::Stats s = player().stats();
+    const jint values[6] = {s.underruns, s.bufferFrames, s.burstFrames,
+                            s.maxCallbackUs, s.callbackBudgetUs, s.lastUnderrunRow};
+    jintArray result = env->NewIntArray(6);
+    if (result != nullptr) env->SetIntArrayRegion(result, 0, 6, values);
+    return result;
+}
+
+JNIEXPORT void JNICALL JNI_FN(resetStats)(JNIEnv*, jobject) {
+    player().resetStats();
+}
+
 } // extern "C"

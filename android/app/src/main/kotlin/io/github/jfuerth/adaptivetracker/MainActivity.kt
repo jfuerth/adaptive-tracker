@@ -17,6 +17,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -27,6 +29,8 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -37,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
@@ -155,6 +160,47 @@ private fun DemoScreen(audioOk: Boolean) {
                 onValueChange = { tempo = it.roundToInt().toFloat() },
                 valueRange = 60f..200f,
             )
+
+            DiagnosticsCard()
+        }
+    }
+}
+
+@Composable
+private fun DiagnosticsCard() {
+    var stats by remember { mutableStateOf(IntArray(6)) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            stats = NativeAudio.getStats()
+            delay(500)
+        }
+    }
+    // Kotlin lists only destructure up to five components, so index explicitly.
+    val underruns = stats.getOrElse(0) { 0 }
+    val bufferFrames = stats.getOrElse(1) { 0 }
+    val burstFrames = stats.getOrElse(2) { 0 }
+    val maxUs = stats.getOrElse(3) { 0 }
+    val budgetUs = stats.getOrElse(4) { 0 }
+    val lastRow = stats.getOrElse(5) { -1 }
+    val bufferMs = bufferFrames * 1000f / 48000f
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text("Diagnostics", style = MaterialTheme.typography.titleMedium)
+            Text("Underruns: $underruns")
+            if (underruns > 0 && lastRow in 0..15) {
+                Text("Last underrun at melody row $lastRow (degree ${NativeAudio.MELODY_DEGREES[lastRow]})")
+            }
+            Text(
+                "Buffer: $bufferFrames frames (%.1f ms), burst $burstFrames".format(bufferMs),
+            )
+            Text("Slowest callback: $maxUs µs of $budgetUs µs budget")
+            OutlinedButton(onClick = { NativeAudio.resetStats() }) {
+                Text("Reset slowest")
+            }
         }
     }
 }
