@@ -205,7 +205,7 @@ android/         Gradle project: app (Compose) + :native (CMake → core + Oboe)
 2. ✅ **Sequencer** (done 2026-11-12): per-channel pattern sequences of mixed lengths
    and rows per beat, the effects above, pitch modes and keys, several channels.
    Listening test result: Wrap is the default degree mapping.
-3. **Android shell**: Gradle + NDK + Oboe; play/stop a demo song from the phone.
+3. ✅ **Android shell** (done 2026-11-12): Gradle + NDK + Oboe; play/stop a demo song from the phone.
 4. ✅ **Adaptive director** (done 2026-11-12): command queue, sections and
    transitions (Restart / Keep phase / bridge), layers with musical mute,
    stingers, game events, parameters and mappings, channel filter and gain.
