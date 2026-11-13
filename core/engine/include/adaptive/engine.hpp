@@ -50,6 +50,10 @@ public:
     PitchContext& pitch() { return pitch_; }
     const PitchContext& pitch() const { return pitch_; }
 
+    /// The earliest tick at which newly scheduled playback can start: the
+    /// current tick if its processing has not happened yet, else the next one.
+    uint64_t nextTick() const { return tickPending_ ? clock_.tick() : clock_.tick() + 1; }
+
     /// Render `numFrames` mono samples into `out` (overwrites it).
     void render(float* out, uint32_t numFrames) {
         for (uint32_t i = 0; i < numFrames; ++i) out[i] = 0.0f;

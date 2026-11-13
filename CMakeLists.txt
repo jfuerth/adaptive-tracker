@@ -20,10 +20,15 @@ target_include_directories(adaptive_engine SYSTEM INTERFACE
     ${PRESSENSE_DIR}/lib/features
     ${PRESSENSE_DIR}/lib/nlohmann)
 
+# Demo songs shared by desktop tools and the Android app.
+add_library(adaptive_demo INTERFACE)
+target_include_directories(adaptive_demo INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/core)
+target_link_libraries(adaptive_demo INTERFACE adaptive_engine)
+
 set(ADAPTIVE_WARNINGS -Wall -Wextra -Wpedantic)
 
 # Host-only targets: tests and desktop tools.
-option(ADAPTIVE_BUILD_HOST_TOOLS "Build unit tests and desktop tools" ON)
+option(ADAPTIVE_BUILD_HOST_TOOLS "Build unit tests and desktop tools" ${PROJECT_IS_TOP_LEVEL})
 if(ADAPTIVE_BUILD_HOST_TOOLS)
     enable_testing()
 
@@ -48,6 +53,6 @@ if(ADAPTIVE_BUILD_HOST_TOOLS)
     target_compile_options(render_demo PRIVATE ${ADAPTIVE_WARNINGS})
 
     add_executable(key_experiment desktop/key_experiment.cpp)
-    target_link_libraries(key_experiment PRIVATE adaptive_engine)
+    target_link_libraries(key_experiment PRIVATE adaptive_demo)
     target_compile_options(key_experiment PRIVATE ${ADAPTIVE_WARNINGS})
 endif()

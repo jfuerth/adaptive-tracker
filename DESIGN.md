@@ -22,6 +22,7 @@ microcontrollers (ESP32, RP2350) later.
 | Pattern scope | **Per channel.** Each channel plays its own sequence of patterns, which can have different lengths. A section says which pattern(s) each channel plays |
 | Timing | Engine clock in ticks at 96 PPQ (divisible by 2, 3, 4, 8, 16, 32). Each pattern sets its own **length in rows** and **rows per beat**, so channels can play polyrhythms. **Beats per bar is set per section** and defines bar quantisation, counted from section start. Patterns needn't fill whole bars |
 | Tempo | Comes only from the section plus adaptive mappings (a multiplier). **Patterns cannot change tempo** |
+| Degree mapping | **Wrap** is the default (chosen by listening test, 2026-11-12). Snap stays available per song |
 | Android toolchain | Command-line only, via `sdkmanager`: NDK 30.0.16248370, CMake 4.1.2 and platform-tools in `~/Android/Sdk`. The Gradle wrapper fetches Gradle. Android Studio is optional |
 | PKTrekker | Reference only (effect semantics, tests). Not linked. Check licence before copying anything: `Modplay.*` is co-copyright Andrew Kilpatrick |
 
@@ -92,6 +93,18 @@ no heap allocation after setup. In addition:
 - **Game parameters** are named floats set by UI sliders (on the phone) or by the
   host game (later). Simple mappings (parameter → layer gain, parameter threshold
   → section change) are data and need no Lua.
+
+## Android audio and threading (milestone 3)
+
+- Oboe output stream: float, mono, low-latency, exclusive if available, at a fixed
+  48 kHz. Oboe resamples if the device runs at another rate. Buffer = 2 bursts.
+- The engine is only touched on the audio thread. UI setters write atomics
+  (playing, key, scale, tempo), and the callback applies them at the start of
+  each buffer. This is a stopgap until the lock-free command queue (milestone 4).
+- New playback starts at `Engine::nextTick()` (at most one tick, about 2 ms, later).
+- If the stream dies (e.g. headphones unplugged), it reopens unless the app
+  closed it meanwhile. No background playback yet; that needs a foreground
+  service.
 
 ## Pitch and keys
 
@@ -172,8 +185,7 @@ android/         Gradle project: app (Compose) + :native (CMake → core + Oboe)
    hard-coded pattern through `WavetableSynth`, offline-rendered to WAV.
 2. ✅ **Sequencer** (done 2026-11-12): per-channel pattern sequences of mixed lengths
    and rows per beat, the effects above, pitch modes and keys, several channels.
-   The scale-degree listening experiment is ready; the Wrap/Snap decision is
-   waiting on listening.
+   Listening test result: Wrap is the default degree mapping.
 3. **Android shell**: Gradle + NDK + Oboe; play/stop a demo song from the phone.
 4. **Adaptive director**: sections, layers, quantised transitions, parameter sliders.
 5. **Pattern editor UI** (touch grid) and patch editor.
@@ -199,5 +211,3 @@ android/         Gradle project: app (Compose) + :native (CMake → core + Oboe)
   possible uses: "safe to transition here" markers, and triggering stingers.
 
 ## Open questions
-- Key change: when the scale changes size (7-note to pentatonic), wrap the degree
-  or snap to the nearest scale note? Decide by listening tests.
