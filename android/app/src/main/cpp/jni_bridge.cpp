@@ -51,14 +51,22 @@ JNIEXPORT jboolean JNICALL JNI_FN(setKey)(JNIEnv*, jobject, jint root, jint scal
     return toJ(player().setKey(root, scaleIndex));
 }
 
-/// [underruns, bufferFrames, burstFrames, maxCallbackUs, callbackBudgetUs, currentSection]
+/// [underruns, bufferFrames, burstFrames, maxCallbackUs, callbackBudgetUs, currentSection, playing]
 JNIEXPORT jintArray JNICALL JNI_FN(getStats)(JNIEnv* env, jobject) {
     const AudioPlayer::Stats s = player().stats();
-    const jint values[6] = {s.underruns, s.bufferFrames, s.burstFrames,
-                            s.maxCallbackUs, s.callbackBudgetUs, s.currentSection};
-    jintArray result = env->NewIntArray(6);
-    if (result != nullptr) env->SetIntArrayRegion(result, 0, 6, values);
+    const jint values[7] = {s.underruns, s.bufferFrames, s.burstFrames,
+                            s.maxCallbackUs, s.callbackBudgetUs, s.currentSection, s.playing};
+    jintArray result = env->NewIntArray(7);
+    if (result != nullptr) env->SetIntArrayRegion(result, 0, 7, values);
     return result;
+}
+
+JNIEXPORT jboolean JNICALL JNI_FN(soloPattern)(JNIEnv*, jobject, jint pattern, jint columnMask) {
+    return toJ(player().soloPattern(static_cast<uint32_t>(pattern), columnMask));
+}
+
+JNIEXPORT jboolean JNICALL JNI_FN(setColumnMask)(JNIEnv*, jobject, jint channel, jint columnMask) {
+    return toJ(player().setColumnMask(channel, columnMask));
 }
 
 JNIEXPORT void JNICALL JNI_FN(resetStats)(JNIEnv*, jobject) { player().resetStats(); }

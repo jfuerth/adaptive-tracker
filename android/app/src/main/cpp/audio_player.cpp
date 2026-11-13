@@ -171,6 +171,17 @@ bool AudioPlayer::previewOn(int channel, int slot, int midiNote) {
                                                      static_cast<uint8_t>(midiNote), 0.8f));
 }
 
+bool AudioPlayer::soloPattern(uint32_t pattern, int columnMask) {
+    const auto e = song_->patternEntry(pattern);
+    if (e.pattern == nullptr) return false;
+    return engine_->post(adaptive::Command::soloPattern(e.channel, e.pattern, static_cast<uint16_t>(columnMask)));
+}
+
+bool AudioPlayer::setColumnMask(int channel, int columnMask) {
+    return engine_->post(adaptive::Command::setColumnMask(static_cast<uint8_t>(channel),
+                                                         static_cast<uint16_t>(columnMask)));
+}
+
 bool AudioPlayer::previewOff(int slot) {
     return engine_->post(adaptive::Command::previewOff(static_cast<uint8_t>(slot)));
 }
@@ -222,6 +233,7 @@ void AudioPlayer::updateStats(oboe::AudioStream* stream, int64_t callbackNs, int
     if (xruns) underruns_.store(xruns.value(), std::memory_order_relaxed);
     const uint8_t section = engine_->currentSection();
     currentSection_.store(section == adaptive::kNoIndex ? -1 : section, std::memory_order_relaxed);
+    playing_.store(engine_->isPlaying() ? 1 : 0, std::memory_order_relaxed);
 
     for (uint32_t c = 0; c < adaptive::config::kMaxChannels; ++c) {
         const adaptive::Channel& ch = engine_->channel(c);
@@ -244,7 +256,8 @@ void AudioPlayer::updateStats(oboe::AudioStream* stream, int64_t callbackNs, int
 
 AudioPlayer::Stats AudioPlayer::stats() const {
     return Stats{underruns_.load(), bufferFrames_.load(), burstFrames_.load(),
-                 maxCallbackUs_.load(), callbackBudgetUs_.load(), currentSection_.load()};
+                 maxCallbackUs_.load(), callbackBudgetUs_.load(), currentSection_.load(),
+                 playing_.load()};
 }
 
 void AudioPlayer::onErrorAfterClose(oboe::AudioStream*, oboe::Result error) {

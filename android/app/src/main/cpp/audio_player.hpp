@@ -51,6 +51,9 @@ public:
     bool setCell(uint32_t pattern, int row, int column, const adaptive::Cell& cell);
     bool previewOn(int channel, int slot, int midiNote);
     bool previewOff(int slot);
+    /// Loop pattern-table entry `pattern` alone; `columnMask` picks the columns heard.
+    bool soloPattern(uint32_t pattern, int columnMask);
+    bool setColumnMask(int channel, int columnMask);
 
     /// Song's home key: [root, scale mask].
     void homeKey(int32_t out[2]) const;
@@ -63,6 +66,7 @@ public:
         int32_t maxCallbackUs;     ///< Slowest callback since the last resetStats().
         int32_t callbackBudgetUs;  ///< Audio duration of the slowest callback's buffer.
         int32_t currentSection;    ///< Section playing now, or -1.
+        int32_t playing;           ///< 1 if anything plays (a section or a solo pattern).
     };
     Stats stats() const;
 
@@ -94,6 +98,7 @@ private:
     std::atomic<int32_t> maxCallbackUs_{0};
     std::atomic<int32_t> callbackBudgetUs_{0};
     std::atomic<int32_t> currentSection_{-1};
+    std::atomic<int32_t> playing_{0};
     std::atomic<int32_t> playingPattern_[adaptive::config::kMaxChannels];
     std::atomic<int32_t> playingRow_[adaptive::config::kMaxChannels];
     std::atomic<int32_t> keyRoot_{0};

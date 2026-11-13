@@ -93,7 +93,7 @@ private fun AppTheme(content: @Composable () -> Unit) {
 /** Polls the engine's state and health twice a second. */
 @Composable
 private fun rememberStats(): IntArray {
-    var stats by remember { mutableStateOf(IntArray(6) { if (it == 5) -1 else 0 }) }
+    var stats by remember { mutableStateOf(IntArray(7) { if (it == 5) -1 else 0 }) }
     LaunchedEffect(Unit) {
         while (true) {
             stats = NativeAudio.getStats()
@@ -111,7 +111,7 @@ private fun SectionTitle(text: String) {
 @Composable
 private fun App(audioOk: Boolean) {
     val stats = rememberStats()
-    val playing = stats.getOrElse(5) { -1 } >= 0
+    val playing = stats.getOrElse(6) { 0 } == 1
     // Held here so they survive switching tabs.
     val params = remember { mutableStateListOf(0.2f, 0f) }
     val layerOn = remember { mutableStateListOf(true, true, true) }
@@ -130,11 +130,7 @@ private fun App(audioOk: Boolean) {
             }
             when (tab) {
                 0 -> PerformScreen(audioOk, stats, params, layerOn, Modifier.weight(1f))
-                else -> EditorScreen(
-                    playing = playing,
-                    onPlayToggle = { if (playing) NativeAudio.stop() else NativeAudio.play() },
-                    modifier = Modifier.weight(1f),
-                )
+                else -> EditorScreen(playing = playing, modifier = Modifier.weight(1f))
             }
         }
     }
@@ -150,7 +146,7 @@ private fun PerformScreen(
     modifier: Modifier = Modifier,
 ) {
     val currentSection = stats.getOrElse(5) { -1 }
-    val playing = currentSection >= 0
+    val playing = stats.getOrElse(6) { 0 } == 1
 
     var quantize by rememberSaveable { mutableIntStateOf(NativeAudio.Quantize.BAR.ordinal) }
     var entry by rememberSaveable { mutableIntStateOf(NativeAudio.Entry.RESTART.ordinal) }
@@ -176,8 +172,11 @@ private fun PerformScreen(
                     Text(if (playing) "Stop" else "Play")
                 }
                 Text(
-                    if (playing) "  Now playing: ${NativeAudio.SECTION_NAMES.getOrElse(currentSection) { "?" }}"
-                    else "  Stopped",
+                    when {
+                        !playing -> "  Stopped"
+                        currentSection < 0 -> "  Playing a solo pattern"
+                        else -> "  Now playing: ${NativeAudio.SECTION_NAMES.getOrElse(currentSection) { "?" }}"
+                    },
                     style = MaterialTheme.typography.bodyLarge,
                 )
             }

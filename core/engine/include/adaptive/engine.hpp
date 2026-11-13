@@ -94,6 +94,14 @@ public:
      */
     bool post(const Command& command) { return queue_.push(command); }
 
+    /// True if any channel is playing a sequence or pattern (stingers excluded).
+    bool isPlaying() const {
+        for (const auto& ch : channels_) {
+            if (ch.isPlaying() && !ch.isOneShot()) return true;
+        }
+        return false;
+    }
+
     /// Index of the section playing now, or kNoIndex.
     uint8_t currentSection() const { return currentSection_; }
     /// Tick at which the current section's first bar began.
@@ -256,8 +264,26 @@ private:
             }
             break;
         case Command::Kind::Stop:
-            for (auto& ch : channels_) ch.play(nullptr, 0);
+            for (auto& ch : channels_) {
+                ch.play(nullptr, 0);
+                ch.setColumnMask(~0u);
+            }
             currentSection_ = kNoIndex;
+            break;
+        case Command::Kind::SoloPattern:
+            if (c.a < config::kMaxChannels && c.target != nullptr) {
+                for (auto& ch : channels_) {
+                    ch.play(nullptr, 0);
+                    ch.setColumnMask(~0u);
+                }
+                currentSection_ = kNoIndex;
+                sectionStartTick_ = tick;  // beats and bars count from here
+                channels_[c.a].play(c.target, tick);
+                channels_[c.a].setColumnMask(c.data);
+            }
+            break;
+        case Command::Kind::SetColumnMask:
+            if (c.a < config::kMaxChannels) channels_[c.a].setColumnMask(c.data);
             break;
         case Command::Kind::SetParam:
             setParam(c.a, c.value, tick);
@@ -376,6 +402,7 @@ private:
 
     void startSection(uint8_t index, Entry entry, uint64_t tick) {
         const Section& s = song_->sections[index];
+        for (auto& ch : channels_) ch.setColumnMask(~0u);  // song playback hears every column
         const bool keepPhase = entry == Entry::KeepPhase && currentSection_ != kNoIndex;
         const uint64_t start = keepPhase ? sectionStartTick_ : tick;
         for (uint32_t c = 0; c < config::kMaxChannels; ++c) {

@@ -137,6 +137,12 @@ public:
     }
     bool isMuted() const { return muted_; }
 
+    /// Columns that are heard (bit 0 = column 0). The others keep playing
+    /// silently, so switching columns doesn't freeze them mid-note. Used to
+    /// solo a column in the editor.
+    void setColumnMask(uint32_t mask) { columnMask_ = mask; }
+    uint32_t columnMask() const { return columnMask_; }
+
     void setPitchMode(PitchMode mode) { pitchMode_ = mode; }
     PitchMode pitchMode() const { return pitchMode_; }
 
@@ -249,7 +255,11 @@ private:
         for (uint32_t c = 0; c < numColumns_; ++c) {
             synth::WavetableSynth& v = voices_[c];
             if (!v.isActive()) continue;
-            for (uint32_t i = 0; i < n; ++i) scratch_[i] += v.nextSample(timer_);
+            if (columnMask_ & (1u << c)) {
+                for (uint32_t i = 0; i < n; ++i) scratch_[i] += v.nextSample(timer_);
+            } else {
+                for (uint32_t i = 0; i < n; ++i) v.nextSample(timer_);  // keep time, stay silent
+            }
         }
 
         const bool filterOn = cutoffLog2_.isMoving() || cutoffLog2_.value() < kBypassLog2;
@@ -472,6 +482,7 @@ private:
     uint32_t numColumns_ = 1;
     bool loop_ = true;
     bool muted_ = false;
+    uint32_t columnMask_ = ~0u;
     PitchMode pitchMode_ = PitchMode::Absolute;
 
     // Channel strip.

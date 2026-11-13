@@ -118,3 +118,52 @@ TEST_CASE("Previews sound with a channel's patch and stop on release") {
     for (float s : f.buf) peak = std::max(peak, std::fabs(s));
     CHECK(peak < 1e-3f);
 }
+
+TEST_CASE("SoloPattern loops one pattern alone; a column mask silences other columns") {
+    Fixture f;
+    // Channel 1 gets a two-column pattern; channel 0 plays the section.
+    auto chords = std::make_unique<Pattern>();
+    chords->numRows = 2;
+    chords->rowsPerBeat = 1;
+    chords->cells[0][0] = Cell::on(60);
+    chords->cells[0][1] = Cell::on(64);
+    f.engine->channel(1).setNumColumns(2);
+    f.engine->post(Command::gotoSection(0, Quantize::Now));
+    f.reachTick(10);
+    CHECK(f.engine->channel(0).isPlaying());
+
+    f.engine->post(Command::soloPattern(1, chords.get(), 0b10));  // column 1 only
+    f.reachTick(11);
+    CHECK_FALSE(f.engine->channel(0).isPlaying());  // everything else stopped
+    CHECK(f.engine->channel(1).playingPattern() == chords.get());
+    CHECK(f.engine->currentSection() == kNoIndex);
+    CHECK(f.engine->isPlaying());
+    CHECK(f.engine->channel(1).voice(0).isActive());  // column 0 runs silently
+    CHECK(f.engine->channel(1).columnMask() == 0b10);
+
+    // It loops: row 0 again after two beats.
+    f.reachTick(11 + 2 * kBeat);
+    CHECK(f.engine->channel(1).playingRow() == 0);
+
+    // Song playback clears the solo.
+    f.engine->post(Command::gotoSection(0, Quantize::Now));
+    f.reachTick(12 + 2 * kBeat);
+    CHECK(f.engine->channel(1).columnMask() == ~0u);
+}
+
+TEST_CASE("Column mask: masked columns contribute no sound") {
+    auto rms = [](uint16_t mask) {
+        Fixture f;
+        auto p = std::make_unique<Pattern>();
+        p->numRows = 1;
+        p->rowsPerBeat = 1;
+        p->cells[0][0] = Cell::on(57);
+        f.engine->post(Command::soloPattern(0, p.get(), mask));
+        f.reachTick(40);
+        double e = 0;
+        for (float s : f.buf) e += double(s) * s;
+        return e;
+    };
+    CHECK(rms(0b1) > 0.0);
+    CHECK(rms(0b10) == 0.0);  // column 0 has the note, but only column 1 is heard
+}

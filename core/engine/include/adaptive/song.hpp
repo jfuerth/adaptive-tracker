@@ -57,6 +57,8 @@ struct Command {
         SetCell,      ///< target[data][a] = cell: edit a pattern safely while it plays
         PreviewOn,    ///< b = preview slot; sound note `data` (MIDI) with channel a's patch
         PreviewOff,   ///< b = preview slot; release it
+        SoloPattern,  ///< stop everything, then loop `target` alone on channel a; data = column mask
+        SetColumnMask,///< channel a plays only the columns in bitmask `data`
     };
 
     Kind kind = Kind::None;
@@ -98,6 +100,14 @@ struct Command {
     }
     static constexpr Command previewOn(uint8_t channel, uint8_t slot, uint8_t midiNote, float volume = 1.0f) {
         return Command{Kind::PreviewOn, Quantize::Now, Entry::Restart, channel, slot, nullptr, volume, midiNote};
+    }
+    /// Loop one pattern on its own (e.g. the one being edited). `columnMask`
+    /// selects which of its columns are heard (bit 0 = column 0).
+    static constexpr Command soloPattern(uint8_t channel, Pattern* p, uint16_t columnMask = 0xFFFF) {
+        return Command{Kind::SoloPattern, Quantize::Now, Entry::Restart, channel, 0, nullptr, 0.0f, columnMask, p};
+    }
+    static constexpr Command setColumnMask(uint8_t channel, uint16_t columnMask) {
+        return Command{Kind::SetColumnMask, Quantize::Now, Entry::Restart, channel, 0, nullptr, 0.0f, columnMask};
     }
     static constexpr Command previewOff(uint8_t slot) {
         return Command{Kind::PreviewOff, Quantize::Now, Entry::Restart, 0, slot, nullptr, 0.0f, 0};

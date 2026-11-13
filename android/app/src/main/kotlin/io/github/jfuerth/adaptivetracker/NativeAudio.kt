@@ -73,7 +73,8 @@ object NativeAudio {
 
     /**
      * [underruns, bufferFrames, burstFrames, maxCallbackUs, callbackBudgetUs,
-     * currentSection]; currentSection is -1 when stopped.
+     * currentSection, playing]; currentSection is -1 when no section plays
+     * (stopped, or soloing a pattern); playing is 1 while anything plays.
      */
     external fun getStats(): IntArray
 
@@ -106,6 +107,12 @@ object NativeAudio {
     external fun previewOn(channel: Int, slot: Int, midiNote: Int): Boolean
 
     external fun previewOff(slot: Int): Boolean
+
+    /** Stops everything and loops pattern [pattern] alone; [columnMask] picks the columns heard. */
+    external fun soloPattern(pattern: Int, columnMask: Int): Boolean
+
+    /** Channel [channel] plays only the columns in [columnMask] (bit 0 = column 0). */
+    external fun setColumnMask(channel: Int, columnMask: Int): Boolean
 
     /** [patternIndex or -1, row or -1] playing on [channel]. */
     external fun getPlayPosition(channel: Int): IntArray

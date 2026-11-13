@@ -2,6 +2,7 @@ package io.github.jfuerth.adaptivetracker.editor
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -58,6 +59,12 @@ private val ROW_HEIGHT = 26.dp
 private val MONO = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 15.sp)
 private val BLACK_KEYS = setOf(1, 3, 6, 8, 10)
 
+/** What the editor's Play button plays. */
+private enum class PlayMode(val label: String) { SONG("Song"), PATTERN("Pattern"), COLUMN("Column") }
+
+/** Horizontal drag distance that moves the cursor by one field. */
+private val SWIPE_STEP = 32.dp
+
 /** Row whose centre is at the centre of the viewport: the edit row. */
 private fun centeredRow(state: LazyListState, rowPx: Float, rows: Int): Int {
     val scrolled = state.firstVisibleItemIndex * rowPx + state.firstVisibleItemScrollOffset
@@ -70,7 +77,7 @@ private fun centeredRow(state: LazyListState, rowPx: Float, rows: Int): Int {
  * writes the effect, or the volume or parameter field if one was tapped.
  */
 @Composable
-fun EditorScreen(playing: Boolean, onPlayToggle: () -> Unit, modifier: Modifier = Modifier) {
+fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
     var patternIndex by rememberSaveable { mutableIntStateOf(0) }
     val pattern = remember(patternIndex) { PatternStore.get(patternIndex) }
     if (pattern == null) {
@@ -85,6 +92,7 @@ fun EditorScreen(playing: Boolean, onPlayToggle: () -> Unit, modifier: Modifier 
     var octave by rememberSaveable { mutableIntStateOf(4) }
     var step by rememberSaveable { mutableIntStateOf(1) }
     var follow by rememberSaveable { mutableStateOf(true) }
+    var playMode by rememberSaveable { mutableStateOf(PlayMode.SONG) }
 
     // Engine state, polled: the key in effect and where this channel is playing.
     val home = remember { NativeAudio.getHomeKey().let { Key(it[0], it[1]) } }
@@ -129,6 +137,41 @@ fun EditorScreen(playing: Boolean, onPlayToggle: () -> Unit, modifier: Modifier 
     }
     LaunchedEffect(editRow, column, field) { hexPos = 0 }
 
+    // ---- Playback: song, this pattern alone, or one column of it ----
+    val isPlaying by rememberUpdatedState(playing)
+    fun startPlayback() {
+        when (playMode) {
+            PlayMode.SONG -> NativeAudio.play()
+            PlayMode.PATTERN -> NativeAudio.soloPattern(patternIndex, 0xFFFF)
+            PlayMode.COLUMN -> NativeAudio.soloPattern(patternIndex, 1 shl column)
+        }
+    }
+    // Changing mode or pattern while playing switches what plays; in Column
+    // mode, moving to another column switches which column is heard. Opening
+    // the tab doesn't change anything that is already playing.
+    var lastMode by remember { mutableStateOf(playMode) }
+    var lastPattern by remember { mutableIntStateOf(patternIndex) }
+    LaunchedEffect(playMode, patternIndex) {
+        if (playMode != lastMode || patternIndex != lastPattern) {
+            val wasSolo = lastMode != PlayMode.SONG
+            lastMode = playMode
+            lastPattern = patternIndex
+            if (isPlaying && (playMode != PlayMode.SONG || wasSolo)) startPlayback()
+        }
+    }
+    LaunchedEffect(column) {
+        if (isPlaying && playMode == PlayMode.COLUMN) NativeAudio.setColumnMask(info.channel, 1 shl column)
+    }
+
+    // ---- Horizontal swipes move the cursor: note, volume, effect, param, next column ----
+    fun moveCursor(delta: Int) {
+        val fields = Field.entries
+        val index = (column * fields.size + field.ordinal + delta).coerceIn(0, info.columns * fields.size - 1)
+        column = index / fields.size
+        field = fields[index % fields.size]
+    }
+    val move by rememberUpdatedState(::moveCursor)
+
     fun currentCell() = pattern.cell(editRow, column)
     fun write(cell: CellData) = PatternStore.write(patternIndex, editRow, column, cell)
     fun advance() {
@@ -153,19 +196,22 @@ fun EditorScreen(playing: Boolean, onPlayToggle: () -> Unit, modifier: Modifier 
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     PatternStore.names.forEachIndexed { i, name ->
-                        DropdownMenuItem(text = { Text(name) }, onClick = {
+                        val shape = PatternStore.get(i)?.info?.let { " · ${it.rows} rows, ${it.rowsPerBeat}/beat" } ?: ""
+                        DropdownMenuItem(text = { Text(name + shape) }, onClick = {
                             patternIndex = i
                             menuOpen = false
                         })
                     }
                 }
             }
-            Text(
-                "${info.rows} rows · ${info.rowsPerBeat}/beat · ${info.mode.name.lowercase()}",
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.weight(1f),
-            )
-            ToolButton(if (playing) "Stop" else "Play", onClick = onPlayToggle)
+            Box(Modifier.weight(1f))
+            PlayMode.entries.forEach { m ->
+                ToolButton(m.label, selected = playMode == m, onClick = { playMode = m })
+                Box(Modifier.width(4.dp))
+            }
+            ToolButton(if (playing) "Stop" else "Play", onClick = {
+                if (playing) NativeAudio.stop() else startPlayback()
+            })
         }
 
         // ---- Pattern ----
@@ -173,29 +219,58 @@ fun EditorScreen(playing: Boolean, onPlayToggle: () -> Unit, modifier: Modifier 
         val padding = with(LocalDensity.current) {
             ((viewportPx - rowPx) / 2f).coerceAtLeast(0f).toDp()
         }
-        LazyColumn(
-            state = listState,
-            contentPadding = PaddingValues(vertical = padding),
-            modifier = Modifier
+        val scrolling = listState.isScrollInProgress
+        Box(
+            Modifier
                 .weight(1f)
                 .fillMaxWidth()
-                .onSizeChanged { viewportPx = it.height },
+                .onSizeChanged { viewportPx = it.height }
+                .pointerInput(Unit) {
+                    val stepPx = SWIPE_STEP.toPx()
+                    var accumulated = 0f
+                    detectHorizontalDragGestures(onDragStart = { accumulated = 0f }) { change, dx ->
+                        change.consume()
+                        accumulated += dx
+                        while (accumulated >= stepPx) {
+                            move(1)
+                            accumulated -= stepPx
+                        }
+                        while (accumulated <= -stepPx) {
+                            move(-1)
+                            accumulated += stepPx
+                        }
+                    }
+                },
         ) {
-            items(info.rows) { row ->
-                PatternRow(
-                    row = row,
-                    pattern = pattern,
-                    ctx = ctx,
-                    isEdit = row == editRow,
-                    isPlaying = row == playingRow,
-                    selectedColumn = column,
-                    selectedField = field,
-                    onTap = { c, f ->
-                        column = c
-                        field = f
-                        if (row != editRow) scope.launch { listState.scrollToItem(row) }
-                    },
-                )
+            // The edit bar stays fixed in the middle; rows scroll past it.
+            Box(
+                Modifier
+                    .align(Alignment.Center)
+                    .fillMaxWidth()
+                    .height(ROW_HEIGHT)
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+            )
+            LazyColumn(
+                state = listState,
+                contentPadding = PaddingValues(vertical = padding),
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                items(info.rows) { row ->
+                    PatternRow(
+                        row = row,
+                        pattern = pattern,
+                        ctx = ctx,
+                        isEdit = row == editRow && !scrolling,
+                        isPlaying = row == playingRow,
+                        selectedColumn = column,
+                        selectedField = field,
+                        onTap = { c, f ->
+                            column = c
+                            field = f
+                            if (row != editRow) scope.launch { listState.scrollToItem(row) }
+                        },
+                    )
+                }
             }
         }
 
@@ -301,11 +376,9 @@ private fun PatternRow(
 ) {
     val colors = MaterialTheme.colorScheme
     val info = pattern.info
-    val background = when {
-        isEdit -> colors.primaryContainer
-        isPlaying -> colors.tertiaryContainer
-        else -> Color.Transparent
-    }
+    // The edit bar is drawn behind the list (fixed in the viewport), so rows
+    // are transparent except for the playing row, which tints over it.
+    val background = if (isPlaying) colors.tertiary.copy(alpha = 0.35f) else Color.Transparent
     val onBeat = row % info.rowsPerBeat == 0
     Row(
         Modifier.fillMaxWidth().height(ROW_HEIGHT).background(background).padding(horizontal = 6.dp),
