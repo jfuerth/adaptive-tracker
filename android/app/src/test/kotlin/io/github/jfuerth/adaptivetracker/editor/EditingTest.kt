@@ -96,40 +96,49 @@ class ChordTest {
 }
 
 class HexEntryTest {
-    @Test fun effectTakesThreeDigits() {
-        var cell = CellData()
-        var pos = 0
-        for (d in listOf(3, 0, 5)) {
-            val (c, next) = Editing.typeHex(cell, Field.EFFECT, pos, d)
-            cell = c
-            pos = next
+    private fun type(start: CellData, from: Field, digits: List<Int>): CellData {
+        var cell = start
+        var field: Field? = from
+        for (d in digits) {
+            cell = Editing.typeHex(cell, field!!, d)
+            field = field.nextDigit
         }
+        return cell
+    }
+
+    @Test fun effectGroupIsCommandThenTwoDigits() {
+        val cell = type(CellData(), Field.EFFECT, listOf(3, 0, 5))
         assertEquals('3'.code, cell.effect)
         assertEquals(0x05, cell.param)
-        assertEquals(-1, pos)
+        assertNull(Field.PARAM_Y.nextDigit)
     }
 
     @Test fun volumeIsClampedTo7F() {
-        val (a, p1) = Editing.typeHex(CellData(), Field.VOLUME, 0, 0x9)
-        val (b, p2) = Editing.typeHex(a, Field.VOLUME, p1, 0xF)
-        assertEquals(1, p1)
-        assertEquals(-1, p2)
-        assertEquals(0x7F, b.volume)
+        assertEquals(0x7F, type(CellData(), Field.VOLUME_HI, listOf(0x9, 0xF)).volume)
+        assertEquals(Field.VOLUME_LO, Field.VOLUME_HI.nextDigit)
+        assertNull(Field.VOLUME_LO.nextDigit)
     }
 
-    @Test fun paramOnlyKeepsTheCommand() {
-        val start = CellData(effect = 'A'.code, param = 0x00)
-        val (a, _) = Editing.typeHex(start, Field.PARAM, 0, 0x2)
-        val (b, _) = Editing.typeHex(a, Field.PARAM, 1, 0x1)
-        assertEquals('A'.code, b.effect)
-        assertEquals(0x21, b.param)
+    @Test fun eachDigitCanBeWrittenAlone() {
+        val start = CellData(volume = 0x40, effect = 'F'.code, param = 0x80)
+        assertEquals(0x83, Editing.typeHex(start, Field.PARAM_Y, 0x3).param)
+        assertEquals(0x20, Editing.typeHex(start, Field.PARAM_X, 0x2).param)
+        assertEquals('F'.code, Editing.typeHex(start, Field.PARAM_X, 0x2).effect)
+        assertEquals('8'.code, Editing.typeHex(start, Field.EFFECT, 0x8).effect)
+        assertEquals(0x80, Editing.typeHex(start, Field.EFFECT, 0x8).param)
+        assertEquals(0x4A, Editing.typeHex(start, Field.VOLUME_LO, 0xA).volume)
+        assertEquals(0x05, Editing.typeHex(CellData(), Field.VOLUME_LO, 0x5).volume)
+    }
+
+    @Test fun parameterWithoutCommandIsShown() {
+        assertEquals(".05", CellFormat.effect(Editing.typeHex(CellData(), Field.PARAM_Y, 5)))
     }
 
     @Test fun clearFields() {
         val cell = CellData(60, 0, 0x40, 'F'.code, 0x80)
         assertEquals(CellData.NOTE_EMPTY, Editing.clear(cell, Field.NOTE).note)
-        assertEquals(CellData.VOLUME_DEFAULT, Editing.clear(cell, Field.VOLUME).volume)
-        assertEquals(CellData.EFFECT_NONE, Editing.clear(cell, Field.PARAM).effect)
+        assertEquals(CellData.VOLUME_DEFAULT, Editing.clear(cell, Field.VOLUME_LO).volume)
+        assertEquals(CellData.EFFECT_NONE, Editing.clear(cell, Field.PARAM_Y).effect)
     }
 
     @Test fun hexDigitsMapToCommands() {
@@ -150,6 +159,10 @@ class DescriptionTest {
         assertTrue(EffectDescription.describe(CellData(effect = 'F'.code, param = 0xFF), PitchMode.ABSOLUTE)
             .endsWith("20.0 kHz"))
         assertEquals("No effect · type a command digit", EffectDescription.describe(CellData(), PitchMode.ABSOLUTE))
+        assertEquals("810 · Filter sweep up · 0.94 octave per beat, until stopped",
+            EffectDescription.describe(CellData(effect = '8'.code, param = 0x10), PitchMode.ABSOLUTE))
+        assertEquals("900 · Filter sweep · 900 stops the sweep",
+            EffectDescription.describe(CellData(effect = '9'.code, param = 0), PitchMode.ABSOLUTE))
     }
 
     @Test fun formatsCells() {

@@ -32,7 +32,12 @@ inline float midiNoteToHz(float note) {
 /// Parameter mappings for the synth-parameter effects (Fxx, Qxx, Wxx).
 namespace fxmap {
 /// 00 = 20 Hz, FF = 20 kHz, exponential.
-inline float cutoffHz(uint8_t v) { return 20.0f * std::exp2(9.965784f * (v / 255.0f)); }
+inline float cutoffHz(float v) { return 20.0f * std::exp2(9.965784f * (v / 255.0f)); }
+/// Inverse of cutoffHz, clamped to 0..255.
+inline float cutoffValue(float hz) {
+    const float v = std::log2(hz / 20.0f) * (255.0f / 9.965784f);
+    return v < 0.0f ? 0.0f : (v > 255.0f ? 255.0f : v);
+}
 /// Quadratic over the synth's Q range, giving finer steps at low resonance.
 inline float resonanceQ(uint8_t v) {
     const float t = v / 255.0f;
@@ -70,6 +75,9 @@ public:
         uint8_t tonePortaMemory = 0;  ///< Last nonzero 3xx parameter.
         uint8_t volSlideMemory = 0;   ///< Last nonzero Axy parameter.
         int8_t arpOffset[3] = {0, 0, 0};  ///< Semitones for arpeggio steps 0, 1, 2.
+        /// 8xx/9xx: cutoff change per effect tick in Fxx steps (0 = no sweep).
+        /// Persists across rows until another filter command or a restart.
+        float filterSweep = 0.0f;
         uint8_t lastNote = Cell::kNoteEmpty;
         int8_t lastAccidental = 0;
         uint16_t effectTickInRow = 0;
@@ -293,6 +301,7 @@ private:
         entryStartTick_ = startTick;
         entryIndex_ = 0;
         totalTicks_ = 0;
+        for (auto& c : columns_) c.filterSweep = 0.0f;
         if (sequence_ != nullptr) {
             for (uint32_t i = 0; i < sequence_->length; ++i) totalTicks_ += sequence_->entries[i]->lengthTicks();
         } else if (single_ != nullptr) {
@@ -339,6 +348,12 @@ private:
         ColumnState& s = columns_[c];
         synth::WavetableSynth& v = voices_[c];
 
+        // A sweep set on an earlier row keeps stepping on row starts too, so
+        // it moves evenly across rows, unless this row has a new filter command.
+        if (cell.effect != fx::kFilterCutoff && cell.effect != fx::kFilterSweepUp &&
+            cell.effect != fx::kFilterSweepDown) {
+            sweepFilter(s, v);
+        }
         s.effect = cell.effect;
         s.effectParam = cell.effectParam;
         s.effectTickInRow = 0;
@@ -383,6 +398,13 @@ private:
             break;
         case fx::kFilterCutoff:
             v.setBaseCutoff(fxmap::cutoffHz(cell.effectParam));
+            s.filterSweep = 0.0f;
+            break;
+        case fx::kFilterSweepUp:
+            s.filterSweep = cell.effectParam / 16.0f;
+            break;
+        case fx::kFilterSweepDown:
+            s.filterSweep = -cell.effectParam / 16.0f;
             break;
         case fx::kFilterResonance:
             v.setFilterQ(fxmap::resonanceQ(cell.effectParam));
@@ -425,10 +447,20 @@ private:
         }
     }
 
+    /// One 8xx/9xx step. Stops at either end of the range.
+    static void sweepFilter(ColumnState& s, synth::WavetableSynth& v) {
+        if (s.filterSweep == 0.0f) return;
+        const float now = fxmap::cutoffValue(v.getBaseCutoff()) + s.filterSweep;
+        if (now <= 0.0f || now >= 255.0f) s.filterSweep = 0.0f;
+        v.setBaseCutoff(fxmap::cutoffHz(now < 0.0f ? 0.0f : (now > 255.0f ? 255.0f : now)));
+    }
+
     void effectTick(uint32_t c) {
         ColumnState& s = columns_[c];
         synth::WavetableSynth& v = voices_[c];
         ++s.effectTickInRow;
+
+        sweepFilter(s, v);
 
         switch (s.effect) {
         case fx::kArpeggio:

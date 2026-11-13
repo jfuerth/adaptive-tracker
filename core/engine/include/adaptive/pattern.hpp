@@ -20,6 +20,8 @@ inline constexpr uint8_t kTonePorta = '3';        ///< 3xx: slide to this row's 
 inline constexpr uint8_t kVibrato = '4';          ///< 4xy: vibrato rate x, depth y (persists; 400 = off)
 inline constexpr uint8_t kFilterResonance = '5';  ///< 5xx: filter Q across the synth's full range
 inline constexpr uint8_t kWaveShape = '6';        ///< 6xx: waveform shape 0..1
+inline constexpr uint8_t kFilterSweepUp = '8';    ///< 8xx: cutoff rises xx/16 Fxx steps per effect tick (persists; 800 stops)
+inline constexpr uint8_t kFilterSweepDown = '9';  ///< 9xx: cutoff falls xx/16 Fxx steps per effect tick (persists; 900 stops)
 inline constexpr uint8_t kVolumeSlide = 'A';      ///< Axy: volume up x or down y, 1/64 per effect tick
 inline constexpr uint8_t kFireEvent = 'B';        ///< Bxx: fire event xx
 inline constexpr uint8_t kSetVolume = 'C';        ///< Cxx: volume 00..7F

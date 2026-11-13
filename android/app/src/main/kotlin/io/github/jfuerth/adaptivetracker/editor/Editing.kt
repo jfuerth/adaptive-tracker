@@ -3,8 +3,26 @@ package io.github.jfuerth.adaptivetracker.editor
 import java.util.Locale
 import kotlin.math.pow
 
-/** Which part of a cell the editor is writing. */
-enum class Field { NOTE, VOLUME, EFFECT, PARAM }
+/**
+ * Where the cursor is in a cell: the note, or one hex digit. Typing a digit
+ * moves to the next digit of the same group (volume: 2 digits, effect: command
+ * plus 2 parameter digits).
+ */
+enum class Field {
+    NOTE, VOLUME_HI, VOLUME_LO, EFFECT, PARAM_X, PARAM_Y;
+
+    val isVolume get() = this == VOLUME_HI || this == VOLUME_LO
+    val isEffect get() = this == EFFECT || this == PARAM_X || this == PARAM_Y
+
+    /** The next digit in this field's group, or null at the group's last digit. */
+    val nextDigit: Field?
+        get() = when (this) {
+            VOLUME_HI -> VOLUME_LO
+            EFFECT -> PARAM_X
+            PARAM_X -> PARAM_Y
+            else -> null
+        }
+}
 
 /** Editing operations on cells. Pure functions, unit-tested on the JVM. */
 object Editing {
@@ -34,46 +52,25 @@ object Editing {
         return existing.copy(note = note, accidental = accidental, effect = '0'.code, param = param)
     }
 
-    /** Number of hex digits a field takes. */
-    fun digitsFor(field: Field): Int = when (field) {
-        Field.VOLUME -> 2
-        Field.EFFECT -> 3
-        Field.PARAM -> 2
-        Field.NOTE -> 0
-    }
-
-    /**
-     * Type hex [digit] (0-15) at [position] of [field]. Returns the new cell and
-     * the next position, or -1 when the field is complete.
-     */
-    fun typeHex(cell: CellData, field: Field, position: Int, digit: Int): Pair<CellData, Int> {
+    /** Write hex [digit] (0-15) at [field]. Volume is clamped to 7F. */
+    fun typeHex(cell: CellData, field: Field, digit: Int): CellData {
         val d = digit and 0xF
-        val updated = when (field) {
-            Field.VOLUME -> {
-                val current = if (cell.volume == CellData.VOLUME_DEFAULT) 0 else cell.volume
-                val v = if (position == 0) d shl 4 else (current and 0xF0) or d
-                cell.copy(volume = v.coerceAtMost(0x7F))
-            }
-            Field.EFFECT -> when (position) {
-                0 -> cell.copy(effect = CellData.effectFromDigit(d))
-                1 -> cell.copy(param = (d shl 4) or (cell.param and 0x0F))
-                else -> cell.copy(param = (cell.param and 0xF0) or d)
-            }
-            Field.PARAM -> when (position) {
-                0 -> cell.copy(param = (d shl 4) or (cell.param and 0x0F))
-                else -> cell.copy(param = (cell.param and 0xF0) or d)
-            }
+        val volume = if (cell.volume == CellData.VOLUME_DEFAULT) 0 else cell.volume
+        return when (field) {
+            Field.VOLUME_HI -> cell.copy(volume = ((d shl 4) or (volume and 0x0F)).coerceAtMost(0x7F))
+            Field.VOLUME_LO -> cell.copy(volume = (volume and 0xF0) or d)
+            Field.EFFECT -> cell.copy(effect = CellData.effectFromDigit(d))
+            Field.PARAM_X -> cell.copy(param = (d shl 4) or (cell.param and 0x0F))
+            Field.PARAM_Y -> cell.copy(param = (cell.param and 0xF0) or d)
             Field.NOTE -> cell
         }
-        val next = position + 1
-        return updated to if (next >= digitsFor(field)) -1 else next
     }
 
     /** Clear one field of a cell. */
     fun clear(cell: CellData, field: Field): CellData = when (field) {
         Field.NOTE -> cell.copy(note = CellData.NOTE_EMPTY, accidental = 0)
-        Field.VOLUME -> cell.copy(volume = CellData.VOLUME_DEFAULT)
-        Field.EFFECT, Field.PARAM -> cell.copy(effect = CellData.EFFECT_NONE, param = 0)
+        Field.VOLUME_HI, Field.VOLUME_LO -> cell.copy(volume = CellData.VOLUME_DEFAULT)
+        Field.EFFECT, Field.PARAM_X, Field.PARAM_Y -> cell.copy(effect = CellData.EFFECT_NONE, param = 0)
     }
 }
 
@@ -88,8 +85,12 @@ object CellFormat {
     fun volume(cell: CellData): String =
         if (cell.volume == CellData.VOLUME_DEFAULT) ".." else "%02X".format(cell.volume)
 
-    fun effect(cell: CellData): String =
-        if (cell.effect == CellData.EFFECT_NONE) "..." else "${cell.effect.toChar()}%02X".format(cell.param)
+    /** Three characters: command and parameter. Parameter digits typed before a command show after a dot. */
+    fun effect(cell: CellData): String = when {
+        cell.effect != CellData.EFFECT_NONE -> "${cell.effect.toChar()}%02X".format(cell.param)
+        cell.param != 0 -> ".%02X".format(cell.param)
+        else -> "..."
+    }
 }
 
 /** The live description line: what an effect (as typed so far) will do. */
@@ -110,6 +111,8 @@ object EffectDescription {
                 "Vibrato · rate %.1f Hz, depth %.1f semitone".format(Locale.US, 0.5 + x * 0.5, y * 0.1)
             '5' -> "Filter resonance · Q %.1f".format(Locale.US, 0.1 + 19.9 * (p / 255.0).pow(2))
             '6' -> "Waveform shape · ${p * 100 / 255}%"
+            '8' -> if (p == 0) "Filter sweep · 800 stops the sweep" else "Filter sweep up · " + sweep(p)
+            '9' -> if (p == 0) "Filter sweep · 900 stops the sweep" else "Filter sweep down · " + sweep(p)
             'A' -> when {
                 x != 0 -> "Volume slide up · $x/64 per tick"
                 y != 0 -> "Volume slide down · $y/64 per tick"
@@ -124,6 +127,9 @@ object EffectDescription {
     }
 
     private fun speed(p: Int) = if (p == 0) "00 reuses the last speed" else "$p/16 semitone per tick"
+
+    /** 8xx/9xx: xx/16 Fxx steps per effect tick, 24 effect ticks per beat. */
+    private fun sweep(p: Int) = "%.2f octave per beat, until stopped".format(Locale.US, p * 1.5 * 9.965784 / 255.0)
 
     private fun cutoffHz(p: Int): String {
         val hz = 20.0 * 2.0.pow(9.965784 * p / 255.0)

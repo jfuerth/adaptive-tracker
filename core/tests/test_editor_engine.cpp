@@ -167,3 +167,34 @@ TEST_CASE("Column mask: masked columns contribute no sound") {
     CHECK(rms(0b1) > 0.0);
     CHECK(rms(0b10) == 0.0);  // column 0 has the note, but only column 1 is heard
 }
+
+TEST_CASE("8xx/9xx sweep the filter across rows until stopped") {
+    Fixture f;
+    // 4 rows, one per beat: set 1 kHz-ish, sweep up, keep going on an empty row, stop.
+    f.a->cells[0][0] = Cell::on(60).with(fx::kFilterCutoff, 0x80);
+    f.a->cells[1][0] = Cell::effectOnly(fx::kFilterSweepUp, 0x10);  // 1 step per effect tick
+    f.a->cells[3][0] = Cell::effectOnly(fx::kFilterSweepUp, 0x00);  // stop
+    f.engine->post(Command::gotoSection(0, Quantize::Now));
+    auto value = [&] { return fxmap::cutoffValue(f.engine->channel(0).voice(0).getBaseCutoff()); };
+
+    f.reachTick(kBeat);
+    CHECK(value() == doctest::Approx(128.0f).epsilon(0.001));
+    // Row 1 sets the sweep on its first tick and steps on the 23 effect ticks
+    // after it; later rows step on all 24 ticks, so the sweep is even.
+    f.reachTick(2 * kBeat);
+    CHECK(value() == doctest::Approx(128.0f + 24.0f).epsilon(0.001));
+    f.reachTick(3 * kBeat - 1);  // still sweeping on row 2, which has no effect
+    CHECK(value() == doctest::Approx(128.0f + 47.0f).epsilon(0.001));
+    f.reachTick(4 * kBeat - 1);  // row 3's 800 stopped it
+    CHECK(value() == doctest::Approx(128.0f + 47.0f).epsilon(0.001));
+}
+
+TEST_CASE("9xx sweeps down and stops at the bottom of the range") {
+    Fixture f;
+    f.a->cells[0][0] = Cell::on(60).with(fx::kFilterCutoff, 0x08);
+    f.a->cells[1][0] = Cell::effectOnly(fx::kFilterSweepDown, 0x40);  // 4 steps per effect tick
+    f.engine->post(Command::gotoSection(0, Quantize::Now));
+    f.reachTick(2 * kBeat - 1);
+    CHECK(f.engine->channel(0).voice(0).getBaseCutoff() == doctest::Approx(20.0f));
+    CHECK(f.engine->channel(0).column(0).filterSweep == 0.0f);
+}

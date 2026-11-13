@@ -3,6 +3,8 @@ package io.github.jfuerth.adaptivetracker.editor
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.snapping.SnapPosition
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.interaction.DragInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -36,7 +38,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -53,7 +54,7 @@ import androidx.compose.ui.unit.sp
 import io.github.jfuerth.adaptivetracker.NativeAudio
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlin.math.roundToInt
+import kotlin.math.abs
 
 private val ROW_HEIGHT = 26.dp
 private val MONO = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 15.sp)
@@ -65,10 +66,16 @@ private enum class PlayMode(val label: String) { SONG("Song"), PATTERN("Pattern"
 /** Horizontal drag distance that moves the cursor by one field. */
 private val SWIPE_STEP = 32.dp
 
-/** Row whose centre is at the centre of the viewport: the edit row. */
-private fun centeredRow(state: LazyListState, rowPx: Float, rows: Int): Int {
-    val scrolled = state.firstVisibleItemIndex * rowPx + state.firstVisibleItemScrollOffset
-    return (scrolled / rowPx).roundToInt().coerceIn(0, (rows - 1).coerceAtLeast(0))
+/**
+ * The edit row: the row whose centre is nearest the centre of the viewport,
+ * where the edit bar is. Measured from the laid-out rows, so it matches what
+ * is on screen exactly.
+ */
+private fun centeredRow(state: LazyListState): Int {
+    val info = state.layoutInfo
+    val centre = (info.viewportStartOffset + info.viewportEndOffset) / 2
+    return info.visibleItemsInfo.minByOrNull { abs(it.offset + it.size / 2 - centre) }?.index
+        ?: state.firstVisibleItemIndex
 }
 
 /**
@@ -88,7 +95,9 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
 
     var column by rememberSaveable(patternIndex) { mutableIntStateOf(0) }
     var field by rememberSaveable { mutableStateOf(Field.NOTE) }
-    var hexPos by remember { mutableIntStateOf(0) }
+    // Where typing started in the current digit group; the cursor returns
+    // here after the group's last digit, ready for the next row.
+    var anchor by remember { mutableStateOf<Field?>(null) }
     var octave by rememberSaveable { mutableIntStateOf(4) }
     var step by rememberSaveable { mutableIntStateOf(1) }
     var follow by rememberSaveable { mutableStateOf(true) }
@@ -114,19 +123,13 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     val rowPx = with(LocalDensity.current) { ROW_HEIGHT.toPx() }
-    val editRow by remember(rowPx, info.rows) { derivedStateOf { centeredRow(listState, rowPx, info.rows) } }
+    val editRow by remember { derivedStateOf { centeredRow(listState) } }
+    // Drags and flings come to rest with a row exactly on the edit bar.
+    val snapFling = rememberSnapFlingBehavior(listState, SnapPosition.Center)
 
     LaunchedEffect(patternIndex) {
         listState.scrollToItem(0)
-        hexPos = 0
-    }
-    // After a fling or drag, settle exactly on a row.
-    LaunchedEffect(listState, rowPx, info.rows) {
-        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
-            if (!scrolling && listState.firstVisibleItemScrollOffset != 0) {
-                listState.animateScrollToItem(centeredRow(listState, rowPx, info.rows))
-            }
-        }
+        anchor = null
     }
     // Dragging the pattern stops following playback.
     LaunchedEffect(listState) {
@@ -135,7 +138,7 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
     LaunchedEffect(playingRow, follow) {
         if (follow && playingRow >= 0 && !listState.isScrollInProgress) listState.scrollToItem(playingRow)
     }
-    LaunchedEffect(editRow, column, field) { hexPos = 0 }
+    LaunchedEffect(editRow) { anchor = null }
 
     // ---- Playback: song, this pattern alone, or one column of it ----
     val isPlaying by rememberUpdatedState(playing)
@@ -163,12 +166,13 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
         if (isPlaying && playMode == PlayMode.COLUMN) NativeAudio.setColumnMask(info.channel, 1 shl column)
     }
 
-    // ---- Horizontal swipes move the cursor: note, volume, effect, param, next column ----
+    // ---- Horizontal swipes move the cursor: note, then each digit, then the next column ----
     fun moveCursor(delta: Int) {
         val fields = Field.entries
         val index = (column * fields.size + field.ordinal + delta).coerceIn(0, info.columns * fields.size - 1)
         column = index / fields.size
         field = fields[index % fields.size]
+        anchor = null
     }
     val move by rememberUpdatedState(::moveCursor)
 
@@ -252,6 +256,7 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
             )
             LazyColumn(
                 state = listState,
+                flingBehavior = snapFling,
                 contentPadding = PaddingValues(vertical = padding),
                 modifier = Modifier.fillMaxSize(),
             ) {
@@ -267,6 +272,7 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
                         onTap = { c, f ->
                             column = c
                             field = f
+                            anchor = null
                             if (row != editRow) scope.launch { listState.scrollToItem(row) }
                         },
                     )
@@ -276,28 +282,35 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
 
         // ---- Description line ----
         val cell = currentCell()
-        val description = when (field) {
-            Field.VOLUME -> if (cell.volume == CellData.VOLUME_DEFAULT) "Volume · default (full)"
+        val description = when {
+            field.isVolume -> if (cell.volume == CellData.VOLUME_DEFAULT) "Volume · default (full)"
                 else "Volume · ${cell.volume}/127"
             else -> EffectDescription.describe(cell, info.mode, NativeAudio.EVENT_NAMES)
         }
-        val typing = if (hexPos > 0) "  [${hexPos}/${Editing.digitsFor(hexField(field))}]" else ""
         Text(
-            description + typing,
+            description,
             style = MaterialTheme.typography.bodySmall,
             maxLines = 1,
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
         )
 
         // ---- Hex pad ----
+        // A digit goes where the cursor is (the effect command when on the note)
+        // and the cursor moves to the next digit of the group. After the last
+        // digit it returns to where typing started and the row advances, so
+        // selecting the last digit and typing tweaks just that digit.
         HexPad(onDigit = { d ->
-            val (updated, next) = Editing.typeHex(currentCell(), hexField(field), hexPos, d)
-            write(updated)
-            if (next < 0) {
-                hexPos = 0
-                advance()
+            val start = anchor ?: field
+            val target = if (field == Field.NOTE) Field.EFFECT else field
+            write(Editing.typeHex(currentCell(), target, d))
+            val next = target.nextDigit
+            if (next != null) {
+                anchor = start
+                field = next
             } else {
-                hexPos = next
+                field = start
+                anchor = null
+                advance()
             }
         })
 
@@ -349,18 +362,12 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
             })
             ToolButton("Del", onClick = {
                 write(Editing.clear(currentCell(), field))
+                anchor = null
                 advance()
             })
             ToolButton("Follow", selected = follow, onClick = { follow = !follow })
         }
     }
-}
-
-/** The hex pad writes the effect unless the volume or parameter field is selected. */
-private fun hexField(field: Field) = when (field) {
-    Field.VOLUME -> Field.VOLUME
-    Field.PARAM -> Field.PARAM
-    else -> Field.EFFECT
 }
 
 @Composable
@@ -408,11 +415,14 @@ private fun PatternRow(
             Row(Modifier.padding(start = 6.dp)) {
                 part(CellFormat.note(cell, info.mode, ctx), Field.NOTE)
                 Text(" ", style = MONO)
-                part(CellFormat.volume(cell), Field.VOLUME)
+                val vol = CellFormat.volume(cell)
+                part(vol.substring(0, 1), Field.VOLUME_HI)
+                part(vol.substring(1, 2), Field.VOLUME_LO)
                 Text(" ", style = MONO)
                 val fx = CellFormat.effect(cell)
                 part(fx.substring(0, 1), Field.EFFECT)
-                part(fx.substring(1), Field.PARAM)
+                part(fx.substring(1, 2), Field.PARAM_X)
+                part(fx.substring(2, 3), Field.PARAM_Y)
             }
         }
     }
