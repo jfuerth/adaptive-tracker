@@ -39,7 +39,8 @@ if(ADAPTIVE_BUILD_HOST_TOOLS)
         core/tests/test_sequencer.cpp
         core/tests/test_adaptive.cpp
         core/tests/test_mappings.cpp
-        core/tests/test_demo.cpp)
+        core/tests/test_demo.cpp
+        core/tests/test_editor_engine.cpp)
     find_package(Threads REQUIRED)
     target_link_libraries(adaptive_tests PRIVATE Threads::Threads)
     target_link_libraries(adaptive_tests PRIVATE adaptive_demo)

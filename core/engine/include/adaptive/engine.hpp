@@ -43,7 +43,9 @@ public:
           channels_(detail::makeChannels(static_cast<float>(sampleRate),
                                          std::make_index_sequence<config::kMaxChannels>{})),
           master_(0.5f, static_cast<float>(sampleRate)),
-          masterCutoffLog2_(std::log2(10000.0f)) {  // pressense's post-filter default
+          masterCutoffLog2_(std::log2(10000.0f)),  // pressense's post-filter default
+          previews_(detail::makeVoices(static_cast<float>(sampleRate),
+                                       std::make_index_sequence<config::kPreviewVoices>{})) {
         for (float& g : layerGains_) g = 1.0f;
     }
 
@@ -126,6 +128,7 @@ public:
             uint32_t chunk = clock_.samplesUntilNextTick();
             if (chunk > numFrames - done) chunk = numFrames - done;
             for (auto& ch : channels_) ch.render(out + done, chunk);
+            renderPreviews(out + done, chunk);
             tickPending_ = clock_.advance(chunk);
             done += chunk;
         }
@@ -144,7 +147,28 @@ private:
         Command c;
         while (queue_.pop(c)) schedule(c, tick);
         runDue(tick);
-        for (auto& ch : channels_) ch.onTick(tick, pitch_);
+
+        // Rows can fire events (Bxx). An event that restarts channels on this
+        // tick gets those channels' rows played too: channels only process a
+        // tick again if they were restarted. Bounded, in case events chain.
+        for (int pass = 0; pass < 4; ++pass) {
+            for (auto& ch : channels_) ch.onTick(tick, pitch_);
+            uint8_t events[config::kMaxChannels * config::kMaxColumns];
+            uint32_t n = 0;
+            for (auto& ch : channels_) {
+                for (uint32_t i = 0; i < ch.numFiredEvents(); ++i) events[n++] = ch.firedEvent(i);
+                ch.clearFiredEvents();
+            }
+            if (n == 0) break;
+            for (uint32_t i = 0; i < n; ++i) schedule(Command::fireEvent(events[i]), tick);
+        }
+    }
+
+    void renderPreviews(float* out, uint32_t n) {
+        for (auto& v : previews_) {
+            if (!v.isActive()) continue;
+            for (uint32_t i = 0; i < n; ++i) out[i] += v.nextSample(previewTimer_);
+        }
     }
 
     /// First tick at or after `tick` that is on the requested boundary.
@@ -243,6 +267,21 @@ private:
             break;
         case Command::Kind::SetTempo:
             if (c.value > 0.0f) setTempoMilliBpm(static_cast<uint32_t>(c.value * 1000.0f));
+            break;
+        case Command::Kind::SetCell:
+            if (c.target != nullptr && c.data < config::kMaxRows && c.a < config::kMaxColumns) {
+                c.target->cells[c.data][c.a] = c.cell;
+            }
+            break;
+        case Command::Kind::PreviewOn:
+            if (c.a < config::kMaxChannels && c.b < config::kPreviewVoices) {
+                synth::WavetableSynth& v = previews_[c.b];
+                v = channels_[c.a].voice(0);  // borrow the channel's patch
+                v.trigger(midiNoteToHz(static_cast<float>(c.data & 0x7F)), c.value);
+            }
+            break;
+        case Command::Kind::PreviewOff:
+            if (c.b < config::kPreviewVoices) previews_[c.b].release();
             break;
         case Command::Kind::FireEvent:  // expanded in schedule()
         case Command::Kind::None:
@@ -373,6 +412,10 @@ private:
     uint32_t baseTempoMilliBpm_ = 120000;
     Ramp tempoScale_{1.0f};
     Ramp masterCutoffLog2_;
+
+    // Editor note previews.
+    std::array<synth::WavetableSynth, config::kPreviewVoices> previews_;
+    Channel::Timer previewTimer_;
 };
 
 } // namespace adaptive

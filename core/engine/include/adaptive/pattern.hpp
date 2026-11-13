@@ -7,8 +7,9 @@
 namespace adaptive {
 
 /**
- * Effect commands. Values are the ASCII characters a tracker would display.
- * 0 means "no effect". See DESIGN.md (Effects) for units and timing.
+ * Effect commands: one hex digit each, stored as the ASCII character a tracker
+ * displays ('0'-'9', 'A'-'F'). 0 (not '0') means "no effect".
+ * See DESIGN.md (Effects) for units and timing.
  */
 namespace fx {
 inline constexpr uint8_t kNone = 0;
@@ -16,10 +17,24 @@ inline constexpr uint8_t kArpeggio = '0';         ///< 0xy: cycle note, +x, +y (
 inline constexpr uint8_t kPortaUp = '1';          ///< 1xx: pitch up xx/16 semitone per effect tick
 inline constexpr uint8_t kPortaDown = '2';        ///< 2xx: pitch down xx/16 semitone per effect tick
 inline constexpr uint8_t kTonePorta = '3';        ///< 3xx: slide to this row's note at xx/16 semitone per effect tick
+inline constexpr uint8_t kVibrato = '4';          ///< 4xy: vibrato rate x, depth y (persists; 400 = off)
+inline constexpr uint8_t kFilterResonance = '5';  ///< 5xx: filter Q across the synth's full range
+inline constexpr uint8_t kWaveShape = '6';        ///< 6xx: waveform shape 0..1
 inline constexpr uint8_t kVolumeSlide = 'A';      ///< Axy: volume up x or down y, 1/64 per effect tick
+inline constexpr uint8_t kFireEvent = 'B';        ///< Bxx: fire event xx
+inline constexpr uint8_t kSetVolume = 'C';        ///< Cxx: volume 00..7F
 inline constexpr uint8_t kFilterCutoff = 'F';     ///< Fxx: base cutoff, 20 Hz..20 kHz exponential
-inline constexpr uint8_t kFilterResonance = 'Q';  ///< Qxx: filter Q across the synth's full range
-inline constexpr uint8_t kWaveShape = 'W';        ///< Wxx: waveform shape 0..1
+
+/// The command character for a hex digit 0-15.
+constexpr uint8_t fromDigit(int digit) {
+    return static_cast<uint8_t>(digit < 10 ? '0' + digit : 'A' + (digit - 10));
+}
+/// The hex digit 0-15 for a command character, or -1 for kNone or anything else.
+constexpr int toDigit(uint8_t command) {
+    if (command >= '0' && command <= '9') return command - '0';
+    if (command >= 'A' && command <= 'F') return command - 'A' + 10;
+    return -1;
+}
 } // namespace fx
 
 /**

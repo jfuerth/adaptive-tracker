@@ -40,6 +40,10 @@ inline float resonanceQ(uint8_t v) {
            (synth::WavetableSynth::FILTER_Q_MAX - synth::WavetableSynth::FILTER_Q_MIN) * t * t;
 }
 inline float waveShape(uint8_t v) { return v / 255.0f; }
+/// 4xy: x = 0..15 -> 0.5..8 Hz.
+inline float vibratoRateHz(uint8_t x) { return 0.5f + x * 0.5f; }
+/// 4xy: y = 0..15 -> 0..1.5 semitones.
+inline float vibratoDepthSemitones(uint8_t y) { return y * 0.1f; }
 } // namespace fxmap
 
 /**
@@ -182,6 +186,12 @@ public:
 
     /// Called by the engine at the start of every tick.
     void onTick(uint64_t tick, const PitchContext& pitch) {
+        // A tick is processed at most once, unless playback was (re)started
+        // since, e.g. by a section change fired from another channel's row.
+        if (tick == lastTick_) return;
+        lastTick_ = tick;
+        numFiredEvents_ = 0;
+
         const Pattern* pattern = currentPattern();
         if (pattern == nullptr || tick < startTick_) return;
 
@@ -194,11 +204,21 @@ public:
         const uint64_t tickInPattern = tick - entryStartTick_;
         if (tickInPattern % ticksPerRow == 0) {
             const uint32_t row = static_cast<uint32_t>(tickInPattern / ticksPerRow);
+            playingRow_ = static_cast<int32_t>(row);
             for (uint32_t c = 0; c < numColumns_; ++c) startRow(c, pattern->cells[row][c], pitch);
         } else if (tick % config::kTicksPerEffectTick == 0) {
             for (uint32_t c = 0; c < numColumns_; ++c) effectTick(c);
         }
     }
+
+    /// Events fired by Bxx effects on the tick just processed.
+    uint32_t numFiredEvents() const { return numFiredEvents_; }
+    uint8_t firedEvent(uint32_t i) const { return firedEvents_[i]; }
+    void clearFiredEvents() { numFiredEvents_ = 0; }
+
+    /// The pattern playing now (nullptr if none) and the last row that started in it.
+    const Pattern* playingPattern() const { return currentPattern(); }
+    int32_t playingRow() const { return currentPattern() != nullptr ? playingRow_ : -1; }
 
     /// Add `numFrames` samples of this channel into `mix`.
     void render(float* mix, uint32_t numFrames) {
@@ -257,6 +277,8 @@ private:
     }
 
     void restart(uint64_t startTick) {
+        lastTick_ = kNoTick;  // allow this tick to be processed again
+        playingRow_ = -1;
         startTick_ = startTick;
         entryStartTick_ = startTick;
         entryIndex_ = 0;
@@ -358,6 +380,17 @@ private:
         case fx::kWaveShape:
             v.setWaveformShape(fxmap::waveShape(cell.effectParam));
             break;
+        case fx::kVibrato:
+            v.setVibratoRate(fxmap::vibratoRateHz(cell.effectParam >> 4));
+            v.setVibratoDepth(fxmap::vibratoDepthSemitones(cell.effectParam & 0x0F));
+            break;
+        case fx::kSetVolume:
+            s.volume = (cell.effectParam > 0x7F ? 0x7F : cell.effectParam) / 127.0f;
+            v.setVolume(s.volume);
+            break;
+        case fx::kFireEvent:
+            if (numFiredEvents_ < config::kMaxColumns) firedEvents_[numFiredEvents_++] = cell.effectParam;
+            break;
         default:
             break;
         }
@@ -429,6 +462,11 @@ private:
     const Pattern* single_ = nullptr;
     uint64_t startTick_ = 0;
     uint64_t entryStartTick_ = 0;
+    static constexpr uint64_t kNoTick = ~uint64_t(0);
+    uint64_t lastTick_ = kNoTick;
+    int32_t playingRow_ = -1;
+    uint8_t firedEvents_[config::kMaxColumns] = {};
+    uint32_t numFiredEvents_ = 0;
     uint64_t totalTicks_ = 0;  ///< Length of the whole sequence (or single pattern).
     uint32_t entryIndex_ = 0;
     uint32_t numColumns_ = 1;

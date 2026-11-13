@@ -27,6 +27,7 @@ microcontrollers (ESP32, RP2350) later.
 | Section transitions | Each transition chooses **Restart** (default: channels start their new sequences from the top) or **Keep phase** (channels continue at the same position, and the bar count carries on). A transition can play a **bridge** section once before entering the target |
 | UI wording | **Never say "game" in the GUI.** The composer names parameters and events; the music may be for theatre, live performance or anything else. Example names like Intensity, Danger, Hit are fine |
 | Events | Named one-shot triggers (buttons in the app; later a host application or Lua). Each fires a short list of actions: play a stinger, go to a section, mute/unmute a layer. Actions are immediate by default, or quantised to the next beat or bar |
+| Pattern editor | Swipe to scroll; edits happen on a fixed **edit row** in the middle. **12 keys** across most of the screen width; keys sound as pressed; a multi-finger chord becomes the lowest note plus `0xy` arpeggio (scale steps in Degree mode), written when all fingers lift. Effects are entered on a **2×8 hex pad** with a **live description line**. Tapping the pattern selects the column; the keyboard writes notes, the hex pad writes effects (or the volume/parameter field if tapped). Portrait first; a landscape layout with a wider keyboard is a later option |
 | Android toolchain | Command-line only, via `sdkmanager`: NDK 30.0.16248370, CMake 4.1.2 and platform-tools in `~/Android/Sdk`. The Gradle wrapper fetches Gradle. Android Studio is optional |
 | PKTrekker | Reference only (effect semantics, tests). Not linked. Check licence before copying anything: `Modplay.*` is co-copyright Andrew Kilpatrick |
 
@@ -162,16 +163,24 @@ on every later **effect tick** of the row. An effect tick is 4 engine ticks
 A row with no effect ends the previous row's effect. For `1`, `2`, `3` and `A`,
 a parameter of `00` reuses the last nonzero one.
 
+Every effect command is a single hex digit, so the editor's hex pad enters the
+command and its two parameter digits.
+
 | Code | Effect | Parameter |
 |---|---|---|
 | `0xy` | Arpeggio: note, +x, +y, cycling each effect tick | Semitones (scale steps in Degree mode) |
 | `1xx` | Pitch slide up | xx/16 semitone per effect tick |
 | `2xx` | Pitch slide down | xx/16 semitone per effect tick |
 | `3xx` | Slide to the row's note (no retrigger, no overshoot) | xx/16 semitone per effect tick |
+| `4xy` | Vibrato (persists; `400` turns it off) | x = rate 0.5–8 Hz, y = depth in 1/10 semitone |
+| `5xx` | Filter resonance (persists) | Quadratic over the synth's Q range |
+| `6xx` | Waveform shape (persists) | 00 … FF = 0 … 1 |
 | `Axy` | Volume slide: up x, else down y | 1/64 of full volume per effect tick |
+| `Bxx` | Fire event xx | Event index. Fires on the row's first tick; the event's own actions set their timing |
+| `Cxx` | Set volume | 00 … 7F |
 | `Fxx` | Filter cutoff (voice baseline, persists) | 00 = 20 Hz … FF = 20 kHz, exponential |
-| `Qxx` | Filter resonance (persists) | Quadratic over the synth's Q range |
-| `Wxx` | Waveform shape (persists) | 00 … FF = 0 … 1 |
+
+`7`, `8`, `9`, `D` and `E` are reserved (`8` for pan once output is stereo).
 
 The volume column (0–127) sets the column's volume. A note without a volume
 starts at full volume. Patterns cannot change tempo (see Decisions).

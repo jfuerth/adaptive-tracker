@@ -73,6 +73,8 @@ inline constexpr uint32_t kMaxParams = ADAPTIVE_MAX_PARAMS;
 inline constexpr uint32_t kMaxMappings = ADAPTIVE_MAX_MAPPINGS;
 /// Commands waiting for their quantised time (e.g. "at the next bar").
 inline constexpr uint32_t kMaxPendingCommands = ADAPTIVE_MAX_PENDING_COMMANDS;
+/// Voices for auditioning notes in the editor (one per finger on the keyboard).
+inline constexpr uint32_t kPreviewVoices = 4;
 /// Commands in flight from the UI/control thread to the audio thread (power of two).
 inline constexpr uint32_t kCommandQueueSize = 64;
 

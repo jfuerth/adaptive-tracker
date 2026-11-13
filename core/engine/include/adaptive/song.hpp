@@ -54,6 +54,9 @@ struct Command {
         SetParam,     ///< a = parameter, value = 0..1; runs mappings
         SetKey,       ///< a = root pitch class, data = scale mask
         SetTempo,     ///< value = base tempo in BPM (scaled by any TempoScale mapping)
+        SetCell,      ///< target[data][a] = cell: edit a pattern safely while it plays
+        PreviewOn,    ///< b = preview slot; sound note `data` (MIDI) with channel a's patch
+        PreviewOff,   ///< b = preview slot; release it
     };
 
     Kind kind = Kind::None;
@@ -64,6 +67,8 @@ struct Command {
     const Pattern* pattern = nullptr;
     float value = 0.0f;
     uint16_t data = 0;
+    Pattern* target = nullptr;  ///< SetCell only. The app owns patterns and may edit them.
+    Cell cell = {};             ///< SetCell only.
 
     static constexpr Command gotoSection(uint8_t section, Quantize when = Quantize::Bar,
                                          Entry entry = Entry::Restart, uint8_t bridge = kNoIndex) {
@@ -87,6 +92,15 @@ struct Command {
     }
     static constexpr Command setTempo(float bpm, Quantize when = Quantize::Beat) {
         return Command{Kind::SetTempo, when, Entry::Restart, 0, 0, nullptr, bpm, 0};
+    }
+    static constexpr Command setCell(Pattern* p, uint16_t row, uint8_t column, const Cell& c) {
+        return Command{Kind::SetCell, Quantize::Now, Entry::Restart, column, 0, nullptr, 0.0f, row, p, c};
+    }
+    static constexpr Command previewOn(uint8_t channel, uint8_t slot, uint8_t midiNote, float volume = 1.0f) {
+        return Command{Kind::PreviewOn, Quantize::Now, Entry::Restart, channel, slot, nullptr, volume, midiNote};
+    }
+    static constexpr Command previewOff(uint8_t slot) {
+        return Command{Kind::PreviewOff, Quantize::Now, Entry::Restart, 0, slot, nullptr, 0.0f, 0};
     }
 };
 
