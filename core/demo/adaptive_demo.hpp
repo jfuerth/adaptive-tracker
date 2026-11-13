@@ -30,10 +30,18 @@ public:
     static constexpr const char* kSectionNames[] = {"Explore", "Combat", "Bridge"};
     static constexpr const char* kLayerNames[] = {"Rhythm", "Melody", "Pad"};
     static constexpr const char* kParamNames[] = {"Intensity", "Danger"};
+    static constexpr const char* kChannelNames[] = {"Lead", "Bass", "Pad", "Arp", "Drums", "Stinger"};
+    static constexpr uint8_t kNumChannels = 6;
+    // Instruments.
+    static constexpr uint8_t kLeadSynth = 0, kBassSynth = 1, kPadSynth = 2, kArpSynth = 3, kKick = 4, kHat = 5,
+                             kStingerSynth = 6;
+    static constexpr const char* kInstrumentNames[] = {"Lead", "Bass", "Pad", "Arp", "Kick", "Hat", "Stinger"};
 
     AdaptiveDemo() { build(); }
 
     const Song& song() const { return song_; }
+    /// The song, for editing (e.g. instruments, via Command::setInstrumentParam).
+    Song& song() { return song_; }
 
     /// Editable patterns, for the pattern editor: name, the pattern, and the
     /// channel whose instrument and pitch mode it plays with.
@@ -47,22 +55,21 @@ public:
         return i < kNumPatterns ? patternTable_[i] : PatternEntry{"", nullptr, 0};
     }
 
-    /// Patches, pitch modes, column counts, and the song. Call before audio
-    /// starts. Then post Command::gotoSection(kExplore, Quantize::Now) to play.
+    /// Pitch modes, column counts, and the song (which brings the
+    /// instruments). Call before audio starts. Then post
+    /// Command::gotoSection(kExplore, Quantize::Now) to play.
     void setUp(Engine& engine) const {
-        auto setUpChannel = [&](uint8_t ch, PitchMode mode, uint32_t columns, void (*patch)(synth::WavetableSynth&)) {
+        auto setUpChannel = [&](uint8_t ch, PitchMode mode, uint32_t columns) {
             Channel& c = engine.channel(ch);
             c.setPitchMode(mode);
             c.setNumColumns(columns);
-            c.forEachVoice(patch);
         };
-        setUpChannel(kLead, PitchMode::Degree, 1, leadPatch);
-        setUpChannel(kBass, PitchMode::Degree, 1, bassPatch);
-        setUpChannel(kPad, PitchMode::Degree, 3, padPatch);
-        setUpChannel(kArp, PitchMode::Degree, 1, arpPatch);
-        setUpChannel(kDrums, PitchMode::Absolute, 2, kickPatch);
-        hatPatch(engine.channel(kDrums).voice(1));
-        setUpChannel(kStinger, PitchMode::Degree, 1, stingerPatch);
+        setUpChannel(kLead, PitchMode::Degree, 1);
+        setUpChannel(kBass, PitchMode::Degree, 1);
+        setUpChannel(kPad, PitchMode::Degree, 3);
+        setUpChannel(kArp, PitchMode::Degree, 1);
+        setUpChannel(kDrums, PitchMode::Absolute, 2);
+        setUpChannel(kStinger, PitchMode::Degree, 1);
 
         engine.pitch().home = Key{0, scales::kMajor};
         engine.setSong(&song_);
@@ -85,6 +92,7 @@ private:
     void build() {
         const int exploreRoots[4] = {0, 5, 3, 4};  // I vi IV V
         const int combatRoots[4] = {5, 3, 4, 4};   // vi IV V V
+        buildInstruments();
 
         // ---- Explore (96 BPM, 4 bars) ----
         chordPattern(explorePad_, exploreRoots, 4);
@@ -292,73 +300,36 @@ private:
         song_.addMapping(t);
     }
 
-    static void leadPatch(synth::WavetableSynth& v) {
-        v.setWaveformShape(0.5f);
-        v.setBaseCutoff(2200.0f);
-        v.getAmpEnvelope().setAttackTime(0.005f);
-        v.getAmpEnvelope().setDecayTime(0.25f);
-        v.getAmpEnvelope().setSustainLevel(0.5f);
-        v.getAmpEnvelope().setReleaseTime(0.12f);
-        v.setVibratoDepth(0.05f);
-        v.setLevel(0.28f);
-    }
-    static void bassPatch(synth::WavetableSynth& v) {
-        v.setWaveformShape(0.0f);
-        v.setBaseCutoff(320.0f);
-        v.setFilterQ(3.0f);
-        v.setFilterEnvelopeAmount(0.5f);
-        v.getAmpEnvelope().setAttackTime(0.002f);
-        v.getAmpEnvelope().setDecayTime(0.2f);
-        v.getAmpEnvelope().setSustainLevel(0.6f);
-        v.getAmpEnvelope().setReleaseTime(0.06f);
-        v.setLevel(0.42f);
-    }
-    static void padPatch(synth::WavetableSynth& v) {
-        v.setWaveformShape(0.3f);
-        v.setBaseCutoff(1000.0f);
-        v.getAmpEnvelope().setAttackTime(0.25f);
-        v.getAmpEnvelope().setDecayTime(0.5f);
-        v.getAmpEnvelope().setSustainLevel(0.7f);
-        v.getAmpEnvelope().setReleaseTime(0.6f);
-        v.setVibratoDepth(0.06f);
-        v.setLevel(0.1f);
-    }
-    static void arpPatch(synth::WavetableSynth& v) {
-        v.setWaveformShape(1.0f);
-        v.setBaseCutoff(4000.0f);
-        v.getAmpEnvelope().setAttackTime(0.001f);
-        v.getAmpEnvelope().setDecayTime(0.09f);
-        v.getAmpEnvelope().setSustainLevel(0.15f);
-        v.getAmpEnvelope().setReleaseTime(0.05f);
-        v.setLevel(0.1f);
-    }
-    static void kickPatch(synth::WavetableSynth& v) {
-        v.setWaveformShape(0.5f);
-        v.setBaseCutoff(900.0f);
-        v.getAmpEnvelope().setAttackTime(0.001f);
-        v.getAmpEnvelope().setDecayTime(0.18f);
-        v.getAmpEnvelope().setSustainLevel(0.0f);
-        v.getAmpEnvelope().setReleaseTime(0.05f);
-        v.setLevel(0.85f);
-    }
-    static void hatPatch(synth::WavetableSynth& v) {
-        v.setWaveformShape(1.0f);
-        v.setBaseCutoff(12000.0f);
-        v.getAmpEnvelope().setAttackTime(0.0005f);
-        v.getAmpEnvelope().setDecayTime(0.03f);
-        v.getAmpEnvelope().setSustainLevel(0.0f);
-        v.getAmpEnvelope().setReleaseTime(0.02f);
-        v.setLevel(0.12f);
-    }
-    static void stingerPatch(synth::WavetableSynth& v) {
-        v.setWaveformShape(0.9f);
-        v.setBaseCutoff(5000.0f);
-        v.setFilterQ(2.0f);
-        v.getAmpEnvelope().setAttackTime(0.001f);
-        v.getAmpEnvelope().setDecayTime(0.15f);
-        v.getAmpEnvelope().setSustainLevel(0.4f);
-        v.getAmpEnvelope().setReleaseTime(0.15f);
-        v.setLevel(0.3f);
+    void buildInstruments() {
+        using P = Instrument::Param;
+        auto env = [](Instrument& i, float a, float d, float s, float r) {
+            i.set(P::AmpAttack, a).set(P::AmpDecay, d).set(P::AmpSustain, s).set(P::AmpRelease, r);
+        };
+        Instrument lead, bass, pad, arp, kick, hat, stinger;
+        lead.set(P::Shape, 0.5f).set(P::Cutoff, 2200.0f).set(P::VibratoDepth, 0.05f).set(P::Level, 0.28f);
+        env(lead, 0.005f, 0.25f, 0.5f, 0.12f);
+        bass.set(P::Shape, 0.0f).set(P::Cutoff, 320.0f).set(P::Resonance, 3.0f).set(P::FilterEnvAmount, 0.5f)
+            .set(P::Level, 0.42f);
+        env(bass, 0.002f, 0.2f, 0.6f, 0.06f);
+        pad.set(P::Shape, 0.3f).set(P::Cutoff, 1000.0f).set(P::VibratoDepth, 0.06f).set(P::Level, 0.1f);
+        env(pad, 0.25f, 0.5f, 0.7f, 0.6f);
+        arp.set(P::Shape, 1.0f).set(P::Cutoff, 4000.0f).set(P::Level, 0.1f);
+        env(arp, 0.001f, 0.09f, 0.15f, 0.05f);
+        kick.set(P::Shape, 0.5f).set(P::Cutoff, 900.0f).set(P::Level, 0.85f);
+        env(kick, 0.001f, 0.18f, 0.0f, 0.05f);
+        hat.set(P::Shape, 1.0f).set(P::Cutoff, 12000.0f).set(P::Level, 0.12f);
+        env(hat, 0.0005f, 0.03f, 0.0f, 0.02f);
+        stinger.set(P::Shape, 0.9f).set(P::Cutoff, 5000.0f).set(P::Resonance, 2.0f).set(P::Level, 0.3f);
+        env(stinger, 0.001f, 0.15f, 0.4f, 0.15f);
+        for (const Instrument* i : {&lead, &bass, &pad, &arp, &kick, &hat, &stinger}) song_.addInstrument(*i);
+
+        song_.assign(kLead, kLeadSynth);
+        song_.assign(kBass, kBassSynth);
+        song_.assign(kPad, kPadSynth);
+        song_.assign(kArp, kArpSynth);
+        song_.assign(kDrums, kKick);
+        song_.columnInstrument[kDrums][1] = kHat;
+        song_.assign(kStinger, kStingerSynth);
     }
 
     Song song_;

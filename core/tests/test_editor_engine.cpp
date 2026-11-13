@@ -102,9 +102,9 @@ TEST_CASE("SetCell edits a pattern while it plays") {
     CHECK(f.engine->channel(0).playingPattern() == f.a.get());
 }
 
-TEST_CASE("Previews sound with a channel's patch and stop on release") {
+TEST_CASE("Previews sound with an instrument and stop on release") {
     Fixture f;
-    f.engine->channel(0).voice(0).getAmpEnvelope().setReleaseTime(0.01f);
+    f.song->addInstrument(Instrument().set(Instrument::Param::AmpRelease, 0.01f));
     f.engine->post(Command::previewOn(0, 1, 69));
     f.reachTick(20);
     float peak = 0.0f;
@@ -198,3 +198,40 @@ TEST_CASE("9xx sweeps down and stops at the bottom of the range") {
     CHECK(f.engine->channel(0).voice(0).getBaseCutoff() == doctest::Approx(20.0f));
     CHECK(f.engine->channel(0).column(0).filterSweep == 0.0f);
 }
+
+TEST_CASE("Instruments: setSong applies each column's instrument") {
+    Fixture f;
+    using P = Instrument::Param;
+    const uint8_t lead = f.song->addInstrument(Instrument().set(P::Cutoff, 2200.0f).set(P::AmpAttack, 0.25f));
+    const uint8_t hat = f.song->addInstrument(Instrument().set(P::Shape, 1.0f));
+    f.song->assign(0, lead);
+    f.song->columnInstrument[0][1] = hat;
+    f.engine->setSong(f.song.get());
+    CHECK(f.engine->channel(0).voice(0).getBaseCutoff() == doctest::Approx(2200.0f));
+    CHECK(f.engine->channel(0).voice(0).getAmpEnvelope().getAttackTime() == doctest::Approx(0.25f));
+    CHECK(f.engine->channel(0).voice(1).getWaveformShape() == doctest::Approx(1.0f));
+    CHECK(f.engine->channel(0).voice(2).getBaseCutoff() == doctest::Approx(2200.0f));
+    CHECK(f.engine->channel(1).voice(0).getBaseCutoff() == doctest::Approx(1000.0f));  // no instrument: untouched
+}
+
+TEST_CASE("Instruments: SetInstrumentParam edits the song and every voice using it, clamped") {
+    Fixture f;
+    using P = Instrument::Param;
+    const uint8_t a = f.song->addInstrument(Instrument());
+    const uint8_t b = f.song->addInstrument(Instrument());
+    f.song->assign(0, a);
+    f.song->assign(1, b);
+    f.engine->setSong(f.song.get());
+    f.engine->post(Command::previewOn(a, 2, 60));
+    f.engine->post(Command::setInstrumentParam(&f.song->instruments[a], a, P::Cutoff, 500.0f));
+    f.engine->post(Command::setInstrumentParam(&f.song->instruments[a], a, P::Level, 7.0f));
+    f.reachTick(1);
+    CHECK(f.song->instruments[a].get(P::Cutoff) == 500.0f);
+    CHECK(f.song->instruments[a].get(P::Level) == 1.0f);  // clamped
+    CHECK(f.engine->channel(0).voice(0).getBaseCutoff() == doctest::Approx(500.0f));
+    CHECK(f.engine->channel(0).voice(3).getBaseCutoff() == doctest::Approx(500.0f));
+    CHECK(f.engine->channel(1).voice(0).getBaseCutoff() == doctest::Approx(1000.0f));
+}
+
+static_assert(Instrument().get(Instrument::Param::Cutoff) == 1000.0f);
+static_assert(Instrument().set(Instrument::Param::Shape, -1.0f).get(Instrument::Param::Shape) == 0.0f);

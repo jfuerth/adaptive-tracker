@@ -79,6 +79,12 @@ public:
     void setSong(const Song* song) {
         song_ = song;
         if (song_ == nullptr) return;
+        for (uint32_t ch = 0; ch < config::kMaxChannels; ++ch) {
+            for (uint32_t col = 0; col < config::kMaxColumns; ++col) {
+                const uint8_t i = song_->columnInstrument[ch][col];
+                if (i < song_->numInstruments) song_->instruments[i].applyTo(channels_[ch].voice(col));
+            }
+        }
         for (uint8_t i = 0; i < song_->numMappings; ++i) {
             // Starting values apply instantly; only later changes glide.
             applyMapping(song_->mappings[i], params_[song_->mappings[i].param], 0, false, 0.0f, true);
@@ -300,18 +306,41 @@ private:
             }
             break;
         case Command::Kind::PreviewOn:
-            if (c.a < config::kMaxChannels && c.b < config::kPreviewVoices) {
+            if (song_ != nullptr && c.a < song_->numInstruments && c.b < config::kPreviewVoices) {
                 synth::WavetableSynth& v = previews_[c.b];
-                v = channels_[c.a].voice(0);  // borrow the channel's patch
+                song_->instruments[c.a].applyTo(v);
+                previewInstrument_[c.b] = c.a;
                 v.trigger(midiNoteToHz(static_cast<float>(c.data & 0x7F)), c.value);
             }
             break;
         case Command::Kind::PreviewOff:
             if (c.b < config::kPreviewVoices) previews_[c.b].release();
             break;
+        case Command::Kind::SetInstrumentParam:
+            if (c.instrument != nullptr && c.b < Instrument::kNumParams) {
+                const auto p = static_cast<Instrument::Param>(c.b);
+                c.instrument->set(p, c.value);
+                applyInstrumentParam(c.a, *c.instrument, p);
+            }
+            break;
         case Command::Kind::FireEvent:  // expanded in schedule()
         case Command::Kind::None:
             break;
+        }
+    }
+
+    /// Push an edited parameter to every voice using instrument `index`,
+    /// including previews, so a held note changes as the control moves.
+    void applyInstrumentParam(uint8_t index, const Instrument& inst, Instrument::Param p) {
+        if (song_ != nullptr) {
+            for (uint32_t ch = 0; ch < config::kMaxChannels; ++ch) {
+                for (uint32_t col = 0; col < config::kMaxColumns; ++col) {
+                    if (song_->columnInstrument[ch][col] == index) inst.applyParam(channels_[ch].voice(col), p);
+                }
+            }
+        }
+        for (uint32_t s = 0; s < config::kPreviewVoices; ++s) {
+            if (previewInstrument_[s] == index) inst.applyParam(previews_[s], p);
         }
     }
 
@@ -443,6 +472,7 @@ private:
     // Editor note previews.
     std::array<synth::WavetableSynth, config::kPreviewVoices> previews_;
     Channel::Timer previewTimer_;
+    uint8_t previewInstrument_[config::kPreviewVoices] = {kNoIndex, kNoIndex, kNoIndex, kNoIndex};
 };
 
 } // namespace adaptive

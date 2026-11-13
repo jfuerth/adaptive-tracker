@@ -1,6 +1,7 @@
 #pragma once
 
 #include <adaptive/config.hpp>
+#include <adaptive/instrument.hpp>
 #include <adaptive/pattern.hpp>
 
 #include <cmath>
@@ -55,10 +56,11 @@ struct Command {
         SetKey,       ///< a = root pitch class, data = scale mask
         SetTempo,     ///< value = base tempo in BPM (scaled by any TempoScale mapping)
         SetCell,      ///< target[data][a] = cell: edit a pattern safely while it plays
-        PreviewOn,    ///< b = preview slot; sound note `data` (MIDI) with channel a's patch
+        PreviewOn,    ///< b = preview slot; sound note `data` (MIDI) with the song's instrument a
         PreviewOff,   ///< b = preview slot; release it
         SoloPattern,  ///< stop everything, then loop `target` alone on channel a; data = column mask
         SetColumnMask,///< channel a plays only the columns in bitmask `data`
+        SetInstrumentParam, ///< song instrument a, parameter b = value; updates voices using it
     };
 
     Kind kind = Kind::None;
@@ -71,6 +73,7 @@ struct Command {
     uint16_t data = 0;
     Pattern* target = nullptr;  ///< SetCell only. The app owns patterns and may edit them.
     Cell cell = {};             ///< SetCell only.
+    Instrument* instrument = nullptr;  ///< SetInstrumentParam only. The app owns the song and may edit it.
 
     static constexpr Command gotoSection(uint8_t section, Quantize when = Quantize::Bar,
                                          Entry entry = Entry::Restart, uint8_t bridge = kNoIndex) {
@@ -98,8 +101,17 @@ struct Command {
     static constexpr Command setCell(Pattern* p, uint16_t row, uint8_t column, const Cell& c) {
         return Command{Kind::SetCell, Quantize::Now, Entry::Restart, column, 0, nullptr, 0.0f, row, p, c};
     }
-    static constexpr Command previewOn(uint8_t channel, uint8_t slot, uint8_t midiNote, float volume = 1.0f) {
-        return Command{Kind::PreviewOn, Quantize::Now, Entry::Restart, channel, slot, nullptr, volume, midiNote};
+    static constexpr Command previewOn(uint8_t instrument, uint8_t slot, uint8_t midiNote, float volume = 1.0f) {
+        return Command{Kind::PreviewOn, Quantize::Now, Entry::Restart, instrument, slot, nullptr, volume, midiNote};
+    }
+    /// Edit `song.instruments[index]` safely while it plays: `instrument`
+    /// must point at that entry.
+    static constexpr Command setInstrumentParam(Instrument* instrument, uint8_t index, Instrument::Param p,
+                                                float value) {
+        Command c{Kind::SetInstrumentParam, Quantize::Now, Entry::Restart, index, static_cast<uint8_t>(p),
+                  nullptr, value};
+        c.instrument = instrument;
+        return c;
     }
     /// Loop one pattern on its own (e.g. the one being edited). `columnMask`
     /// selects which of its columns are heard (bit 0 = column 0).
@@ -181,6 +193,31 @@ struct Song {
 
     Mapping mappings[config::kMaxMappings] = {};
     uint8_t numMappings = 0;
+
+    /// Synth patches, and which one each column of each channel plays
+    /// (kNoIndex: leave the voice as it is).
+    Instrument instruments[config::kMaxInstruments] = {};
+    uint8_t numInstruments = 0;
+    uint8_t columnInstrument[config::kMaxChannels][config::kMaxColumns];
+
+    Song() {
+        for (auto& ch : columnInstrument) {
+            for (auto& c : ch) c = kNoIndex;
+        }
+    }
+
+    /// Add an instrument; returns its index, or kNoIndex when the table is full.
+    uint8_t addInstrument(const Instrument& i) {
+        if (numInstruments >= config::kMaxInstruments) return kNoIndex;
+        instruments[numInstruments] = i;
+        return numInstruments++;
+    }
+    /// Use instrument `index` on every column of `channel`.
+    void assign(uint8_t channel, uint8_t index) {
+        if (channel < config::kMaxChannels) {
+            for (auto& c : columnInstrument[channel]) c = index;
+        }
+    }
 
     bool addMapping(const Mapping& m) {
         if (numMappings >= config::kMaxMappings) return false;

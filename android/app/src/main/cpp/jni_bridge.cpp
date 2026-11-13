@@ -113,8 +113,41 @@ JNIEXPORT jboolean JNICALL JNI_FN(setCell)(JNIEnv*, jobject, jint pattern, jint 
     return toJ(player().setCell(static_cast<uint32_t>(pattern), row, column, cell));
 }
 
-JNIEXPORT jboolean JNICALL JNI_FN(previewOn)(JNIEnv*, jobject, jint channel, jint slot, jint midiNote) {
-    return toJ(player().previewOn(channel, slot, midiNote));
+JNIEXPORT jboolean JNICALL JNI_FN(previewOn)(JNIEnv*, jobject, jint instrument, jint slot, jint midiNote) {
+    return toJ(player().previewOn(instrument, slot, midiNote));
+}
+
+JNIEXPORT jint JNICALL JNI_FN(getChannelCount)(JNIEnv*, jobject) {
+    return static_cast<jint>(player().channelCount());
+}
+
+JNIEXPORT jstring JNICALL JNI_FN(getChannelName)(JNIEnv* env, jobject, jint i) {
+    return env->NewStringUTF(player().channelName(static_cast<uint32_t>(i)));
+}
+
+JNIEXPORT jint JNICALL JNI_FN(getInstrumentCount)(JNIEnv*, jobject) {
+    return static_cast<jint>(player().instrumentCount());
+}
+
+JNIEXPORT jstring JNICALL JNI_FN(getInstrumentName)(JNIEnv* env, jobject, jint i) {
+    return env->NewStringUTF(player().instrumentName(static_cast<uint32_t>(i)));
+}
+
+/// Instrument::kNumParams values, or null.
+JNIEXPORT jfloatArray JNICALL JNI_FN(readInstrument)(JNIEnv* env, jobject, jint i) {
+    float values[adaptive::Instrument::kNumParams];
+    if (!player().readInstrument(static_cast<uint32_t>(i), values, adaptive::Instrument::kNumParams)) return nullptr;
+    jfloatArray result = env->NewFloatArray(adaptive::Instrument::kNumParams);
+    if (result != nullptr) env->SetFloatArrayRegion(result, 0, adaptive::Instrument::kNumParams, values);
+    return result;
+}
+
+JNIEXPORT jboolean JNICALL JNI_FN(setInstrumentParam)(JNIEnv*, jobject, jint i, jint param, jfloat value) {
+    return toJ(player().setInstrumentParam(static_cast<uint32_t>(i), param, value));
+}
+
+JNIEXPORT jint JNICALL JNI_FN(getColumnInstrument)(JNIEnv*, jobject, jint channel, jint column) {
+    return player().columnInstrument(channel, column);
 }
 
 JNIEXPORT jboolean JNICALL JNI_FN(previewOff)(JNIEnv*, jobject, jint slot) {

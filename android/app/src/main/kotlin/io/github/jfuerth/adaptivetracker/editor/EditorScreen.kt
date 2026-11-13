@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -31,7 +30,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -52,13 +50,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.jfuerth.adaptivetracker.NativeAudio
+import io.github.jfuerth.adaptivetracker.ui.NoteKeyboard
+import io.github.jfuerth.adaptivetracker.ui.ToolButton
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.abs
 
 private val ROW_HEIGHT = 26.dp
 private val MONO = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 15.sp)
-private val BLACK_KEYS = setOf(1, 3, 6, 8, 10)
 
 /** What the editor's Play button plays. */
 private enum class PlayMode(val label: String) { SONG("Song"), PATTERN("Pattern"), COLUMN("Column") }
@@ -323,7 +322,7 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
                 val free = slots.indexOfFirst { it == null }
                 if (free >= 0) {
                     slots[free] = k
-                    NativeAudio.previewOn(info.channel, free, midiOf(k))
+                    NativeAudio.previewOn(NativeAudio.getColumnInstrument(info.channel, column), free, midiOf(k))
                 }
             },
             onKeyUp = { k ->
@@ -451,94 +450,5 @@ private fun HexPad(onDigit: (Int) -> Unit) {
                 }
             }
         }
-    }
-}
-
-/**
- * Twelve keys across the width, one octave. Multi-touch: keys sound while held;
- * when the last finger lifts, [onChord] gets the largest set of keys that were
- * held at the same time (so sliding one finger along gives one note).
- */
-@Composable
-private fun NoteKeyboard(
-    dimKey: (Int) -> Boolean,
-    onKeyDown: (Int) -> Unit,
-    onKeyUp: (Int) -> Unit,
-    onChord: (Set<Int>) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val colors = MaterialTheme.colorScheme
-    val held = remember { mutableStateListOf<Int>() }
-    val down by rememberUpdatedState(onKeyDown)
-    val up by rememberUpdatedState(onKeyUp)
-    val chord by rememberUpdatedState(onChord)
-
-    Row(
-        modifier.pointerInput(Unit) {
-            awaitPointerEventScope {
-                var previous = emptySet<Int>()
-                var largest = emptySet<Int>()
-                while (true) {
-                    val event = awaitPointerEvent()
-                    val now = event.changes
-                        .filter { it.pressed }
-                        .map { ((it.position.x / size.width) * 12).toInt().coerceIn(0, 11) }
-                        .toSet()
-                    event.changes.forEach { it.consume() }
-                    (now - previous).forEach { down(it) }
-                    (previous - now).forEach { up(it) }
-                    if (now.size >= largest.size && now.isNotEmpty()) largest = now
-                    previous = now
-                    held.clear()
-                    held.addAll(now)
-                    if (now.isEmpty() && largest.isNotEmpty()) {
-                        chord(largest)
-                        largest = emptySet()
-                    }
-                }
-            }
-        },
-    ) {
-        for (k in 0 until 12) {
-            val pressed = k in held
-            val base = if (k in BLACK_KEYS) colors.surfaceVariant else colors.surfaceContainerHighest
-            Box(
-                Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .padding(1.dp)
-                    .clip(RoundedCornerShape(bottomStart = 6.dp, bottomEnd = 6.dp))
-                    .background(if (pressed) colors.primary else base)
-                    .alpha(if (dimKey(k)) 0.35f else 1f),
-                contentAlignment = Alignment.BottomCenter,
-            ) {
-                Text(
-                    Pitch.KEY_NAMES[k],
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (pressed) colors.onPrimary else colors.onSurface,
-                    modifier = Modifier.padding(bottom = 6.dp),
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ToolButton(text: String, onClick: () -> Unit, selected: Boolean = false) {
-    val colors = MaterialTheme.colorScheme
-    Box(
-        Modifier
-            .height(36.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (selected) colors.primary else colors.secondaryContainer)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 10.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text,
-            style = MaterialTheme.typography.labelLarge,
-            color = if (selected) colors.onPrimary else colors.onSecondaryContainer,
-        )
     }
 }

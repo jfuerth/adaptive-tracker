@@ -19,6 +19,8 @@ microcontrollers (ESP32, RP2350) later.
 | Mute | Musical mute first: stop new notes, let current notes release, quantised. A click-free "audio mute" fade may come later, e.g. for choppy effects |
 | Reverb | Phone only for now. Not required on MCUs |
 | Instrument changes | Parameter changes only. A per-channel instrument override table may come later |
+| Instruments | `adaptive::Instrument` is a flat array of 17 pressense parameters in natural units (shape, cutoff, resonance, filter envelope + amount, amp envelope, level, vibrato, tremolo). The song holds a table of them; **each column of each channel names one** (`Song::columnInstrument`), e.g. the drum channel's kick and hat columns. No instrument field in cells. Editing is a `SetInstrumentParam` command that updates every voice using the instrument, including held previews. Previews play an instrument, not a channel's voice |
+| Instrument editor | The synth is drawn as its **signal flow**: oscillator → filter → amp down the right, modulators (vibrato, filter envelope, amp envelope, tremolo) on the left with arrows into the stage they modulate; modulation amounts sit on the arrows. Tapping a value opens its slider (log curve for Hz and times) with fine-step buttons; the 12-key keyboard plays the instrument while you adjust it. Envelopes and the oscillator shape are drawn |
 | Chords | Several columns per channel, one voice per column. No chord shorthand yet |
 | Pattern scope | **Per channel.** Each channel plays its own sequence of patterns, which can have different lengths. A section says which pattern(s) each channel plays |
 | Timing | Engine clock in ticks at 96 PPQ (divisible by 2, 3, 4, 8, 16, 32). Each pattern sets its own **length in rows** and **rows per beat**, so channels can play polyrhythms. **Beats per bar is set per section** and defines bar quantisation, counted from section start. Patterns needn't fill whole bars |
@@ -229,9 +231,10 @@ android/         Gradle project: app (Compose) + :native (CMake → core + Oboe)
    stingers, events, parameters and mappings, channel filter and gain.
 5. **Editors.** ✅ Pattern editor (done 2026-11-12): edit row, 12-key multi-touch
    keyboard with previews, chords to arpeggios, 2×8 hex pad with live
-   descriptions, follow mode; edits are safe while playing. Still to do: patch
-   (instrument) editor, pattern length / rows-per-beat editing, creating
-   patterns and arranging sequences.
+   descriptions, follow mode; edits are safe while playing. ✅ Instrument editor
+   (done 2026-11-12): signal-flow layout, tap-to-slide, live while playing.
+   Still to do: creating instruments and assigning them to columns, pattern
+   length / rows-per-beat editing, creating patterns and arranging sequences.
 6. **Lua**: control thread, API, script editor; measure footprint.
 7. Later: song file format, MCU build (RP2350 first, reusing pressense's I2S sink).
 
@@ -247,6 +250,10 @@ android/         Gradle project: app (Compose) + :native (CMake → core + Oboe)
 - **Audio mute:** a fast gain fade instead of the musical mute, for choppy,
   stuttering effects.
 - **Instrument override table** per channel, for swapping instruments.
+- **Instrument field in cells:** let a note pick its instrument, so one column can
+  play kick, snare and hat. Costs a byte per cell.
+- **Aftertouch-style modulation** in instruments: pressense voices have per-parameter
+  pressure amounts; a pattern effect or parameter mapping could drive them.
 - **Reverb on MCUs.**
 - **Pattern events:** an effect command in a pattern fires a named event. Mappings
   or Lua handle it, and can then change any target. This is how a pattern

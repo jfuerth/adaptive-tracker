@@ -49,6 +49,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import io.github.jfuerth.adaptivetracker.editor.EditorScreen
+import io.github.jfuerth.adaptivetracker.instrument.InstrumentScreen
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
@@ -126,11 +127,13 @@ private fun App(audioOk: Boolean) {
         Column(Modifier.fillMaxSize().padding(padding)) {
             PrimaryTabRow(selectedTabIndex = tab) {
                 Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Perform") })
-                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Edit") })
+                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Patterns") })
+                Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Instruments") })
             }
             when (tab) {
                 0 -> PerformScreen(audioOk, stats, params, layerOn, Modifier.weight(1f))
-                else -> EditorScreen(playing = playing, modifier = Modifier.weight(1f))
+                1 -> EditorScreen(playing = playing, modifier = Modifier.weight(1f))
+                else -> InstrumentScreen(Modifier.weight(1f))
             }
         }
     }

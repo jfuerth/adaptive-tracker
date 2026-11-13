@@ -44,6 +44,9 @@ inline constexpr uint32_t kTicksPerBeat = 96;
 #ifndef ADAPTIVE_MAX_PARAMS
 #define ADAPTIVE_MAX_PARAMS 16
 #endif
+#ifndef ADAPTIVE_MAX_INSTRUMENTS
+#define ADAPTIVE_MAX_INSTRUMENTS 16
+#endif
 #ifndef ADAPTIVE_MAX_MAPPINGS
 #define ADAPTIVE_MAX_MAPPINGS 32
 #endif
@@ -71,6 +74,8 @@ inline constexpr uint32_t kMaxEventActions = ADAPTIVE_MAX_EVENT_ACTIONS;
 /// Parameters (named floats 0..1; names live in the app).
 inline constexpr uint32_t kMaxParams = ADAPTIVE_MAX_PARAMS;
 inline constexpr uint32_t kMaxMappings = ADAPTIVE_MAX_MAPPINGS;
+/// Instruments (synth patches) in a song.
+inline constexpr uint32_t kMaxInstruments = ADAPTIVE_MAX_INSTRUMENTS;
 /// Commands waiting for their quantised time (e.g. "at the next bar").
 inline constexpr uint32_t kMaxPendingCommands = ADAPTIVE_MAX_PENDING_COMMANDS;
 /// Voices for auditioning notes in the editor (one per finger on the keyboard).

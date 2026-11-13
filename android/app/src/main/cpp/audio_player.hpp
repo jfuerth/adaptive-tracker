@@ -49,11 +49,24 @@ public:
     /// pattern; afterwards the UI keeps its own copy.
     bool readPattern(uint32_t i, uint8_t* out, uint32_t capacity);
     bool setCell(uint32_t pattern, int row, int column, const adaptive::Cell& cell);
-    bool previewOn(int channel, int slot, int midiNote);
+    /// Sound `midiNote` with song instrument `instrument` on preview voice `slot`.
+    bool previewOn(int instrument, int slot, int midiNote);
     bool previewOff(int slot);
     /// Loop pattern-table entry `pattern` alone; `columnMask` picks the columns heard.
     bool soloPattern(uint32_t pattern, int columnMask);
     bool setColumnMask(int channel, int columnMask);
+
+    // Instruments (UI thread only).
+    uint32_t channelCount() const { return adaptive::demo::AdaptiveDemo::kNumChannels; }
+    const char* channelName(uint32_t i) const;
+    uint32_t instrumentCount() const { return song_->song().numInstruments; }
+    const char* instrumentName(uint32_t i) const;
+    /// Copies instrument i's parameter values (Instrument::kNumParams floats).
+    /// Only call before editing it; afterwards the UI keeps its own copy.
+    bool readInstrument(uint32_t i, float* out, uint32_t capacity) const;
+    bool setInstrumentParam(uint32_t i, int param, float value);
+    /// Instrument index used by a channel's column, or -1 (no instrument, or no such column).
+    int columnInstrument(int channel, int column) const;
 
     /// Song's home key: [root, scale mask].
     void homeKey(int32_t out[2]) const;

@@ -165,9 +165,45 @@ bool AudioPlayer::setCell(uint32_t pattern, int row, int column, const adaptive:
                                                     static_cast<uint8_t>(column), cell));
 }
 
-bool AudioPlayer::previewOn(int channel, int slot, int midiNote) {
-    if (midiNote < 0 || midiNote > 127) return false;
-    return engine_->post(adaptive::Command::previewOn(static_cast<uint8_t>(channel), static_cast<uint8_t>(slot),
+const char* AudioPlayer::channelName(uint32_t i) const {
+    using Demo = adaptive::demo::AdaptiveDemo;
+    return i < Demo::kNumChannels ? Demo::kChannelNames[i] : "";
+}
+
+const char* AudioPlayer::instrumentName(uint32_t i) const {
+    using Demo = adaptive::demo::AdaptiveDemo;
+    constexpr uint32_t n = sizeof(Demo::kInstrumentNames) / sizeof(Demo::kInstrumentNames[0]);
+    return i < n ? Demo::kInstrumentNames[i] : "";
+}
+
+bool AudioPlayer::readInstrument(uint32_t i, float* out, uint32_t capacity) const {
+    // The audio thread writes instruments only for SetInstrumentParam, which
+    // the UI sends after it has taken its copy, so this read doesn't race.
+    const adaptive::Song& song = song_->song();
+    if (i >= song.numInstruments || capacity < adaptive::Instrument::kNumParams) return false;
+    for (uint32_t p = 0; p < adaptive::Instrument::kNumParams; ++p) out[p] = song.instruments[i].values[p];
+    return true;
+}
+
+bool AudioPlayer::setInstrumentParam(uint32_t i, int param, float value) {
+    adaptive::Song& song = song_->song();
+    if (i >= song.numInstruments || param < 0 || param >= adaptive::Instrument::kNumParams) return false;
+    return engine_->post(adaptive::Command::setInstrumentParam(
+        &song.instruments[i], static_cast<uint8_t>(i), static_cast<adaptive::Instrument::Param>(param), value));
+}
+
+int AudioPlayer::columnInstrument(int channel, int column) const {
+    if (channel < 0 || channel >= static_cast<int>(adaptive::config::kMaxChannels) || column < 0 ||
+        column >= static_cast<int>(engine_->channel(static_cast<uint32_t>(channel)).numColumns())) {
+        return -1;  // the column count is set up before audio starts and never changes
+    }
+    const uint8_t i = song_->song().columnInstrument[channel][column];
+    return i == adaptive::kNoIndex ? -1 : i;
+}
+
+bool AudioPlayer::previewOn(int instrument, int slot, int midiNote) {
+    if (midiNote < 0 || midiNote > 127 || instrument < 0) return false;
+    return engine_->post(adaptive::Command::previewOn(static_cast<uint8_t>(instrument), static_cast<uint8_t>(slot),
                                                      static_cast<uint8_t>(midiNote), 0.8f));
 }
 

@@ -103,8 +103,25 @@ object NativeAudio {
         note: Int, accidental: Int, volume: Int, effect: Int, param: Int,
     ): Boolean
 
-    /** Sounds [midiNote] with [channel]'s instrument on preview voice [slot] (0-3). */
-    external fun previewOn(channel: Int, slot: Int, midiNote: Int): Boolean
+    /** Sounds [midiNote] with song instrument [instrument] on preview voice [slot] (0-3). */
+    external fun previewOn(instrument: Int, slot: Int, midiNote: Int): Boolean
+
+    external fun getChannelCount(): Int
+    external fun getChannelName(index: Int): String
+    external fun getInstrumentCount(): Int
+    external fun getInstrumentName(index: Int): String
+
+    /**
+     * Instrument [index]'s parameter values, in InstrumentParam order. Read each
+     * instrument once, before editing it; InstrumentStore keeps the UI's copy.
+     */
+    external fun readInstrument(index: Int): FloatArray?
+
+    /** Sets one parameter; applied on the audio thread to every voice using the instrument. */
+    external fun setInstrumentParam(index: Int, param: Int, value: Float): Boolean
+
+    /** Instrument index played by [channel]'s [column], or -1. */
+    external fun getColumnInstrument(channel: Int, column: Int): Int
 
     external fun previewOff(slot: Int): Boolean
 
