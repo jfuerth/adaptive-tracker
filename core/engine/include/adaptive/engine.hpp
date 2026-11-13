@@ -3,6 +3,7 @@
 #include <adaptive/channel.hpp>
 #include <adaptive/config.hpp>
 #include <adaptive/pitch.hpp>
+#include <adaptive/ramp.hpp>
 #include <adaptive/song.hpp>
 #include <adaptive/spsc_queue.hpp>
 #include <adaptive/tempo_clock.hpp>
@@ -10,6 +11,7 @@
 #include <output_processor.hpp>
 
 #include <array>
+#include <cmath>
 #include <cstdint>
 #include <utility>
 
@@ -40,7 +42,10 @@ public:
           clock_(sampleRate),
           channels_(detail::makeChannels(static_cast<float>(sampleRate),
                                          std::make_index_sequence<config::kMaxChannels>{})),
-          master_(0.5f, static_cast<float>(sampleRate)) {}
+          master_(0.5f, static_cast<float>(sampleRate)),
+          masterCutoffLog2_(std::log2(10000.0f)) {  // pressense's post-filter default
+        for (float& g : layerGains_) g = 1.0f;
+    }
 
     uint32_t sampleRate() const { return sampleRate_; }
 
@@ -57,9 +62,29 @@ public:
     PitchContext& pitch() { return pitch_; }
     const PitchContext& pitch() const { return pitch_; }
 
-    /// The adaptive structure to play. Must outlive its use. Call before posting
-    /// commands that refer to sections, layers or events.
-    void setSong(const Song* song) { song_ = song; }
+    /// Base tempo; the TempoScale mapping (if any) multiplies it. Sections with
+    /// a tempo set it too. Use this rather than setTempoMilliBpm().
+    void setTempoMilliBpm(uint32_t milliBpm) {
+        baseTempoMilliBpm_ = milliBpm;
+        applyTempo();
+    }
+
+    /**
+     * The adaptive structure to play. Must outlive its use. Applies every
+     * mapping once with the current parameter values. Call before audio starts,
+     * or on the audio thread.
+     */
+    void setSong(const Song* song) {
+        song_ = song;
+        if (song_ == nullptr) return;
+        for (uint8_t i = 0; i < song_->numMappings; ++i) {
+            // Starting values apply instantly; only later changes glide.
+            applyMapping(song_->mappings[i], params_[song_->mappings[i].param], 0, false, 0.0f, true);
+        }
+    }
+
+    /// Current value of a game parameter (audio thread).
+    float param(uint8_t index) const { return index < config::kMaxParams ? params_[index] : 0.0f; }
 
     /**
      * Send a command to the audio thread. Safe to call from one producer thread
@@ -81,6 +106,16 @@ public:
     /// Render `numFrames` mono samples into `out` (overwrites it).
     void render(float* out, uint32_t numFrames) {
         for (uint32_t i = 0; i < numFrames; ++i) out[i] = 0.0f;
+
+        // Glides that move once per audio buffer.
+        if (tempoScale_.isMoving()) {
+            tempoScale_.advance(numFrames);
+            applyTempo();
+        }
+        if (masterCutoffLog2_.isMoving()) {
+            masterCutoffLog2_.advance(numFrames);
+            master_.getPostFilter().setCutoff(std::exp2(masterCutoffLog2_.value()));
+        }
 
         uint32_t done = 0;
         while (done < numFrames) {
@@ -200,10 +235,93 @@ private:
             for (auto& ch : channels_) ch.play(nullptr, 0);
             currentSection_ = kNoIndex;
             break;
+        case Command::Kind::SetParam:
+            setParam(c.a, c.value, tick);
+            break;
+        case Command::Kind::SetKey:
+            pitch_.current = Key{static_cast<uint8_t>(c.a % 12), c.data};
+            break;
+        case Command::Kind::SetTempo:
+            if (c.value > 0.0f) setTempoMilliBpm(static_cast<uint32_t>(c.value * 1000.0f));
+            break;
         case Command::Kind::FireEvent:  // expanded in schedule()
         case Command::Kind::None:
             break;
         }
+    }
+
+    uint32_t msToSamples(uint16_t ms) const { return static_cast<uint32_t>(uint64_t(ms) * sampleRate_ / 1000); }
+
+    void setParam(uint8_t index, float value, uint64_t tick) {
+        if (index >= config::kMaxParams) return;
+        if (value < 0.0f) value = 0.0f;
+        if (value > 1.0f) value = 1.0f;
+        const float old = params_[index];
+        params_[index] = value;
+        if (song_ == nullptr) return;
+        for (uint8_t i = 0; i < song_->numMappings; ++i) {
+            if (song_->mappings[i].param == index) applyMapping(song_->mappings[i], value, tick, true, old);
+        }
+    }
+
+    /// Drive a mapping's target from parameter value `p`. Threshold mappings
+    /// fire only when `fireEvents` is set and `p` crosses from `old`.
+    void applyMapping(const Mapping& m, float p, uint64_t tick, bool fireEvents, float old = 0.0f,
+                      bool immediate = false) {
+        const uint32_t ramp = immediate ? 0 : msToSamples(m.rampMs);
+        const float out = m.map(p);
+        switch (m.target) {
+        case Mapping::Target::ChannelGain:
+            if (m.index < config::kMaxChannels) channels_[m.index].setGain(out, ramp);
+            break;
+        case Mapping::Target::LayerGain:
+            if (m.index < config::kMaxLayers) {
+                layerGains_[m.index] = out;
+                updateLayerGains(ramp);
+            }
+            break;
+        case Mapping::Target::ChannelCutoff:
+            if (m.index < config::kMaxChannels) channels_[m.index].setCutoff(out, ramp);
+            break;
+        case Mapping::Target::MasterCutoff:
+            masterCutoffLog2_.set(std::log2(out < 20.0f ? 20.0f : out), ramp);
+            if (ramp == 0) master_.getPostFilter().setCutoff(out);
+            break;
+        case Mapping::Target::TempoScale:
+            tempoScale_.set(out > 0.05f ? out : 0.05f, ramp);
+            if (ramp == 0) applyTempo();
+            break;
+        case Mapping::Target::Transpose:
+            pitch_.transpose = static_cast<int8_t>(std::lround(out));
+            break;
+        case Mapping::Target::Threshold:
+            if (!fireEvents) break;
+            if (old < m.threshold && p >= m.threshold) {
+                schedule(Command::fireEvent(m.index), tick);
+            } else if (old >= m.threshold && p < m.threshold && m.indexBelow != kNoIndex) {
+                schedule(Command::fireEvent(m.indexBelow), tick);
+            }
+            break;
+        case Mapping::Target::None:
+            break;
+        }
+    }
+
+    /// Each channel's layer gain is the product of the gains of the layers it is in.
+    void updateLayerGains(uint32_t ramp) {
+        if (song_ == nullptr) return;
+        for (uint32_t c = 0; c < config::kMaxChannels; ++c) {
+            float g = 1.0f;
+            for (uint8_t l = 0; l < song_->numLayers; ++l) {
+                if (song_->layers[l] & (1u << c)) g *= layerGains_[l];
+            }
+            channels_[c].setLayerGain(g, ramp);
+        }
+    }
+
+    void applyTempo() {
+        const float t = static_cast<float>(baseTempoMilliBpm_) * tempoScale_.value();
+        clock_.setTempoMilliBpm(static_cast<uint32_t>(t));
     }
 
     void enterSection(uint8_t index, Entry entry, uint8_t bridge, uint64_t tick) {
@@ -229,7 +347,7 @@ private:
                 ch.play(nullptr, 0);  // not in this section; leave stingers alone
             }
         }
-        if (s.tempoMilliBpm != 0) clock_.setTempoMilliBpm(s.tempoMilliBpm);
+        if (s.tempoMilliBpm != 0) setTempoMilliBpm(s.tempoMilliBpm);
         currentSection_ = index;
         sectionStartTick_ = start;
     }
@@ -248,6 +366,13 @@ private:
     uint32_t droppedCommands_ = 0;
     uint8_t currentSection_ = kNoIndex;
     uint64_t sectionStartTick_ = 0;
+
+    // Game parameters and mapping targets.
+    float params_[config::kMaxParams] = {};
+    float layerGains_[config::kMaxLayers] = {};  // set to 1 in the constructor
+    uint32_t baseTempoMilliBpm_ = 120000;
+    Ramp tempoScale_{1.0f};
+    Ramp masterCutoffLog2_;
 };
 
 } // namespace adaptive

@@ -31,7 +31,7 @@ struct Fixture {
     static constexpr uint8_t kStingerChannel = 3;
 
     Fixture() {
-        engine->clock().setTempoMilliBpm(120000);
+        engine->setTempoMilliBpm(120000);
         // explore: ch0 plays note 60 on every beat of a one-bar pattern; ch1 note 48.
         song->sections[kExplore].sequences[0] = sequenceOf(barPattern(60));
         song->sections[kExplore].sequences[1] = sequenceOf(barPattern(48));

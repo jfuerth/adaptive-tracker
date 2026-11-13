@@ -18,7 +18,7 @@ struct Fixture {
     std::vector<float> buf;
     uint64_t renderedSamples = 0;
 
-    Fixture() { engine->clock().setTempoMilliBpm(120000); }
+    Fixture() { engine->setTempoMilliBpm(120000); }
 
     /// Render until tick `tick` (counted from the start) has been processed:
     /// rows and effects for that tick have been applied.

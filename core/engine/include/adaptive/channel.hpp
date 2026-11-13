@@ -3,6 +3,9 @@
 #include <adaptive/config.hpp>
 #include <adaptive/pattern.hpp>
 #include <adaptive/pitch.hpp>
+#include <adaptive/ramp.hpp>
+
+#include <biquad_filter.hpp>
 
 #include <sawtooth_synth.hpp>
 #include <performance_timer.hpp>
@@ -73,8 +76,18 @@ public:
         }
     };
 
+    /// Channel filter cutoffs at or above this are treated as "filter off".
+    static constexpr float kFilterBypassHz = 18000.0f;
+
     explicit Channel(float sampleRate)
-        : voices_(detail::makeVoices(sampleRate, std::make_index_sequence<config::kMaxColumns>{})) {}
+        : voices_(detail::makeVoices(sampleRate, std::make_index_sequence<config::kMaxColumns>{})),
+          filter_(sampleRate),
+          gainRamp_(1.0f),
+          cutoffLog2_(std::log2(20000.0f)) {
+        filter_.setMode(synth::BiquadFilter::Mode::LOWPASS);
+        filter_.setQ(0.707f);
+        filter_.setCutoff(20000.0f);
+    }
 
     /**
      * Play `sequence` (looping) from `startTick`. It and its patterns must stay
@@ -123,8 +136,31 @@ public:
     void setPitchMode(PitchMode mode) { pitchMode_ = mode; }
     PitchMode pitchMode() const { return pitchMode_; }
 
-    void setGain(float gain) { gain_ = gain; }
-    float gain() const { return gain_; }
+    /// Strip gain (1 = unity), applied immediately.
+    void setGain(float gain) { setGain(gain, 0); }
+    /// Strip gain, gliding over `rampSamples` samples.
+    void setGain(float gain, uint32_t rampSamples) {
+        stripGain_ = gain;
+        gainRamp_.set(stripGain_ * layerGain_, rampSamples);
+    }
+    float gain() const { return stripGain_; }
+
+    /// Combined gain of the layers this channel belongs to; multiplies the strip gain.
+    void setLayerGain(float gain, uint32_t rampSamples) {
+        layerGain_ = gain;
+        gainRamp_.set(stripGain_ * layerGain_, rampSamples);
+    }
+    /// The gain being applied right now (strip x layers, mid-glide if fading).
+    float currentGain() const { return gainRamp_.value(); }
+
+    /// Channel low-pass filter cutoff in Hz, gliding over `rampSamples`.
+    /// At or above kFilterBypassHz the filter is off.
+    void setCutoff(float hz, uint32_t rampSamples) {
+        if (hz < 20.0f) hz = 20.0f;
+        if (hz > 20000.0f) hz = 20000.0f;
+        cutoffLog2_.set(std::log2(hz), rampSamples / kCutoffBlock);
+    }
+    float cutoffHz() const { return std::exp2(cutoffLog2_.value()); }
 
     /// Number of columns the channel plays (1..kMaxColumns).
     void setNumColumns(uint32_t n) {
@@ -166,16 +202,56 @@ public:
 
     /// Add `numFrames` samples of this channel into `mix`.
     void render(float* mix, uint32_t numFrames) {
-        for (uint32_t c = 0; c < numColumns_; ++c) {
-            synth::WavetableSynth& v = voices_[c];
-            if (!v.isActive()) continue;
-            for (uint32_t i = 0; i < numFrames; ++i) {
-                mix[i] += gain_ * v.nextSample(timer_);
-            }
+        while (numFrames > 0) {
+            const uint32_t n = numFrames < kScratchFrames ? numFrames : kScratchFrames;
+            renderBlock(mix, n);
+            mix += n;
+            numFrames -= n;
         }
     }
 
 private:
+    static constexpr uint32_t kScratchFrames = 64;
+    /// The filter cutoff moves once per this many samples (counted from the
+    /// start of playback, so output does not depend on audio buffer sizes).
+    static constexpr uint32_t kCutoffBlock = 16;
+
+    void renderBlock(float* mix, uint32_t n) {
+        bool any = false;
+        for (uint32_t c = 0; c < numColumns_; ++c) any = any || voices_[c].isActive();
+        if (!any) {
+            gainRamp_.advance(n);
+            advanceCutoff(n);
+            return;
+        }
+
+        for (uint32_t i = 0; i < n; ++i) scratch_[i] = 0.0f;
+        for (uint32_t c = 0; c < numColumns_; ++c) {
+            synth::WavetableSynth& v = voices_[c];
+            if (!v.isActive()) continue;
+            for (uint32_t i = 0; i < n; ++i) scratch_[i] += v.nextSample(timer_);
+        }
+
+        const bool filterOn = cutoffLog2_.isMoving() || cutoffLog2_.value() < kBypassLog2;
+        for (uint32_t i = 0; i < n; ++i) {
+            if (++cutoffPhase_ == kCutoffBlock) {
+                cutoffPhase_ = 0;
+                cutoffLog2_.next();
+                if (filterOn) filter_.setCutoff(std::exp2(cutoffLog2_.value()));
+            }
+            const float x = filterOn ? filter_.processSample(scratch_[i]) : scratch_[i];
+            mix[i] += x * gainRamp_.next();
+        }
+    }
+
+    void advanceCutoff(uint32_t n) {
+        const uint32_t total = cutoffPhase_ + n;
+        cutoffLog2_.advance(total / kCutoffBlock);
+        cutoffPhase_ = total % kCutoffBlock;
+    }
+
+    static inline const float kBypassLog2 = std::log2(kFilterBypassHz);
+
     const Pattern* currentPattern() const {
         return sequence_ != nullptr ? sequence_->entries[entryIndex_] : single_;
     }
@@ -359,7 +435,15 @@ private:
     bool loop_ = true;
     bool muted_ = false;
     PitchMode pitchMode_ = PitchMode::Absolute;
-    float gain_ = 1.0f;
+
+    // Channel strip.
+    synth::BiquadFilter filter_;
+    Ramp gainRamp_;
+    Ramp cutoffLog2_;  ///< log2(cutoff Hz); moves once per kCutoffBlock samples
+    uint32_t cutoffPhase_ = 0;
+    float stripGain_ = 1.0f;
+    float layerGain_ = 1.0f;
+    float scratch_[kScratchFrames] = {};
 };
 
 } // namespace adaptive

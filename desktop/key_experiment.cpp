@@ -44,7 +44,7 @@ const Variant kVariants[] = {
 
 std::vector<float> renderVariant(const demo::DegreeDemo& song, const Variant& variant) {
     auto engine = std::make_unique<Engine>(kSampleRate);
-    engine->clock().setTempoMilliBpm(kTempoMilliBpm);
+    engine->setTempoMilliBpm(kTempoMilliBpm);
     song.setUpChannels(*engine);
     engine->pitch().current = variant.key;
     engine->pitch().mapping = variant.mapping;

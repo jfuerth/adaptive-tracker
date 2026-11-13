@@ -3,6 +3,7 @@
 #include <adaptive/config.hpp>
 #include <adaptive/pattern.hpp>
 
+#include <cmath>
 #include <cstdint>
 
 /**
@@ -50,6 +51,9 @@ struct Command {
         SetLayerMute, ///< a = layer, b = 1 to mute, 0 to unmute
         FireEvent,    ///< a = event; runs the event's actions
         Stop,         ///< stop all channels (sounding notes release)
+        SetParam,     ///< a = game parameter, value = 0..1; runs mappings
+        SetKey,       ///< a = root pitch class, data = scale mask
+        SetTempo,     ///< value = base tempo in BPM (scaled by any TempoScale mapping)
     };
 
     Kind kind = Kind::None;
@@ -58,6 +62,8 @@ struct Command {
     uint8_t a = 0;
     uint8_t b = kNoIndex;
     const Pattern* pattern = nullptr;
+    float value = 0.0f;
+    uint16_t data = 0;
 
     static constexpr Command gotoSection(uint8_t section, Quantize when = Quantize::Bar,
                                          Entry entry = Entry::Restart, uint8_t bridge = kNoIndex) {
@@ -73,6 +79,57 @@ struct Command {
         return Command{Kind::FireEvent, Quantize::Now, Entry::Restart, event, 0, nullptr};
     }
     static constexpr Command stop() { return Command{Kind::Stop, Quantize::Now, Entry::Restart, 0, 0, nullptr}; }
+    static constexpr Command setParam(uint8_t param, float v) {
+        return Command{Kind::SetParam, Quantize::Now, Entry::Restart, param, 0, nullptr, v, 0};
+    }
+    static constexpr Command setKey(uint8_t root, uint16_t scale, Quantize when = Quantize::Bar) {
+        return Command{Kind::SetKey, when, Entry::Restart, root, 0, nullptr, 0.0f, scale};
+    }
+    static constexpr Command setTempo(float bpm, Quantize when = Quantize::Beat) {
+        return Command{Kind::SetTempo, when, Entry::Restart, 0, 0, nullptr, bpm, 0};
+    }
+};
+
+/**
+ * Drives a target from a game parameter. Data only: the engine evaluates
+ * mappings whenever their parameter changes. If several mappings drive the
+ * same target, the most recently evaluated one wins.
+ */
+struct Mapping {
+    enum class Target : uint8_t {
+        None,
+        ChannelGain,    ///< index = channel; out = gain (1 = unity)
+        LayerGain,      ///< index = layer; out = gain, multiplies channel gain
+        ChannelCutoff,  ///< index = channel; out = Hz (channel low-pass filter)
+        MasterCutoff,   ///< out = Hz (master post-filter)
+        TempoScale,     ///< out = multiplier on the base tempo
+        Transpose,      ///< out = semitones, rounded; applies to notes that start afterwards
+        Threshold,      ///< fires `index` when the parameter rises past `threshold`,
+                        ///< and `indexBelow` when it falls back below
+    };
+    enum class Curve : uint8_t {
+        Linear,       ///< out = outMin + (outMax - outMin) * p
+        Exponential,  ///< out = outMin * (outMax / outMin) ^ p; for Hz and tempo. Both must be > 0
+    };
+
+    uint8_t param = 0;
+    Target target = Target::None;
+    uint8_t index = 0;
+    Curve curve = Curve::Linear;
+    float outMin = 0.0f;  ///< Output at parameter 0.
+    float outMax = 1.0f;  ///< Output at parameter 1.
+    uint16_t rampMs = 30; ///< Glide time for gains, cutoffs and tempo.
+    float threshold = 0.5f;
+    uint8_t indexBelow = kNoIndex;
+
+    float map(float p) const {
+        if (p < 0.0f) p = 0.0f;
+        if (p > 1.0f) p = 1.0f;
+        if (curve == Curve::Exponential && outMin > 0.0f && outMax > 0.0f) {
+            return outMin * std::exp2(p * std::log2(outMax / outMin));
+        }
+        return outMin + (outMax - outMin) * p;
+    }
 };
 
 /// A named one-shot trigger (the name lives in the app). Fires its actions in order.
@@ -97,6 +154,15 @@ struct Song {
 
     GameEvent events[config::kMaxEvents] = {};
     uint8_t numEvents = 0;
+
+    Mapping mappings[config::kMaxMappings] = {};
+    uint8_t numMappings = 0;
+
+    bool addMapping(const Mapping& m) {
+        if (numMappings >= config::kMaxMappings) return false;
+        mappings[numMappings++] = m;
+        return true;
+    }
 };
 
 static_assert(config::kMaxChannels <= 32, "layer bitmasks are 32 bits");

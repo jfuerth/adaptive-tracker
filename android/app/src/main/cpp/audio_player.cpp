@@ -95,7 +95,7 @@ void AudioPlayer::applyRequests() {
     const uint32_t tempo = requestedTempo_.load(std::memory_order_relaxed);
     if (tempo != tempo_) {
         tempo_ = tempo;
-        engine_->clock().setTempoMilliBpm(tempo);
+        engine_->setTempoMilliBpm(tempo);
     }
 
     const int root = requestedRoot_.load(std::memory_order_relaxed);

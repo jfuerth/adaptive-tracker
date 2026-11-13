@@ -41,6 +41,12 @@ inline constexpr uint32_t kTicksPerBeat = 96;
 #ifndef ADAPTIVE_MAX_EVENT_ACTIONS
 #define ADAPTIVE_MAX_EVENT_ACTIONS 4
 #endif
+#ifndef ADAPTIVE_MAX_PARAMS
+#define ADAPTIVE_MAX_PARAMS 16
+#endif
+#ifndef ADAPTIVE_MAX_MAPPINGS
+#define ADAPTIVE_MAX_MAPPINGS 32
+#endif
 #ifndef ADAPTIVE_MAX_PENDING_COMMANDS
 #define ADAPTIVE_MAX_PENDING_COMMANDS 32
 #endif
@@ -62,6 +68,9 @@ inline constexpr uint32_t kMaxSections = ADAPTIVE_MAX_SECTIONS;
 inline constexpr uint32_t kMaxLayers = ADAPTIVE_MAX_LAYERS;
 inline constexpr uint32_t kMaxEvents = ADAPTIVE_MAX_EVENTS;
 inline constexpr uint32_t kMaxEventActions = ADAPTIVE_MAX_EVENT_ACTIONS;
+/// Game parameters (named floats 0..1; names live in the app).
+inline constexpr uint32_t kMaxParams = ADAPTIVE_MAX_PARAMS;
+inline constexpr uint32_t kMaxMappings = ADAPTIVE_MAX_MAPPINGS;
 /// Commands waiting for their quantised time (e.g. "at the next bar").
 inline constexpr uint32_t kMaxPendingCommands = ADAPTIVE_MAX_PENDING_COMMANDS;
 /// Commands in flight from the UI/control thread to the audio thread (power of two).

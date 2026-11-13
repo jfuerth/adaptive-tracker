@@ -64,7 +64,7 @@ int main(int argc, char** argv) {
     const double seconds = argc > 2 ? std::atof(argv[2]) : 16.0;
 
     auto engine = std::make_unique<adaptive::Engine>(kSampleRate);
-    engine->clock().setTempoMilliBpm(110000);
+    engine->setTempoMilliBpm(110000);
 
     // Patterns live as long as the engine plays them.
     auto bass = std::make_unique<Pattern>();

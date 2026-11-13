@@ -75,7 +75,7 @@ TEST_CASE("Pattern: rows per beat must divide the tick resolution") {
 
 TEST_CASE("Engine: a note starts exactly on its row") {
     auto engine = std::make_unique<Engine>(kSampleRate);
-    engine->clock().setTempoMilliBpm(120000);  // one beat = 24000 samples
+    engine->setTempoMilliBpm(120000);  // one beat = 24000 samples
 
     auto pattern = std::make_unique<Pattern>();
     pattern->numRows = 16;
