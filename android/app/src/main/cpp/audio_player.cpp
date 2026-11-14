@@ -225,12 +225,27 @@ bool AudioPlayer::setPatternShape(uint32_t pattern, int rows, int ticksPerRow) {
     return true;
 }
 
-bool AudioPlayer::clearColumn(uint32_t pattern, int column) {
-    if (column < 0 || column > 255) return false;
-    if (!engine_->post(adaptive::Command::clearColumn(static_cast<uint8_t>(pattern), static_cast<uint8_t>(column)))) {
+bool AudioPlayer::clearCells(uint32_t pattern, int column, int first, int last, int parts) {
+    if (column < 0 || column > 255 || first < 0 || last < first || last > 255 || parts < 0 || parts > 255) {
         return false;
     }
-    if (!edit_->clearColumn(pattern, column)) return false;
+    const auto bits = static_cast<uint8_t>(parts);
+    if (!engine_->post(adaptive::Command::clearCells(static_cast<uint8_t>(pattern), static_cast<uint8_t>(column),
+                                                     static_cast<uint32_t>(first), static_cast<uint32_t>(last), bits))) {
+        return false;
+    }
+    if (!edit_->clearCells(pattern, column, first, last, bits)) return false;
+    ++edits_;
+    return true;
+}
+
+bool AudioPlayer::scaleRows(uint32_t pattern, int num, int den) {
+    if (num < 1 || num > 255 || den < 1 || den > 255) return false;
+    if (!engine_->post(adaptive::Command::scaleRows(static_cast<uint8_t>(pattern), static_cast<uint8_t>(num),
+                                                    static_cast<uint16_t>(den)))) {
+        return false;
+    }
+    if (!edit_->scaleRows(pattern, num, den)) return false;
     ++edits_;
     return true;
 }

@@ -253,15 +253,16 @@ fun InstrumentScreen(modifier: Modifier = Modifier) {
             ToolButton("+", onClick = { octave = (octave + 1).coerceAtMost(8) })
         }
         NoteKeyboard(
-            dimKey = { false },
-            onKeyDown = { k ->
+            firstNote = midiOf(0),
+            dimNote = { false },
+            onNoteDown = { n ->
                 val free = slots.indexOfFirst { it == null }
                 if (free >= 0) {
-                    slots[free] = k
-                    NativeAudio.previewOn(index, free, midiOf(k))
+                    slots[free] = n
+                    NativeAudio.previewOn(index, free, n.coerceIn(0, 127))
                 }
             },
-            onKeyUp = { k ->
+            onNoteUp = { k ->
                 val s = slots.indexOf(k)
                 if (s >= 0) {
                     slots[s] = null

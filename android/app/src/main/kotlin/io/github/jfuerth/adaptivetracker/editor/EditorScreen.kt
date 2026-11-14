@@ -57,11 +57,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import io.github.jfuerth.adaptivetracker.NativeAudio
 import io.github.jfuerth.adaptivetracker.Song
 import io.github.jfuerth.adaptivetracker.instrument.InstrumentStore
+import io.github.jfuerth.adaptivetracker.ui.HoldButton
 import io.github.jfuerth.adaptivetracker.ui.NoteKeyboard
 import io.github.jfuerth.adaptivetracker.ui.ToolButton
 import kotlinx.coroutines.delay
@@ -109,7 +111,11 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
     // Where typing started in the current digit group; the cursor returns
     // here after the group's last digit, ready for the next row.
     var anchor by remember { mutableStateOf<Field?>(null) }
-    var octave by rememberSaveable { mutableIntStateOf(4) }
+    // MIDI note of the keyboard's leftmost key: octave buttons move it by 12,
+    // and dragging the keyboard with Alt held moves it by semitones.
+    var firstNote by rememberSaveable { mutableIntStateOf(60) }
+    // Alt: held under a thumb, it changes what other controls do.
+    var alt by remember { mutableStateOf(false) }
     var step by rememberSaveable { mutableIntStateOf(1) }
     var follow by rememberSaveable { mutableStateOf(true) }
     var playMode by rememberSaveable { mutableStateOf(PlayMode.SONG) }
@@ -151,7 +157,12 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
     LaunchedEffect(playingRow, follow) {
         if (follow && playingRow >= 0 && !listState.isScrollInProgress) listState.scrollToItem(playingRow)
     }
-    LaunchedEffect(editRow) { anchor = null }
+    // Moving to another row ends a digit group the way typing its last digit
+    // does: the cursor goes back to where typing started.
+    LaunchedEffect(editRow) {
+        anchor?.let { field = it }
+        anchor = null
+    }
 
     // ---- Playback: song, this pattern alone, or one column of it ----
     val isPlaying by rememberUpdatedState(playing)
@@ -191,22 +202,24 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
 
     fun currentCell() = pattern.cell(editRow, column)
     fun write(cell: CellData) = PatternStore.write(patternIndex, editRow, column, cell)
-    fun advance() {
-        val target = (editRow + step).coerceAtMost(info.rows - 1)
+    fun advance(direction: Int = 1) {
+        val target = (editRow + direction * step).coerceIn(0, info.rows - 1)
         scope.launch { listState.scrollToItem(target) }
     }
 
     // Preview voices: which key (MIDI note) each of the four slots is sounding.
     val slots = remember { arrayOfNulls<Int>(4) }
-    fun midiOf(key: Int) = ((octave + 1) * 12 + key).coerceIn(0, 127)
 
     var editingShape by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf<Int?>(null) }
     val channelName = remember(info.channel) { NativeAudio.getChannelName(info.channel) }
 
-    if (editingShape) ShapeDialog(info, onDone = { shape ->
+    if (editingShape) ShapeDialog(pattern, onDone = { change ->
         editingShape = false
-        if (shape != null) PatternStore.setShape(patternIndex, shape.first, shape.second)
+        if (change != null) {
+            if (!change.scale.isIdentity) PatternStore.scaleRows(patternIndex, change.scale.num, change.scale.den)
+            PatternStore.setShape(patternIndex, change.rows, change.ticksPerRow)
+        }
     })
     confirmClear?.let { c ->
         AlertDialog(
@@ -216,7 +229,7 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
             confirmButton = {
                 TextButton(onClick = {
                     confirmClear = null
-                    PatternStore.clearColumn(patternIndex, c)
+                    PatternStore.clearCells(patternIndex, c, 0, info.rows - 1)
                 }) { Text("Clear") }
             },
             dismissButton = { TextButton(onClick = { confirmClear = null }) { Text("Cancel") } },
@@ -235,15 +248,8 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
                     Text("${PatternStore.names.getOrElse(patternIndex) { "?" }} ▾")
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    DropdownMenuItem(
-                        text = { Text("Length and speed…  (${info.rows} rows, speed ${info.ticksPerRow})") },
-                        onClick = {
-                            menuOpen = false
-                            editingShape = true
-                        },
-                    )
-                    HorizontalDivider()
-                    PatternStore.names.forEachIndexed { i, name ->
+                    PatternStore.byName.forEach { i ->
+                        val name = PatternStore.names[i]
                         val shape = PatternStore.get(i)?.info?.let { " · ${it.rows} rows, speed ${it.speedLabel}" } ?: ""
                         DropdownMenuItem(text = { Text(name + shape) }, onClick = {
                             patternIndex = i
@@ -271,6 +277,7 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
         ColumnHeadings(
             info, channelName, column, columnWidth,
             onSelect = { c -> column = c; anchor = null },
+            onShape = { editingShape = true },
             onClear = { c -> confirmClear = c },
             onAdd = {
                 if (PatternStore.setColumns(info.channel, info.columns + 1)) InstrumentStore.columnsChanged()
@@ -349,6 +356,7 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
         // ---- Description line ----
         val cell = currentCell()
         val description = when {
+            alt -> "Alt · drag the keyboard to move it · Del goes up, hold Del to clear up to the top"
             field.isVolume -> if (cell.volume == CellData.VOLUME_DEFAULT) "Volume · default (full)"
                 else "Volume · ${cell.volume}/127"
             else -> EffectDescription.describe(cell, info.mode, Song.events, NativeAudio::effectValue, info.ticksPerBeat)
@@ -384,15 +392,16 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
         val scale = currentKey.scale
         val root = currentKey.root
         NoteKeyboard(
-            dimKey = { k -> info.mode == PitchMode.DEGREE && !Pitch.inScale(scale, k - root) },
-            onKeyDown = { k ->
+            firstNote = firstNote,
+            dimNote = { n -> info.mode == PitchMode.DEGREE && !Pitch.inScale(scale, n - root) },
+            onNoteDown = { n ->
                 val free = slots.indexOfFirst { it == null }
                 if (free >= 0) {
-                    slots[free] = k
-                    NativeAudio.previewOn(NativeAudio.getColumnInstrument(info.channel, column), free, midiOf(k))
+                    slots[free] = n
+                    NativeAudio.previewOn(NativeAudio.getColumnInstrument(info.channel, column), free, n)
                 }
             },
-            onKeyUp = { k ->
+            onNoteUp = { k ->
                 val s = slots.indexOf(k)
                 if (s >= 0) {
                     slots[s] = null
@@ -400,12 +409,14 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
                 }
             },
             onChord = { keys ->
-                Editing.chordCell(keys.map(::midiOf), info.mode, ctx, currentCell())?.let {
+                Editing.chordCell(keys, info.mode, ctx, currentCell())?.let {
                     write(it)
                     advance()
                 }
             },
             modifier = Modifier.fillMaxWidth().height(104.dp).padding(horizontal = 4.dp),
+            sliding = alt,
+            onSlide = { by -> firstNote = (firstNote + by).coerceIn(0, MAX_FIRST_NOTE) },
         )
 
         // ---- Toolbar ----
@@ -414,23 +425,36 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ToolButton("−", onClick = { octave = (octave - 1).coerceAtLeast(0) })
-            Text("Oct $octave", style = MONO.copy(fontSize = 13.sp))
-            ToolButton("+", onClick = { octave = (octave + 1).coerceAtMost(8) })
-            Box(Modifier.width(4.dp))
-            ToolButton("−", onClick = { step = (step - 1).coerceAtLeast(0) })
+            HoldButton("Alt", held = alt, onHeld = { alt = it })
+            val narrow = 7.dp
+            ToolButton("−", horizontalPadding = narrow, onClick = { firstNote = (firstNote - 12).coerceAtLeast(0) })
+            Text(Pitch.noteName(firstNote), style = MONO.copy(fontSize = 13.sp))
+            ToolButton("+", horizontalPadding = narrow, onClick = { firstNote = (firstNote + 12).coerceAtMost(MAX_FIRST_NOTE) })
+            Box(Modifier.width(2.dp))
+            ToolButton("−", horizontalPadding = narrow, onClick = { step = (step - 1).coerceAtLeast(0) })
             Text("Step $step", style = MONO.copy(fontSize = 13.sp))
-            ToolButton("+", onClick = { step = (step + 1).coerceAtMost(16) })
+            ToolButton("+", horizontalPadding = narrow, onClick = { step = (step + 1).coerceAtMost(16) })
             Box(Modifier.weight(1f))
             ToolButton("Off", onClick = {
                 write(currentCell().copy(note = CellData.NOTE_OFF, accidental = 0))
                 advance()
             })
-            ToolButton("Del", onClick = {
-                write(Editing.clear(currentCell(), field))
-                anchor = null
-                advance()
-            })
+            // Del clears the field under the cursor and moves on (up with Alt).
+            // Held, it clears that field to the end of the column (the start with Alt).
+            ToolButton(
+                if (alt) "Del↑" else "Del",
+                selected = alt,
+                onClick = {
+                    write(Editing.clear(currentCell(), field))
+                    anchor = null
+                    advance(if (alt) -1 else 1)
+                },
+                onLongClick = {
+                    anchor = null
+                    val (first, last) = if (alt) 0 to editRow else editRow to info.rows - 1
+                    PatternStore.clearCells(patternIndex, column, first, last, Editing.parts(field))
+                },
+            )
             ToolButton("Follow", selected = follow, onClick = { follow = !follow })
         }
     }
@@ -441,7 +465,8 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
  * column plays. Tapping a heading selects the column and offers the song's
  * instruments for it, and column actions. A "+" after the last adds a column.
  * Columns belong to the channel, so adding or removing one changes all of
- * the channel's patterns.
+ * the channel's patterns. Over the row numbers, the pattern's length: tapping
+ * it opens the length and speed dialog.
  */
 @Composable
 private fun ColumnHeadings(
@@ -450,6 +475,7 @@ private fun ColumnHeadings(
     selectedColumn: Int,
     columnWidth: Dp,
     onSelect: (Int) -> Unit,
+    onShape: () -> Unit,
     onClear: (Int) -> Unit,
     onAdd: () -> Unit,
     onRemove: (Int) -> Unit,
@@ -458,7 +484,19 @@ private fun ColumnHeadings(
     val names = InstrumentStore.names
     InstrumentStore.assignments  // read, so a new assignment redraws the headings
     Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.width(30.dp))
+        Text(
+            "${info.rows}▾",
+            style = MaterialTheme.typography.labelSmall,
+            color = colors.onSecondaryContainer,
+            maxLines = 1,
+            textAlign = TextAlign.Center,
+            modifier = Modifier
+                .width(30.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(colors.secondaryContainer)
+                .clickable(onClick = onShape)
+                .padding(vertical = 4.dp),
+        )
         for (c in 0 until info.columns) {
             val current = NativeAudio.getColumnInstrument(info.channel, c)
             var open by remember { mutableStateOf(false) }
@@ -524,31 +562,74 @@ private fun ColumnHeadings(
     }
 }
 
+/** Highest note the keyboard can start on, so its 12 keys stay within MIDI. */
+private const val MAX_FIRST_NOTE = 127 - 11
+
 /** Columns a channel can have (the engine's kMaxColumns). */
 private const val MAX_COLUMNS = 4
 
 /** Speeds that divide a beat evenly, with what they're called. */
 private val SPEED_PRESETS = listOf(3 to "8/beat", 6 to "4/beat", 8 to "3/beat", 12 to "2/beat", 24 to "1/beat")
 
+/** What the length and speed dialog asks for: stretch or squash first, then set the shape. */
+private data class ShapeChange(val scale: RowScale, val rows: Int, val ticksPerRow: Int)
+
 /**
- * Edits a pattern's length (rows) and speed (ticks per row). Returns the new
- * (rows, ticksPerRow), or null if cancelled.
+ * Edits a pattern's length (rows) and speed (ticks per row), and can stretch
+ * or squash its rows. Returns the change, or null if cancelled.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ShapeDialog(info: PatternInfo, onDone: (Pair<Int, Int>?) -> Unit) {
+private fun ShapeDialog(pattern: PatternStore.Loaded, onDone: (ShapeChange?) -> Unit) {
+    val info = pattern.info
     var rowsText by remember { mutableStateOf(info.rows.toString()) }
     var speedText by remember { mutableStateOf(info.ticksPerRow.toString()) }
-    val rows = rowsText.toIntOrNull()?.takeIf { it in 1..256 }
+    var scale by remember { mutableStateOf(RowScale()) }
+    val rows = rowsText.toIntOrNull()?.takeIf { it in 1..MAX_ROWS }
     val speed = speedText.toIntOrNull()?.takeIf { it in 1..255 }
+    val scaledRows = scale.rows(info.rows)
+
+    // Cells a squash would lose: the rows that land between rows.
+    val dropped = remember(scale) {
+        (0 until info.rows).filter { scale.drops(it) }
+            .sumOf { r -> (0 until info.columns).count { c -> !pattern.cell(r, c).isEmpty } }
+    }
 
     AlertDialog(
         onDismissRequest = { onDone(null) },
         title = { Text("Length and speed") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Stepper("Rows (1–256)", rowsText, { rowsText = it }, rows, 1..256,
-                    listOf("−" to { v -> v - 1 }, "+" to { v -> v + 1 }, "÷2" to { v -> v / 2 }, "×2" to { v -> v * 2 }))
+                Stepper("Rows (1–$MAX_ROWS)", rowsText, { rowsText = it }, rows, 1..MAX_ROWS,
+                    listOf("−" to { v -> v - 1 }, "+" to { v -> v + 1 }, "×2 append" to { v -> v * 2 }))
+                Text("Move the rows", style = MaterialTheme.typography.labelLarge)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    // Each applies to the rows as they'd be after the ones before.
+                    fun apply(next: RowScale) {
+                        scale = next
+                        rowsText = next.rows(info.rows).toString()
+                    }
+                    listOf(2, 3).forEach { k ->
+                        TextButton(onClick = { apply(scale.stretch(k)) }, enabled = scaledRows * k <= MAX_ROWS) {
+                            Text("×$k stretch")
+                        }
+                    }
+                    listOf(2, 3).forEach { k ->
+                        TextButton(onClick = { apply(scale.squash(k)) }, enabled = scaledRows >= k) {
+                            Text("÷$k squash")
+                        }
+                    }
+                    if (!scale.isIdentity) TextButton(onClick = { apply(RowScale()) }) { Text("Undo") }
+                }
+                if (!scale.isIdentity) {
+                    val how = if (scale.den == 1) (if (scale.num == 2) "an empty row goes" else "${scale.num - 1} empty rows go") + " after each row"
+                        else if (scale.num == 1) "every ${ordinal(scale.den)} row is kept"
+                        else "row r moves to r × ${scale.num}/${scale.den}"
+                    val loss = if (dropped > 0) " · $dropped cells on the rows between are deleted" else ""
+                    Text("Rows: $how$loss. The speed stays as it is, so the pattern plays at a different pace unless you change it below.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (dropped > 0) MaterialTheme.colorScheme.error else Color.Unspecified)
+                }
                 Stepper("Speed: ticks per row (${info.ticksPerBeat} per beat)", speedText, { speedText = it }, speed,
                     1..255, listOf("−" to { v -> v - 1 }, "+" to { v -> v + 1 }))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -563,7 +644,7 @@ private fun ShapeDialog(info: PatternInfo, onDone: (Pair<Int, Int>?) -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }
-                if (rows != null && rows < info.rows) {
+                if (rows != null && rows < scaledRows) {
                     Text(
                         "Rows past the new end are hidden, not deleted, while the app stays open: make the pattern longer again to bring them back. Saved songs leave them out.",
                         style = MaterialTheme.typography.bodySmall,
@@ -573,12 +654,20 @@ private fun ShapeDialog(info: PatternInfo, onDone: (Pair<Int, Int>?) -> Unit) {
         },
         confirmButton = {
             TextButton(
-                onClick = { if (rows != null && speed != null) onDone(rows to speed) },
+                onClick = { if (rows != null && speed != null) onDone(ShapeChange(scale, rows, speed)) },
                 enabled = rows != null && speed != null,
             ) { Text("Set") }
         },
         dismissButton = { TextButton(onClick = { onDone(null) }) { Text("Cancel") } },
     )
+}
+
+private const val MAX_ROWS = 256
+
+private fun ordinal(n: Int): String = when (n) {
+    2 -> "2nd"
+    3 -> "3rd"
+    else -> "${n}th"
 }
 
 /** A number field with buttons that change it ([steps]: label to new value), kept within [range]. */

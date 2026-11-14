@@ -68,11 +68,62 @@ object Editing {
         }
     }
 
+    /** The cell parts (NativeAudio.CELL_* bits) that Del clears at [field]. */
+    fun parts(field: Field): Int = when (field) {
+        Field.NOTE -> 1
+        Field.VOLUME_HI, Field.VOLUME_LO -> 2
+        Field.EFFECT, Field.PARAM_X, Field.PARAM_Y -> 4
+    }
+
     /** Clear one field of a cell. */
     fun clear(cell: CellData, field: Field): CellData = when (field) {
         Field.NOTE -> cell.copy(note = CellData.NOTE_EMPTY, accidental = 0)
         Field.VOLUME_HI, Field.VOLUME_LO -> cell.copy(volume = CellData.VOLUME_DEFAULT)
         Field.EFFECT, Field.PARAM_X, Field.PARAM_Y -> cell.copy(effect = CellData.EFFECT_NONE, param = 0)
+    }
+}
+
+/**
+ * Stretching or squashing a pattern's rows: row r moves to r × [num] / [den],
+ * and rows that don't land on a whole row are dropped. Kept in lowest terms.
+ */
+data class RowScale(val num: Int = 1, val den: Int = 1) {
+    val isIdentity: Boolean get() = num == den
+
+    /** This scale, then stretched (×[k]) or squashed (÷[k]). */
+    fun stretch(k: Int): RowScale = reduced(num * k, den)
+    fun squash(k: Int): RowScale = reduced(num, den * k)
+
+    /** A pattern of [rows] rows gets this many (rounded up, like the engine). */
+    fun rows(rows: Int): Int = (rows * num + den - 1) / den
+
+    /** True if row [row]'s cells are dropped. */
+    fun drops(row: Int): Boolean = (row * num) % den != 0
+
+    private companion object {
+        tailrec fun gcd(a: Int, b: Int): Int = if (b == 0) a else gcd(b, a % b)
+        fun reduced(n: Int, d: Int): RowScale = gcd(n, d).let { RowScale(n / it, d / it) }
+    }
+}
+
+/** Orders names the way people count: "Fill 2" before "Fill 10", ignoring case. */
+object NaturalOrder : Comparator<String> {
+    private val chunk = Regex("\\d+|\\D+")
+
+    override fun compare(a: String, b: String): Int {
+        val x = chunk.findAll(a).map { it.value }.iterator()
+        val y = chunk.findAll(b).map { it.value }.iterator()
+        while (x.hasNext() && y.hasNext()) {
+            val p = x.next()
+            val q = y.next()
+            val c = if (p[0].isDigit() && q[0].isDigit()) {
+                compareValuesBy(p, q, { it.trimStart('0').length }, { it.trimStart('0') })
+            } else {
+                p.compareTo(q, ignoreCase = true)
+            }
+            if (c != 0) return c
+        }
+        return compareValues(x.hasNext(), y.hasNext()).takeIf { it != 0 } ?: a.compareTo(b)
     }
 }
 

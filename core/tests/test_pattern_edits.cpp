@@ -200,3 +200,64 @@ TEST_CASE("Column edits: the playing channel follows") {
     // Column 0 now has column 1's instrument.
     CHECK(f.engine->channel(0).voice(0).getBaseCutoff() == doctest::Approx(9000.0f));
 }
+
+TEST_CASE("Pattern edits: clear part of a column") {
+    Fixture f;
+    for (uint32_t r = 0; r < 4; ++r) f.song->patterns[0].cells[r][0] = Cell::on(uint8_t(60 + r), 100).with(fx::kSetVolume, 9);
+    f.engine->post(Command::clearCells(0, 0, 1, 255, kCellEffect));
+    f.ticks(1);
+    const Pattern& p = f.song->patterns[0];
+    CHECK(p.cells[0][0].effect == fx::kSetVolume);
+    for (uint32_t r = 1; r < 4; ++r) {
+        CHECK(p.cells[r][0].effect == fx::kNone);
+        CHECK(p.cells[r][0].note == 60 + r);
+        CHECK(p.cells[r][0].volume == 100);
+    }
+    CHECK(f.song->clearCells(0, 0, 0, 2, kCellNote | kCellVolume));
+    CHECK(p.cells[2][0].note == Cell::kNoteEmpty);
+    CHECK(p.cells[2][0].volume == Cell::kVolumeDefault);
+    CHECK(p.cells[3][0].note == 63);
+    CHECK_FALSE(f.song->clearCells(0, 0, 3, 2, kCellAll));
+}
+
+TEST_CASE("Pattern edits: stretch and squash rows") {
+    Song song;
+    song.addChannel(PitchMode::Absolute, 2);
+    Pattern& p = song.patterns[song.addPattern(0, 4, 6)];
+    for (uint32_t r = 0; r < 4; ++r) p.cells[r][1] = Cell::on(uint8_t(60 + r));
+
+    CHECK(song.scaleRows(0, 3, 1));
+    CHECK(p.numRows == 12);
+    for (uint32_t r = 0; r < 12; ++r) {
+        CHECK(p.cells[r][1].note == (r % 3 == 0 ? 60 + r / 3 : Cell::kNoteEmpty));
+    }
+    CHECK(song.scaleRows(0, 1, 3));
+    CHECK(p.numRows == 4);
+    for (uint32_t r = 0; r < 4; ++r) CHECK(p.cells[r][1].note == 60 + r);
+    CHECK(p.cells[4][1].note == Cell::kNoteEmpty);
+
+    // Squashing drops rows between; an odd length rounds up.
+    CHECK(song.setPatternShape(0, 3, 6));
+    CHECK(song.scaleRows(0, 1, 2));
+    CHECK(p.numRows == 2);
+    CHECK(p.cells[0][1].note == 60);
+    CHECK(p.cells[1][1].note == 62);
+    CHECK(p.cells[3][1].note == Cell::kNoteEmpty);  // hidden row 3 is odd: dropped
+
+    CHECK(song.setPatternShape(0, 100, 6));
+    CHECK_FALSE(song.scaleRows(0, 3, 1));  // 300 rows
+    CHECK(p.numRows == 100);
+    CHECK_FALSE(song.scaleRows(0, 0, 1));
+}
+
+TEST_CASE("Pattern edits: stretching the playing pattern keeps its place") {
+    Fixture f;
+    f.ticks(kTicksPerRow + 5);
+    CHECK(f.row() == 1);
+    f.engine->post(Command::scaleRows(0, 2, 1));
+    f.ticks(1);
+    CHECK(f.row() == 2);  // row 1 is row 2 now
+    CHECK(f.engine->channel(0).column(0).pitch == doctest::Approx(61.0f));  // not retriggered
+    CHECK(f.ticksUntilRow(3) == kTicksPerRow - 5);  // row 2 (was 1) ends on time
+    CHECK(f.song->patterns[0].cells[2][0].note == 61);
+}

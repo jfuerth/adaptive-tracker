@@ -52,6 +52,9 @@ object PatternStore {
     var names: List<String> = emptyList()
         private set
 
+    /** Pattern indexes in name order, for choosing one. */
+    val byName: List<Int> get() = names.indices.sortedWith(compareBy(NaturalOrder) { names[it] })
+
     /** Forgets everything read from the engine: a different song has loaded. */
     fun reset() {
         cache.clear()
@@ -74,8 +77,13 @@ object PatternStore {
     fun setShape(index: Int, rows: Int, ticksPerRow: Int): Boolean =
         changed(NativeAudio.setPatternShape(index, rows, ticksPerRow)) { cache.remove(index) }
 
-    fun clearColumn(index: Int, column: Int): Boolean =
-        changed(NativeAudio.clearColumn(index, column)) { cache.remove(index) }
+    /** Empties [parts] (NativeAudio.CELL_* bits) of rows [first] to [last] of [column]. */
+    fun clearCells(index: Int, column: Int, first: Int, last: Int, parts: Int = NativeAudio.CELL_ALL): Boolean =
+        changed(NativeAudio.clearCells(index, column, first, last, parts)) { cache.remove(index) }
+
+    /** Stretches (num > den) or squashes the pattern's rows; see NativeAudio.scaleRows. */
+    fun scaleRows(index: Int, num: Int, den: Int): Boolean =
+        changed(NativeAudio.scaleRows(index, num, den)) { cache.remove(index) }
 
     /** Every pattern of [channel] gets [count] columns. */
     fun setColumns(channel: Int, count: Int): Boolean =

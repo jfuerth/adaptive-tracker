@@ -70,7 +70,8 @@ public:
     bool setCell(uint32_t pattern, int row, int column, const adaptive::Cell& cell);
     // Shape edits; see the Song methods of the same names.
     bool setPatternShape(uint32_t pattern, int rows, int ticksPerRow);
-    bool clearColumn(uint32_t pattern, int column);
+    bool clearCells(uint32_t pattern, int column, int first, int last, int parts);
+    bool scaleRows(uint32_t pattern, int num, int den);
     bool setColumns(int channel, int count);
     bool removeColumn(int channel, int column);
     /// Sound `midiNote` with song instrument `instrument` on preview voice `slot`.

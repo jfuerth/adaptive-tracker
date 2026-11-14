@@ -392,8 +392,13 @@ private:
                 for (auto& ch : channels_) ch.patternChanged(&song_->patterns[c.b], tick);
             }
             break;
-        case Command::Kind::ClearColumn:
-            if (song_ != nullptr) song_->clearColumn(c.b, c.a);
+        case Command::Kind::ClearCells:
+            if (song_ != nullptr) song_->clearCells(c.b, c.a, c.data & 0xFFu, c.data >> 8, c.parts);
+            break;
+        case Command::Kind::ScaleRows:
+            if (song_ != nullptr && song_->scaleRows(c.b, c.a, c.data)) {
+                for (auto& ch : channels_) ch.rowsScaled(&song_->patterns[c.b], c.a, c.data, tick);
+            }
             break;
         case Command::Kind::SetColumns:
             if (song_ != nullptr && c.a < song_->numChannels) {

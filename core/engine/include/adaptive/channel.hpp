@@ -225,6 +225,19 @@ public:
         for (uint32_t i = 0; i < entryIndex_; ++i) before += entryPattern(i).lengthTicks();
         startTick_ = entryStartTick_ - before;
     }
+
+    /**
+     * Pattern `p`'s rows were stretched or squashed (row r is now row
+     * r * num / den): if it is playing, carry on from where the current row
+     * went, so the music keeps its place.
+     */
+    void rowsScaled(const Pattern* p, uint32_t num, uint32_t den, uint64_t tick) {
+        if (!uses(p)) return;
+        if (currentPattern() == p && playingRow_ >= 0) {
+            playingRow_ = static_cast<int32_t>(static_cast<uint32_t>(playingRow_) * num / den);
+        }
+        patternChanged(p, tick);
+    }
     uint32_t numColumns() const { return numColumns_; }
 
     synth::WavetableSynth& voice(uint32_t column) { return voices_[column]; }

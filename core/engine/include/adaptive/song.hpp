@@ -27,6 +27,12 @@ enum class Entry : uint8_t {
 
 inline constexpr uint8_t kNoIndex = 0xFF;
 
+/// Parts of a cell, as bits (Command::clearCells, Song::clearCells).
+inline constexpr uint8_t kCellNote = 1;    ///< note and accidental
+inline constexpr uint8_t kCellVolume = 2;
+inline constexpr uint8_t kCellEffect = 4;  ///< effect and its parameter
+inline constexpr uint8_t kCellAll = kCellNote | kCellVolume | kCellEffect;
+
 /**
  * One adaptive state (explore, combat, ...): which patterns each channel
  * plays. Each channel loops its own sequence, so they can have different
@@ -67,7 +73,8 @@ struct Command {
         AssignInstrument, ///< channel a, column b plays song instrument `data` (kNoIndex: none)
         SetMonitor,   ///< render() copies instrument a's voices to its monitor output (kNoIndex: off)
         SetPatternShape, ///< song pattern b gets `data` rows at speed a (ticks per row); see Song::setPatternShape
-        ClearColumn,  ///< empty column a of song pattern b
+        ClearCells,   ///< in song pattern b, column a, rows data&0xFF..data>>8: empty the parts in `parts`
+        ScaleRows,    ///< song pattern b: row r moves to r * a / data; see Song::scaleRows
         SetColumns,   ///< channel a gets b columns; see Song::setColumns
         RemoveColumn, ///< remove channel a's column b; see Song::removeColumn
     };
@@ -80,6 +87,7 @@ struct Command {
     float value = 0.0f;
     uint16_t data = 0;
     Cell cell = {};  ///< SetCell only.
+    uint8_t parts = 0;  ///< ClearCells only: CellPart bits.
 
     static constexpr Command gotoSection(uint8_t section, Quantize when = Quantize::Bar,
                                          Entry entry = Entry::Restart, uint8_t bridge = kNoIndex) {
@@ -145,7 +153,18 @@ struct Command {
         return Command{Kind::SetPatternShape, Quantize::Now, Entry::Restart, ticksPerRow, pattern, 0.0f, rows};
     }
     static constexpr Command clearColumn(uint8_t pattern, uint8_t column) {
-        return Command{Kind::ClearColumn, Quantize::Now, Entry::Restart, column, pattern};
+        return clearCells(pattern, column, 0, config::kMaxRows - 1, kCellAll);
+    }
+    /// Rows `first` to `last` (inclusive) of a column; `parts`: CellPart bits.
+    static constexpr Command clearCells(uint8_t pattern, uint8_t column, uint32_t first, uint32_t last,
+                                        uint8_t parts) {
+        Command c{Kind::ClearCells, Quantize::Now, Entry::Restart, column, pattern, 0.0f,
+                  static_cast<uint16_t>((first & 0xFF) | ((last & 0xFF) << 8))};
+        c.parts = parts;
+        return c;
+    }
+    static constexpr Command scaleRows(uint8_t pattern, uint8_t num, uint16_t den) {
+        return Command{Kind::ScaleRows, Quantize::Now, Entry::Restart, num, pattern, 0.0f, den};
     }
     static constexpr Command setColumns(uint8_t channel, uint8_t count) {
         return Command{Kind::SetColumns, Quantize::Now, Entry::Restart, channel, count};
@@ -319,9 +338,59 @@ struct Song {
 
     /// Empty every row of `column` in pattern `index`.
     bool clearColumn(uint32_t index, uint32_t column) {
-        if (index >= numPatterns || column >= config::kMaxColumns) return false;
+        if (index >= numPatterns) return false;
+        return clearCells(index, column, 0, patterns[index].numRows - 1, kCellAll);
+    }
+
+    /// Empty the `parts` (CellPart bits) of rows `first` to `last` (inclusive) of a column.
+    bool clearCells(uint32_t index, uint32_t column, uint32_t first, uint32_t last, uint8_t parts) {
+        if (index >= numPatterns || column >= config::kMaxColumns || first > last) return false;
         Pattern& p = patterns[index];
-        for (uint32_t r = 0; r < p.numRows; ++r) p.cells[r][column] = Cell();
+        if (last >= p.numRows) last = p.numRows - 1u;
+        for (uint32_t r = first; r <= last; ++r) {
+            Cell& c = p.cells[r][column];
+            if (parts & kCellNote) {
+                c.note = Cell::kNoteEmpty;
+                c.accidental = 0;
+            }
+            if (parts & kCellVolume) c.volume = Cell::kVolumeDefault;
+            if (parts & kCellEffect) {
+                c.effect = fx::kNone;
+                c.effectParam = 0;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Stretch or squash pattern `index`: row r moves to r * num / den, rows
+     * that don't land on a whole row are dropped, and the gaps are empty.
+     * The pattern gets ceil(rows * num / den) rows; false if that is over
+     * kMaxRows (or num, den are 0). Rows past the end move too, as far as
+     * they fit.
+     */
+    bool scaleRows(uint32_t index, uint32_t num, uint32_t den) {
+        if (index >= numPatterns || num == 0 || den == 0 || num > config::kMaxRows || den > config::kMaxRows) {
+            return false;
+        }
+        Pattern& p = patterns[index];
+        const uint32_t rows = (p.numRows * num + den - 1) / den;
+        if (rows < 1 || rows > config::kMaxRows) return false;
+        // In place: rows move away from row 0 when stretching, so go from the
+        // end; towards it when squashing, so go from the start.
+        auto move = [&](uint32_t r) {
+            for (uint32_t c = 0; c < config::kMaxColumns; ++c) {
+                const Cell cell = p.cells[r][c];
+                p.cells[r][c] = Cell();
+                if ((r * num) % den == 0 && r * num / den < config::kMaxRows) p.cells[r * num / den][c] = cell;
+            }
+        };
+        if (num >= den) {
+            for (uint32_t r = config::kMaxRows; r-- > 0;) move(r);
+        } else {
+            for (uint32_t r = 0; r < config::kMaxRows; ++r) move(r);
+        }
+        p.numRows = static_cast<uint16_t>(rows);
         return true;
     }
 

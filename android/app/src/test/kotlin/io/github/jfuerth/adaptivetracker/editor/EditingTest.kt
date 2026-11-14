@@ -206,3 +206,26 @@ class PatternInfoTest {
         assertEquals("5", info(5).speedLabel)
     }
 }
+
+class RowScaleTest {
+    @org.junit.Test
+    fun stretchAndSquash() {
+        val s = RowScale().stretch(2).stretch(3)
+        org.junit.Assert.assertEquals(RowScale(6, 1), s)
+        org.junit.Assert.assertEquals(RowScale(), s.squash(2).squash(3))
+        org.junit.Assert.assertEquals(RowScale(2, 3), RowScale().stretch(2).squash(3))
+        org.junit.Assert.assertEquals(8, RowScale().squash(2).rows(15))  // rounds up like the engine
+        org.junit.Assert.assertTrue(RowScale().squash(2).drops(1))
+        org.junit.Assert.assertFalse(RowScale(2, 3).drops(3))
+        org.junit.Assert.assertTrue(RowScale(2, 3).drops(4))
+    }
+
+    @org.junit.Test
+    fun naturalOrder() {
+        val names = listOf("fill 10", "Fill 2", "bass", "Lead", "fill 02x", "Fill")
+        org.junit.Assert.assertEquals(
+            listOf("bass", "Fill", "Fill 2", "fill 02x", "fill 10", "Lead"),
+            names.sortedWith(NaturalOrder),
+        )
+    }
+}

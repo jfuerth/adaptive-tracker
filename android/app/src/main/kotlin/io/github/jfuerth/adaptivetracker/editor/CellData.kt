@@ -19,6 +19,7 @@ data class CellData(
 ) {
     val isNote: Boolean get() = note in 0..127
     val isOff: Boolean get() = note == NOTE_OFF
+    val isEmpty: Boolean get() = note == NOTE_EMPTY && volume == VOLUME_DEFAULT && effect == EFFECT_NONE && param == 0
 
     companion object {
         const val NOTE_EMPTY = 0xFF

@@ -127,8 +127,23 @@ object NativeAudio {
     /** Pattern [pattern] gets [rows] rows (1-256) at [ticksPerRow] (1-255). Rows past the end keep their cells. */
     external fun setPatternShape(pattern: Int, rows: Int, ticksPerRow: Int): Boolean
 
-    /** Empties [column] of pattern [pattern]. */
-    external fun clearColumn(pattern: Int, column: Int): Boolean
+    /**
+     * Empties rows [first] to [last] (inclusive) of [column] in pattern
+     * [pattern]: the parts in [parts] (CELL_NOTE, CELL_VOLUME, CELL_EFFECT bits).
+     */
+    external fun clearCells(pattern: Int, column: Int, first: Int, last: Int, parts: Int): Boolean
+
+    /**
+     * Stretches or squashes pattern [pattern]: row r moves to r × [num] / [den]
+     * (rows that don't land on a whole row are dropped), and the length scales
+     * to match, rounding up. False if it would be over 256 rows.
+     */
+    external fun scaleRows(pattern: Int, num: Int, den: Int): Boolean
+
+    const val CELL_NOTE = 1
+    const val CELL_VOLUME = 2
+    const val CELL_EFFECT = 4
+    const val CELL_ALL = 7
 
     /** [channel] gets [count] columns (1-4), in all its patterns; a removed column comes back as it was. */
     external fun setColumns(channel: Int, count: Int): Boolean
