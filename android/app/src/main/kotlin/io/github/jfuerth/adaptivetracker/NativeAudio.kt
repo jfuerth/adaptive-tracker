@@ -163,6 +163,26 @@ object NativeAudio {
     /** [tempo in milli-BPM (0: keeps the tempo), beats per bar, bridge beats]. */
     external fun getSectionTiming(section: Int): IntArray?
 
+    // ---- Column settings and layers ----
+
+    /** Per column of [channel]: [pitch mode, gate parameter (-1: none), gate threshold × 1000], flattened. */
+    external fun getColumnSettings(channel: Int): IntArray
+    /** The column reads notes in [mode] (PitchMode ordinal); its notes are rewritten to sound the same. */
+    external fun setColumnPitch(channel: Int, column: Int, mode: Int): Boolean
+    /** The column starts notes only while [param] is at least [threshold] (param -1: always). */
+    external fun setColumnGate(channel: Int, column: Int, param: Int, threshold: Float): Boolean
+    fun addLayer(name: String): Int = addLayerBytes(name.toByteArray())
+    private external fun addLayerBytes(name: ByteArray): Int
+    /** Takes out the layer, with mappings and event actions that refer to it. */
+    external fun removeLayer(layer: Int): Boolean
+    /** The layer holds [channel]'s columns in [columnBits] (bit c: column c). */
+    external fun setLayerColumns(layer: Int, channel: Int, columnBits: Int): Boolean
+    /** Each layer's columns, bit (channel × 4 + column). */
+    external fun getLayerMasks(): IntArray
+    /** An instrument's pitch-mode hint, -1 if none. */
+    external fun getInstrumentPitch(instrument: Int): Int
+    external fun setInstrumentPitch(instrument: Int, mode: Int): Boolean
+
     const val NAMES_SECTIONS = 0
     const val NAMES_LAYERS = 1
     const val NAMES_PARAMS = 2

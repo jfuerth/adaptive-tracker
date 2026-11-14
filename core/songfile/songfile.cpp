@@ -369,7 +369,8 @@ void readInstruments(const Json& root, Song& song, SongInfo& info, Ids& ids) {
                 inst.set(param, float(v));
             }
         }
-        song.addInstrument(inst);
+        const uint8_t index = song.addInstrument(inst);
+        if (field(j, "pitch") != nullptr) song.instrumentPitch[index] = uint8_t(choice(j, "pitch", where, kPitchModes));
     }
 }
 
@@ -390,11 +391,18 @@ void readChannels(const Json& root, Song& song, SongInfo& info, Ids& ids) {
         if (columns.empty()) fail(at(where, "columns"), "a channel needs at least one column");
         checkCapacity(columns.size(), config::kMaxColumns, at(where, "columns"), "columns");
         song.addChannel(mode, uint8_t(columns.size()));
+        ChannelSetup& setup = song.channels[ch];
         for (size_t c = 0; c < columns.size(); ++c) {
             const std::string cw = at(at(where, "columns"), c);
             const Json& col = object(columns[c], cw);
-            song.channels[ch].instruments[c] =
-                field(col, "instrument") != nullptr ? ids.instruments.ref(col, "instrument", cw) : kNoIndex;
+            setup.instruments[c] = field(col, "instrument") != nullptr ? ids.instruments.ref(col, "instrument", cw) : kNoIndex;
+            setup.pitchModes[c] = static_cast<PitchMode>(choice(col, "pitch", cw, kPitchModes, int(mode)));
+            if (const Json* when = field(col, "playsWhen")) {
+                const std::string ww = at(cw, "playsWhen");
+                object(*when, ww);
+                setup.gateParams[c] = ids.params.ref(*when, "param", ww);
+                setup.gateThresholds[c] = float(number(*when, "atLeast", ww, kRequired, 0, 1));
+            }
         }
 
         const Json& patterns = array(j, "patterns", where);
@@ -416,7 +424,7 @@ void readChannels(const Json& root, Song& song, SongInfo& info, Ids& ids) {
                 const Json& cj = object(cells[k], kw);
                 const long row = integer(cj, "row", kw, kRequired, 0, pattern.numRows - 1);
                 const long column = integer(cj, "column", kw, kRequired, 0, long(config::kMaxColumns) - 1);
-                pattern.cells[row][column] = parseCell(cj, mode, kw);
+                pattern.cells[row][column] = parseCell(cj, setup.pitchModes[column], kw);
             }
         }
     }
@@ -471,10 +479,23 @@ void readLayers(const Json& root, Song& song, SongInfo& info, Ids& ids) {
     song.numLayers = uint8_t(list.size());
     for (size_t i = 0; i < list.size(); ++i) {
         const std::string where = at("layers", i);
-        const Json& channels = array(list[i], "channels", where);
-        for (size_t k = 0; k < channels.size(); ++k) {
-            if (!channels[k].is_string()) fail(at(at(where, "channels"), k), "expected a channel id");
-            song.layers[i] |= 1u << ids.channels.find(channels[k].get<std::string>(), at(at(where, "channels"), k));
+        // Whole channels, and single columns.
+        if (field(list[i], "channels") != nullptr) {
+            const Json& channels = array(list[i], "channels", where);
+            for (size_t k = 0; k < channels.size(); ++k) {
+                if (!channels[k].is_string()) fail(at(at(where, "channels"), k), "expected a channel id");
+                song.layers[i] |= layerChannelBits(ids.channels.find(channels[k].get<std::string>(), at(at(where, "channels"), k)));
+            }
+        }
+        if (field(list[i], "columns") != nullptr) {
+            const Json& columns = array(list[i], "columns", where);
+            for (size_t k = 0; k < columns.size(); ++k) {
+                const std::string cw = at(at(where, "columns"), k);
+                const Json& c = object(columns[k], cw);
+                const uint8_t ch = ids.channels.ref(c, "channel", cw);
+                const long col = integer(c, "column", cw, kRequired, 0, long(config::kMaxColumns) - 1);
+                song.layers[i] |= layerBit(ch, uint32_t(col));
+            }
         }
     }
 }
@@ -688,12 +709,13 @@ LoadResult load(std::string_view text, Song& song, SongInfo& info) {
 
         Ids ids;
         readInstruments(root, song, info, ids);
-        readChannels(root, song, info, ids);
+        // Parameters before channels: columns can be gated on them.
         readLabels(root, "params", info.params, ids.params, config::kMaxParams);
         song.numParams = uint8_t(info.params.size());
         for (size_t i = 0; i < info.params.size(); ++i) {
             song.paramInitial[i] = float(number(array(root, "params", "")[i], "initial", at("params", i), 0, 0, 1));
         }
+        readChannels(root, song, info, ids);
         readLabels(root, "events", info.events, ids.events, config::kMaxEvents);
         readSections(root, song, info, ids);
         readLayers(root, song, info, ids);
@@ -716,7 +738,7 @@ LoadResult load(std::string_view text, Song& song, SongInfo& info) {
 std::string save(const Song& song, const SongInfo& info) {
     Json root;
     root["format"] = kFormat;
-    root["version"] = kVersion;
+    root["version"] = kVersionPlain;  // raised below if needed
     root["title"] = info.title;
     root["tempo"] = real(float(song.tempoMilliBpm) / 1000.0f);
     root["key"] = keyJson(song.homeKey);
@@ -726,6 +748,7 @@ std::string save(const Song& song, const SongInfo& info) {
     for (uint8_t i = 0; i < song.numInstruments; ++i) {
         Json j = labelJson(info.instruments, i, "instrument");
         j["voice"] = kVoices[0];
+        if (song.instrumentPitch[i] <= uint8_t(PitchMode::Degree)) j["pitch"] = kPitchModes[song.instrumentPitch[i]];
         Json params;
         for (uint8_t p = 0; p < Instrument::kNumParams; ++p) {
             const auto param = static_cast<Instrument::Param>(p);
@@ -739,12 +762,22 @@ std::string save(const Song& song, const SongInfo& info) {
     for (uint8_t ch = 0; ch < song.numChannels; ++ch) {
         const ChannelSetup& setup = song.channels[ch];
         Json j = labelJson(info.channels, ch, "channel");
-        j["pitch"] = kPitchModes[int(setup.pitchMode)];
+        // The channel's mode is its first column's; columns that differ say so.
+        const PitchMode mode = setup.pitchModes[0];
+        j["pitch"] = kPitchModes[int(mode)];
         Json& columns = j["columns"] = Json::array();
         for (uint8_t c = 0; c < setup.numColumns; ++c) {
             Json col = Json::object();
             if (setup.instruments[c] < song.numInstruments) {
                 col["instrument"] = idOf(info.instruments, setup.instruments[c], "instrument");
+            }
+            if (setup.pitchModes[c] != mode) {
+                col["pitch"] = kPitchModes[int(setup.pitchModes[c])];
+                root["version"] = kVersion;
+            }
+            if (setup.gateParams[c] < song.numParams) {
+                col["playsWhen"] = Json{{"param", idOf(info.params, setup.gateParams[c], "param")},
+                                        {"atLeast", real(setup.gateThresholds[c])}};
             }
             columns.push_back(col);
         }
@@ -765,7 +798,7 @@ std::string save(const Song& song, const SongInfo& info) {
                         cell.effect == fx::kNone && cell.effectParam == 0) {
                         continue;
                     }
-                    cells.push_back(cellJson(cell, r, c, setup.pitchMode));
+                    cells.push_back(cellJson(cell, r, c, setup.pitchModes[c]));
                 }
             }
             patterns.push_back(pj);
@@ -802,11 +835,26 @@ std::string save(const Song& song, const SongInfo& info) {
     Json& layers = root["layers"] = Json::array();
     for (uint8_t i = 0; i < song.numLayers; ++i) {
         Json j = labelJson(info.layers, i, "layer");
+        // Whole channels by id; single columns of channels only partly in it.
         Json members = Json::array();
+        Json columns = Json::array();
         for (uint8_t ch = 0; ch < song.numChannels; ++ch) {
-            if (song.layers[i] & (1u << ch)) members.push_back(idOf(info.channels, ch, "channel"));
+            const uint32_t bits = song.layers[i] & layerChannelBits(ch);
+            if (bits == layerChannelBits(ch)) {
+                members.push_back(idOf(info.channels, ch, "channel"));
+            } else if (bits != 0) {
+                for (uint32_t c = 0; c < config::kMaxColumns; ++c) {
+                    if (bits & layerBit(ch, c)) {
+                        columns.push_back(Json{{"channel", idOf(info.channels, ch, "channel")}, {"column", c}});
+                    }
+                }
+            }
         }
         j["channels"] = members;
+        if (!columns.empty()) {
+            j["columns"] = columns;
+            root["version"] = kVersion;
+        }
         layers.push_back(j);
     }
 

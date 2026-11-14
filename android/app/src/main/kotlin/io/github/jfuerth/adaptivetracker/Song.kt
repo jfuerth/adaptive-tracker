@@ -45,8 +45,14 @@ object Song {
 
     /** The pattern being edited, shared so other screens can open one in the editor. */
     var pattern by mutableIntStateOf(0)
-    var layers: List<String> = emptyList()
+    var layers: List<String> by mutableStateOf(emptyList())
         private set
+    /** Each layer's columns: bit (channel × 4 + column). */
+    var layerMasks: List<Int> by mutableStateOf(emptyList())
+        private set
+
+    /** [channel]'s columns in [layer], as bits (bit c: column c). */
+    fun layerColumns(layer: Int, channel: Int): Int = (layerMasks.getOrElse(layer) { 0 } ushr (channel * 4)) and 0xF
     var params: List<String> = emptyList()
         private set
     var paramInitial: List<Float> = emptyList()
@@ -177,6 +183,8 @@ object Song {
         sections = NativeAudio.getSongNames(NativeAudio.NAMES_SECTIONS).toList()
         bridgeBeats = NativeAudio.getSectionBridgeBeats().toList()
         channels = NativeAudio.getSongNames(NativeAudio.NAMES_CHANNELS).toList()
+        layers = NativeAudio.getSongNames(NativeAudio.NAMES_LAYERS).toList()
+        layerMasks = NativeAudio.getLayerMasks().toList()
     }
 
     /** Loads a song file's bytes. Returns null, or why it failed (the old song stays). */
@@ -186,7 +194,6 @@ object Song {
         title = NativeAudio.getSongTitle()
         structureChanged()
         pattern = 0
-        layers = NativeAudio.getSongNames(1).toList()
         params = NativeAudio.getSongNames(2).toList()
         paramInitial = NativeAudio.getParamInitialValues().toList()
         events = NativeAudio.getSongNames(3).toList()

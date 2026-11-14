@@ -81,10 +81,7 @@ public:
         song_ = song;
         if (song_ == nullptr) return;
         // Channels the song sets up; others keep whatever setup they have.
-        for (uint32_t ch = 0; ch < song_->numChannels; ++ch) {
-            channels_[ch].setPitchMode(song_->channels[ch].pitchMode);
-            channels_[ch].setNumColumns(song_->channels[ch].numColumns);
-        }
+        for (uint32_t ch = 0; ch < song_->numChannels; ++ch) setUpChannel(ch);
         for (uint32_t ch = 0; ch < config::kMaxChannels; ++ch) {
             for (uint32_t col = 0; col < config::kMaxColumns; ++col) {
                 const uint8_t i = song_->columnInstrument(ch, col);
@@ -101,6 +98,9 @@ public:
             // Starting values apply instantly; only later changes glide.
             applyMapping(song_->mappings[i], params_[song_->mappings[i].param], 0, false, 0.0f, true);
         }
+        for (auto& m : layerMuted_) m = false;
+        updateMutes();
+        updateGates();
     }
 
     /// Current value of a parameter (audio thread).
@@ -310,10 +310,8 @@ private:
             break;
         case Command::Kind::SetLayerMute:
             if (song_ != nullptr && c.a < song_->numLayers) {
-                const uint32_t mask = song_->layers[c.a];
-                for (uint32_t ch = 0; ch < config::kMaxChannels; ++ch) {
-                    if (mask & (1u << ch)) channels_[ch].setMuted(c.b != 0);
-                }
+                layerMuted_[c.a] = c.b != 0;
+                updateMutes();
             }
             break;
         case Command::Kind::Stop:
@@ -322,6 +320,7 @@ private:
                 ch.setColumnMask(~0u);
             }
             currentSection_ = kNoIndex;
+            updateGates();
             break;
         case Command::Kind::SoloPattern:
             if (c.a < config::kMaxChannels && song_ != nullptr && song_->pattern(c.b) != nullptr) {
@@ -333,6 +332,7 @@ private:
                 sectionStartTick_ = tick;  // beats and bars count from here
                 channels_[c.a].play(song_->pattern(c.b), tick);
                 channels_[c.a].setColumnMask(c.data);
+                updateGates();  // a pattern played alone ignores gates
             }
             break;
         case Command::Kind::SetColumnMask:
@@ -340,6 +340,33 @@ private:
             break;
         case Command::Kind::SetParam:
             setParam(c.a, c.value, tick);
+            updateGates();
+            break;
+        case Command::Kind::SetColumnPitch:
+            if (song_ != nullptr && song_->setColumnPitch(c.a, c.b, static_cast<PitchMode>(c.data))) {
+                channels_[c.a].setPitchMode(c.b, static_cast<PitchMode>(c.data));
+            }
+            break;
+        case Command::Kind::SetColumnGate:
+            if (song_ != nullptr && song_->setColumnGate(c.a, c.b, c.data, c.value)) updateGates();
+            break;
+        case Command::Kind::SetLayerColumns:
+            if (song_ != nullptr && song_->setLayerColumns(c.a, c.b, c.data)) {
+                updateMutes();
+                updateLayerGains(0);
+            }
+            break;
+        case Command::Kind::RemoveLayer:
+            if (song_ != nullptr && song_->removeLayer(c.a)) {
+                for (uint32_t l = c.a; l + 1 < config::kMaxLayers; ++l) {
+                    layerMuted_[l] = layerMuted_[l + 1];
+                    layerGains_[l] = layerGains_[l + 1];
+                }
+                layerMuted_[config::kMaxLayers - 1] = false;
+                layerGains_[config::kMaxLayers - 1] = 1.0f;
+                updateMutes();
+                updateLayerGains(0);
+            }
             break;
         case Command::Kind::SetKey:
             pitch_.current = Key{static_cast<uint8_t>(c.a % 12), c.data};
@@ -518,15 +545,51 @@ private:
     }
 
     /// Each channel's layer gain is the product of the gains of the layers it is in.
+    /// Each column's layer gain is the product of the gains of the layers it is in.
     void updateLayerGains(uint32_t ramp) {
         if (song_ == nullptr) return;
-        for (uint32_t c = 0; c < config::kMaxChannels; ++c) {
-            float g = 1.0f;
-            for (uint8_t l = 0; l < song_->numLayers; ++l) {
-                if (song_->layers[l] & (1u << c)) g *= layerGains_[l];
+        for (uint32_t ch = 0; ch < config::kMaxChannels; ++ch) {
+            for (uint32_t col = 0; col < config::kMaxColumns; ++col) {
+                float g = 1.0f;
+                for (uint8_t l = 0; l < song_->numLayers; ++l) {
+                    if (song_->layers[l] & layerBit(ch, col)) g *= layerGains_[l];
+                }
+                channels_[ch].setLayerGain(col, g, ramp);
             }
-            channels_[c].setLayerGain(g, ramp);
         }
+    }
+
+    /// A column is muted while any layer it is in is muted.
+    void updateMutes() {
+        uint32_t muted = 0;
+        for (uint8_t l = 0; l < song_->numLayers; ++l) {
+            if (layerMuted_[l]) muted |= song_->layers[l];
+        }
+        for (uint32_t ch = 0; ch < config::kMaxChannels; ++ch) {
+            channels_[ch].setMutedColumns((muted >> (ch * config::kMaxColumns)) & ((1u << config::kMaxColumns) - 1u));
+        }
+    }
+
+    /// Opens or closes column gates from the parameters. Playing a pattern
+    /// alone (no section) hears every column.
+    void updateGates() {
+        if (song_ == nullptr) return;
+        for (uint32_t ch = 0; ch < config::kMaxChannels; ++ch) {
+            uint32_t open = ~0u;
+            if (currentSection_ != kNoIndex && ch < song_->numChannels) {
+                for (uint32_t col = 0; col < config::kMaxColumns; ++col) {
+                    if (!song_->gateOpen(ch, col, params_)) open &= ~(1u << col);
+                }
+            }
+            channels_[ch].setOpenColumns(open);
+        }
+    }
+
+    void setUpChannel(uint32_t ch) {
+        for (uint32_t col = 0; col < config::kMaxColumns; ++col) {
+            channels_[ch].setPitchMode(col, song_->channels[ch].pitchModes[col]);
+        }
+        channels_[ch].setNumColumns(song_->channels[ch].numColumns);
     }
 
     void applyTempo() {
@@ -542,9 +605,16 @@ private:
         case Addition::Channel:
             if (index == song_->numChannels && index < config::kMaxChannels) {
                 ++song_->numChannels;
-                channels_[index].setPitchMode(song_->channels[index].pitchMode);
-                channels_[index].setNumColumns(song_->channels[index].numColumns);
+                setUpChannel(index);
                 applyColumnInstruments(index, 0);
+                updateGates();
+            }
+            break;
+        case Addition::Layer:
+            if (index == song_->numLayers && index < config::kMaxLayers) {
+                ++song_->numLayers;
+                layerMuted_[index] = false;
+                layerGains_[index] = 1.0f;
             }
             break;
         case Addition::Section:
@@ -597,6 +667,7 @@ private:
         if (s.tempoMilliBpm != 0) setTempoMilliBpm(s.tempoMilliBpm);
         currentSection_ = index;
         sectionStartTick_ = start;
+        updateGates();
     }
 
     uint32_t sampleRate_;
@@ -618,6 +689,7 @@ private:
     // Parameters and mapping targets.
     float params_[config::kMaxParams] = {};
     float layerGains_[config::kMaxLayers] = {};  // set to 1 in the constructor
+    bool layerMuted_[config::kMaxLayers] = {};
     uint32_t baseTempoMilliBpm_ = 120000;
     Ramp tempoScale_{1.0f};
     Ramp masterCutoffLog2_;

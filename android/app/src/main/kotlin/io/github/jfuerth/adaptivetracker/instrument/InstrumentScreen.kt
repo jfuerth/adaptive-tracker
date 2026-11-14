@@ -1,5 +1,8 @@
 package io.github.jfuerth.adaptivetracker.instrument
 
+import io.github.jfuerth.adaptivetracker.editor.PitchMode
+import androidx.compose.material3.FilterChip
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -67,6 +70,14 @@ private const val FINE_STEP = 0.005f
  * the stage it modulates. Modulation amounts sit on the arrows. Tapping any
  * value opens its slider; the keyboard plays the instrument while you adjust it.
  */
+/** Pitch-mode hints an instrument can carry; null: none (columns keep theirs). */
+private val PITCH_HINTS = listOf(
+    null to "Any",
+    PitchMode.DEGREE to "Scale degrees",
+    PitchMode.TRANSPOSE to "Follow key",
+    PitchMode.ABSOLUTE to "Fixed",
+)
+
 @Composable
 fun InstrumentScreen(modifier: Modifier = Modifier) {
     val names = InstrumentStore.names
@@ -168,6 +179,25 @@ fun InstrumentScreen(modifier: Modifier = Modifier) {
                 maxLines = 1,
                 modifier = Modifier.clip(RoundedCornerShape(4.dp)).clickable { assigning = true }.padding(4.dp),
             )
+        }
+        // What kind of notes this instrument plays: a column given it switches to that.
+        run {
+            InstrumentStore.hints  // read, so a change redraws
+            val hint = InstrumentStore.pitchHint(index)
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text("Notes:", style = MaterialTheme.typography.labelMedium)
+                PITCH_HINTS.forEach { (mode, label) ->
+                    FilterChip(
+                        selected = hint == mode,
+                        onClick = { InstrumentStore.setPitchHint(index, mode) },
+                        label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                    )
+                }
+            }
         }
         if (renaming) RenameDialog(names[index], onDone = { name ->
             if (name != null) InstrumentStore.rename(index, name)

@@ -220,6 +220,53 @@ JNIEXPORT jintArray JNICALL JNI_FN(getSectionTiming)(JNIEnv* env, jobject, jint 
     return result;
 }
 
+/// Per column of the channel: [pitch mode, gate parameter (-1: none), gate threshold x 1000].
+JNIEXPORT jintArray JNICALL JNI_FN(getColumnSettings)(JNIEnv* env, jobject, jint channel) {
+    const std::vector<int32_t> v = player().columnSettings(channel);
+    jintArray result = env->NewIntArray(static_cast<jsize>(v.size()));
+    if (result != nullptr) env->SetIntArrayRegion(result, 0, static_cast<jsize>(v.size()), v.data());
+    return result;
+}
+
+JNIEXPORT jboolean JNICALL JNI_FN(setColumnPitch)(JNIEnv*, jobject, jint channel, jint column, jint mode) {
+    return toJ(player().setColumnPitch(channel, column, mode));
+}
+
+JNIEXPORT jboolean JNICALL JNI_FN(setColumnGate)(JNIEnv*, jobject, jint channel, jint column, jint param,
+                                                 jfloat threshold) {
+    return toJ(player().setColumnGate(channel, column, param, threshold));
+}
+
+JNIEXPORT jint JNICALL JNI_FN(addLayerBytes)(JNIEnv* env, jobject, jbyteArray name) {
+    return player().addLayer(fromJ(env, name));
+}
+
+JNIEXPORT jboolean JNICALL JNI_FN(removeLayer)(JNIEnv*, jobject, jint layer) {
+    return toJ(player().removeLayer(layer));
+}
+
+JNIEXPORT jboolean JNICALL JNI_FN(setLayerColumns)(JNIEnv*, jobject, jint layer, jint channel, jint columnBits) {
+    return toJ(player().setLayerColumns(layer, channel, columnBits));
+}
+
+/// Each layer's columns: bit (channel * 4 + column).
+JNIEXPORT jintArray JNICALL JNI_FN(getLayerMasks)(JNIEnv* env, jobject) {
+    const auto& song = player().song();
+    jint masks[adaptive::config::kMaxLayers];
+    for (uint32_t i = 0; i < song.numLayers; ++i) masks[i] = static_cast<jint>(song.layers[i]);
+    jintArray result = env->NewIntArray(song.numLayers);
+    if (result != nullptr) env->SetIntArrayRegion(result, 0, song.numLayers, masks);
+    return result;
+}
+
+JNIEXPORT jint JNICALL JNI_FN(getInstrumentPitch)(JNIEnv*, jobject, jint instrument) {
+    return player().instrumentPitch(instrument);
+}
+
+JNIEXPORT jboolean JNICALL JNI_FN(setInstrumentPitch)(JNIEnv*, jobject, jint instrument, jint mode) {
+    return toJ(player().setInstrumentPitch(instrument, mode));
+}
+
 /// For each section, its bridge length in beats (0: not a bridge).
 JNIEXPORT jintArray JNICALL JNI_FN(getSectionBridgeBeats)(JNIEnv* env, jobject) {
     const auto& song = player().song();

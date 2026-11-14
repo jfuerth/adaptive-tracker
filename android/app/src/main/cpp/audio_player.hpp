@@ -11,6 +11,7 @@
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <vector>
 
 /**
  * Plays the engine through an Oboe output stream.
@@ -93,6 +94,20 @@ public:
     bool editSequence(int section, int channel, int op, int pos, int pattern);
     /// Section timing; bpm 0 keeps the tempo. See Song::setSectionTiming.
     bool setSection(int section, float bpm, int beatsPerBar, int bridgeBeats);
+
+    // Column settings and layers (UI thread only).
+    /// Per column of `channel` (numColumns of them): pitch mode, gate parameter (-1: none), gate threshold x 1000.
+    std::vector<int32_t> columnSettings(int channel) const;
+    /// Column's pitch mode; its notes are converted. See Song::setColumnPitch.
+    bool setColumnPitch(int channel, int column, int mode);
+    /// param -1: the column always plays.
+    bool setColumnGate(int channel, int column, int param, float threshold);
+    int addLayer(const std::string& name);
+    bool removeLayer(int layer);
+    bool setLayerColumns(int layer, int channel, int columnBits);
+    /// Instrument's pitch-mode hint (-1: none): what a column switches to when given it. Editing data only.
+    int instrumentPitch(int instrument) const;
+    bool setInstrumentPitch(int instrument, int mode);
 
     // Instruments (UI thread only).
     uint32_t channelCount() const { return edit_->numChannels; }

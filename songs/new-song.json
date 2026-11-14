@@ -13,6 +13,7 @@
       "id": "lead",
       "name": "Lead",
       "voice": "subtractive",
+      "pitch": "degree",
       "params": {
         "shape": 0.5,
         "cutoff": 2200,
@@ -37,6 +38,7 @@
       "id": "bass",
       "name": "Bass",
       "voice": "subtractive",
+      "pitch": "degree",
       "params": {
         "shape": 0,
         "cutoff": 320,
@@ -61,6 +63,7 @@
       "id": "pad",
       "name": "Pad",
       "voice": "subtractive",
+      "pitch": "degree",
       "params": {
         "shape": 0.3,
         "cutoff": 1000,
@@ -85,6 +88,7 @@
       "id": "kick",
       "name": "Kick",
       "voice": "subtractive",
+      "pitch": "absolute",
       "params": {
         "shape": 0.5,
         "cutoff": 900,
@@ -109,6 +113,7 @@
       "id": "hat",
       "name": "Hat",
       "voice": "subtractive",
+      "pitch": "absolute",
       "params": {
         "shape": 1,
         "cutoff": 12000,

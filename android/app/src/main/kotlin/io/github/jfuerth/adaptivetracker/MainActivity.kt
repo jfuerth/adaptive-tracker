@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.dp
 import io.github.jfuerth.adaptivetracker.editor.EditorScreen
 import io.github.jfuerth.adaptivetracker.instrument.InstrumentScreen
 import io.github.jfuerth.adaptivetracker.sequence.SequenceScreen
+import io.github.jfuerth.adaptivetracker.ui.NameDialog
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
@@ -425,18 +426,27 @@ private fun PerformScreen(
                 Text("  Play the bridge first")
             }
 
-            // Layers
-            SectionTitle("Layers (mute at the next bar)")
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Song.layers.forEachIndexed { i, name ->
-                    FilterChip(
-                        selected = layerOn[i],
-                        onClick = {
-                            layerOn[i] = !layerOn[i]
-                            NativeAudio.setLayerMute(i, !layerOn[i])
-                        },
-                        label = { Text(name) },
-                    )
+            // Layers: mute and unmute; in edit mode, make, rename and remove them.
+            var editingLayers by rememberSaveable { mutableStateOf(false) }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.weight(1f)) { SectionTitle("Layers (mute at the next bar)") }
+                TextButton(onClick = { editingLayers = !editingLayers }) { Text(if (editingLayers) "Done" else "Edit") }
+            }
+            if (editingLayers) {
+                LayerEditor(layerOn)
+            } else {
+                if (Song.layers.isEmpty()) Text("No layers. Tap Edit to make one.", style = MaterialTheme.typography.bodySmall)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Song.layers.forEachIndexed { i, name ->
+                        FilterChip(
+                            selected = layerOn.getOrElse(i) { true },
+                            onClick = {
+                                layerOn[i] = !layerOn[i]
+                                NativeAudio.setLayerMute(i, !layerOn[i])
+                            },
+                            label = { Text(name) },
+                        )
+                    }
                 }
             }
 
@@ -471,6 +481,84 @@ private fun PerformScreen(
         }
     }
 }
+
+/**
+ * Layers being edited: each with its name (tap to rename), its channels (tap
+ * one to put all its columns in or out; single columns are chosen in a
+ * column's settings), and Remove. [layerOn] follows additions and removals.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun LayerEditor(layerOn: SnapshotStateList<Boolean>) {
+    var renaming by remember { mutableStateOf<Int?>(null) }
+    var removing by remember { mutableStateOf<Int?>(null) }
+    var adding by remember { mutableStateOf(false) }
+    Song.layers.forEachIndexed { i, name ->
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = { renaming = i }) { Text("$name ✎") }
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = { removing = i }) { Text("Remove") }
+                }
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Song.channels.forEachIndexed { ch, chName ->
+                        val bits = Song.layerColumns(i, ch)
+                        val all = (1 shl NativeAudio.getChannelColumns(ch)) - 1
+                        val whole = bits and all == all
+                        FilterChip(
+                            selected = bits != 0,
+                            onClick = {
+                                NativeAudio.setLayerColumns(i, ch, if (whole) 0 else 0xF)
+                                Song.structureChanged()
+                            },
+                            label = { Text(if (bits != 0 && !whole) "$chName (some columns)" else chName) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+    TextButton(onClick = { adding = true }, enabled = Song.layers.size < MAX_LAYERS) { Text("+ New layer") }
+    Text(
+        "To put single columns in a layer, use a column's settings in the Patterns tab (tap its heading).",
+        style = MaterialTheme.typography.bodySmall,
+    )
+
+    if (adding) NameDialog("New layer", "Layer ${Song.layers.size + 1}", "Add") { name ->
+        adding = false
+        if (name != null && NativeAudio.addLayer(name) >= 0) {
+            layerOn.add(true)
+            Song.structureChanged()
+        }
+    }
+    renaming?.let { i ->
+        NameDialog("Rename layer", Song.layers[i], "Rename") { name ->
+            renaming = null
+            if (name != null && NativeAudio.rename(NativeAudio.NAMES_LAYERS, i, name)) Song.structureChanged()
+        }
+    }
+    removing?.let { i ->
+        AlertDialog(
+            onDismissRequest = { removing = null },
+            title = { Text("Remove “${Song.layers[i]}”?") },
+            text = { Text("Its columns play as they would without it. Mappings and event actions that use it are removed too.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    removing = null
+                    if (NativeAudio.removeLayer(i)) {
+                        if (i < layerOn.size) layerOn.removeAt(i)
+                        Song.structureChanged()
+                    }
+                }) { Text("Remove") }
+            },
+            dismissButton = { TextButton(onClick = { removing = null }) { Text("Cancel") } },
+        )
+    }
+}
+
+/** Layers a song can have (the engine's kMaxLayers). */
+private const val MAX_LAYERS = 8
 
 @Composable
 private fun DiagnosticsCard(stats: IntArray) {

@@ -176,7 +176,7 @@ bool AudioPlayer::patternInfo(uint32_t i, int32_t out[5]) {
     out[1] = p.numRows;
     out[2] = p.ticksPerRow;
     out[3] = ch.numColumns;
-    out[4] = static_cast<int32_t>(ch.pitchMode);
+    out[4] = static_cast<int32_t>(ch.pitchModes[0]);
     return true;
 }
 
@@ -303,7 +303,7 @@ int AudioPlayer::addChannel(const std::string& name, int mode, int instrument) {
     const uint32_t i = edit_->numChannels;
     if (i >= adaptive::config::kMaxChannels || mode < 0 || mode > 2) return -1;
     adaptive::ChannelSetup c;
-    c.pitchMode = static_cast<adaptive::PitchMode>(mode);
+    for (auto& m : c.pitchModes) m = static_cast<adaptive::PitchMode>(mode);
     c.numColumns = 1;
     if (instrument >= 0 && instrument < static_cast<int>(edit_->numInstruments)) {
         c.instruments[0] = static_cast<uint8_t>(instrument);
@@ -374,6 +374,85 @@ bool AudioPlayer::setSection(int section, float bpm, int beatsPerBar, int bridge
     if (!edit_->setSectionTiming(section, static_cast<uint32_t>(bpm * 1000.0f + 0.5f), beatsPerBar, bridgeBeats)) {
         return false;
     }
+    ++edits_;
+    return true;
+}
+
+std::vector<int32_t> AudioPlayer::columnSettings(int channel) const {
+    std::vector<int32_t> out;
+    if (channel < 0 || channel >= static_cast<int>(edit_->numChannels)) return out;
+    const adaptive::ChannelSetup& c = edit_->channels[channel];
+    for (uint32_t col = 0; col < c.numColumns; ++col) {
+        out.push_back(static_cast<int32_t>(c.pitchModes[col]));
+        out.push_back(c.gateParams[col] < edit_->numParams ? c.gateParams[col] : -1);
+        out.push_back(static_cast<int32_t>(c.gateThresholds[col] * 1000.0f + 0.5f));
+    }
+    return out;
+}
+
+bool AudioPlayer::setColumnPitch(int channel, int column, int mode) {
+    if (channel < 0 || channel > 255 || column < 0 || column > 255 || mode < 0 || mode > 2) return false;
+    const auto m = static_cast<adaptive::PitchMode>(mode);
+    if (!engine_->post(adaptive::Command::setColumnPitch(static_cast<uint8_t>(channel), static_cast<uint8_t>(column), m))) {
+        return false;
+    }
+    if (!edit_->setColumnPitch(channel, column, m)) return false;
+    ++edits_;
+    return true;
+}
+
+bool AudioPlayer::setColumnGate(int channel, int column, int param, float threshold) {
+    if (channel < 0 || channel > 255 || column < 0 || column > 255 || param < -1 || param > 254) return false;
+    const uint8_t p = param < 0 ? adaptive::kNoIndex : static_cast<uint8_t>(param);
+    if (!engine_->post(adaptive::Command::setColumnGate(static_cast<uint8_t>(channel), static_cast<uint8_t>(column), p,
+                                                        threshold))) {
+        return false;
+    }
+    if (!edit_->setColumnGate(channel, column, p, threshold)) return false;
+    ++edits_;
+    return true;
+}
+
+int AudioPlayer::addLayer(const std::string& name) {
+    const uint32_t i = edit_->numLayers;
+    if (i >= adaptive::config::kMaxLayers) return -1;
+    song_->layers[i] = 0;
+    if (!engine_->post(adaptive::Command::added(adaptive::Addition::Layer, static_cast<uint8_t>(i)))) return -1;
+    edit_->addLayer();
+    label(info_.layers, i, name);
+    ++edits_;
+    return static_cast<int>(i);
+}
+
+bool AudioPlayer::removeLayer(int layer) {
+    if (layer < 0 || layer >= static_cast<int>(edit_->numLayers)) return false;
+    if (!engine_->post(adaptive::Command::removeLayer(static_cast<uint8_t>(layer)))) return false;
+    edit_->removeLayer(layer);
+    if (layer < static_cast<int>(info_.layers.size())) info_.layers.erase(info_.layers.begin() + layer);
+    ++edits_;
+    return true;
+}
+
+bool AudioPlayer::setLayerColumns(int layer, int channel, int columnBits) {
+    if (layer < 0 || layer > 255 || channel < 0 || channel > 255 || columnBits < 0 || columnBits > 0xFFFF) return false;
+    if (!engine_->post(adaptive::Command::setLayerColumns(static_cast<uint8_t>(layer), static_cast<uint8_t>(channel),
+                                                          static_cast<uint16_t>(columnBits)))) {
+        return false;
+    }
+    if (!edit_->setLayerColumns(layer, channel, columnBits)) return false;
+    ++edits_;
+    return true;
+}
+
+int AudioPlayer::instrumentPitch(int instrument) const {
+    if (instrument < 0 || instrument >= static_cast<int>(edit_->numInstruments)) return -1;
+    const uint8_t m = edit_->instrumentPitch[instrument];
+    return m <= static_cast<uint8_t>(adaptive::PitchMode::Degree) ? m : -1;
+}
+
+bool AudioPlayer::setInstrumentPitch(int instrument, int mode) {
+    if (instrument < 0 || instrument >= static_cast<int>(edit_->numInstruments) || mode < -1 || mode > 2) return false;
+    edit_->instrumentPitch[instrument] = mode < 0 ? adaptive::kNoIndex : static_cast<uint8_t>(mode);
     ++edits_;
     return true;
 }

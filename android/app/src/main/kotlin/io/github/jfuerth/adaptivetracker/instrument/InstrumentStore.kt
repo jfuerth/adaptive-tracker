@@ -7,6 +7,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.toMutableStateList
 import io.github.jfuerth.adaptivetracker.NativeAudio
+import io.github.jfuerth.adaptivetracker.editor.PatternStore
+import io.github.jfuerth.adaptivetracker.editor.PitchMode
 
 /**
  * The UI's copy of each instrument. Each one is read from the engine the
@@ -86,10 +88,29 @@ object InstrumentStore {
         assignments++
     }
 
-    /** [channel]'s [column] plays instrument [index] from now on. */
+    /**
+     * [channel]'s [column] plays instrument [index] from now on. If the
+     * instrument suggests a pitch mode, the column switches to it (its notes
+     * are rewritten to sound the same).
+     */
     fun assign(channel: Int, column: Int, index: Int) {
-        if (NativeAudio.assignInstrument(channel, column, index)) assignments++
+        if (!NativeAudio.assignInstrument(channel, column, index)) return
+        assignments++
+        val hint = pitchHint(index) ?: return
+        val current = NativeAudio.getColumnSettings(channel).getOrNull(column * 3)
+        if (current != hint.ordinal) PatternStore.setColumnPitch(channel, column, hint)
     }
+
+    /** The pitch mode columns switch to when given instrument [index], or null. */
+    fun pitchHint(index: Int): PitchMode? = NativeAudio.getInstrumentPitch(index).takeIf { it >= 0 }?.let { PitchMode.entries[it] }
+
+    fun setPitchHint(index: Int, mode: PitchMode?) {
+        if (NativeAudio.setInstrumentPitch(index, mode?.ordinal ?: -1)) hints++
+    }
+
+    /** Goes up when a pitch hint changes. */
+    var hints by mutableIntStateOf(0)
+        private set
 
     /** Where a channel's columns are, and which instrument each plays (-1: none). */
     data class Slot(val channel: Int, val column: Int, val channelName: String, val columns: Int, val instrument: Int) {

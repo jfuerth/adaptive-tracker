@@ -33,7 +33,7 @@ struct Fixture {
         song->sections[0].sequences[1] = seq;
         song->sections[1].sequences[0] = seq;
         song->numSections = 2;
-        song->layers[0] = 1u << 1;  // layer 0 = channel 1
+        song->layers[0] = layerChannelBits(1);  // layer 0 = channel 1
         song->numLayers = 1;
         song->events[0].add(Command::gotoSection(1, Quantize::Now));
         song->events[1].add(Command::gotoSection(0, Quantize::Now));
@@ -93,16 +93,16 @@ TEST_CASE("Mappings: layer gain fades over the ramp time") {
     f.start();
 
     f.renderSamples(256);
-    CHECK(f.engine->channel(1).currentGain() == 0.0f);  // intensity 0 -> silent layer
-    CHECK(f.engine->channel(0).currentGain() == 1.0f);  // not in the layer
+    CHECK(f.engine->channel(1).layerGain(0) == 0.0f);  // intensity 0 -> silent layer
+    CHECK(f.engine->channel(0).layerGain(0) == 1.0f);  // not in the layer
 
     f.engine->post(Command::setParam(Fixture::kIntensity, 1.0f));
     f.renderSamples(2400 + 250);  // the command lands on the next tick
-    const float mid = f.engine->channel(1).currentGain();
+    const float mid = f.engine->channel(1).layerGain(0);
     CHECK(mid > 0.3f);
     CHECK(mid < 0.7f);
     f.renderSamples(4800);
-    CHECK(f.engine->channel(1).currentGain() == 1.0f);
+    CHECK(f.engine->channel(1).layerGain(0) == 1.0f);
 }
 
 TEST_CASE("Mappings: channel cutoff and master cutoff follow a parameter") {

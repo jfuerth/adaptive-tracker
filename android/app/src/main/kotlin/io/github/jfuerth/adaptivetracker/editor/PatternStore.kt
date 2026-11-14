@@ -18,7 +18,12 @@ data class PatternInfo(
     val mode: PitchMode,
     /** Effect ticks per beat (the engine's clock). */
     val ticksPerBeat: Int,
+    /** How each column's notes are read (empty: all [mode]). */
+    val columnModes: List<PitchMode> = emptyList(),
 ) {
+    /** How [column]'s notes are read. */
+    fun modeOf(column: Int): PitchMode = columnModes.getOrElse(column) { mode }
+
     /** True for a row during which a beat starts (every row when the speed is unknown). */
     fun isBeat(row: Int): Boolean {
         if (ticksPerBeat <= 0 || ticksPerRow <= 0) return true
@@ -117,6 +122,10 @@ object PatternStore {
     fun removeColumn(channel: Int, column: Int): Boolean =
         changed(NativeAudio.removeColumn(channel, column)) { forgetChannel(channel) }
 
+    /** [channel]'s [column] reads notes in [mode]; its notes are rewritten to sound the same. */
+    fun setColumnPitch(channel: Int, column: Int, mode: PitchMode): Boolean =
+        changed(NativeAudio.setColumnPitch(channel, column, mode.ordinal)) { forgetChannel(channel) }
+
     private inline fun changed(ok: Boolean, forget: () -> Unit): Boolean {
         if (ok) {
             forget()
@@ -131,7 +140,9 @@ object PatternStore {
 
     private fun load(index: Int): Loaded? {
         val raw = NativeAudio.getPatternInfo(index) ?: return null
-        val info = PatternInfo(raw[0], raw[1], raw[2], raw[3], PitchMode.entries[raw[4]], ticksPerBeat)
+        val settings = NativeAudio.getColumnSettings(raw[0])
+        val modes = (0 until raw[3]).map { PitchMode.entries[settings.getOrElse(it * 3) { raw[4] }] }
+        val info = PatternInfo(raw[0], raw[1], raw[2], raw[3], PitchMode.entries[raw[4]], ticksPerBeat, modes)
         val bytes = NativeAudio.readPattern(index) ?: return null
         val cells = mutableStateListOf<CellData>()
         for (i in 0 until info.rows * info.columns) cells.add(CellData.fromBytes(bytes, i * 5))

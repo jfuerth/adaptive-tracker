@@ -217,6 +217,7 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
 
     var editingShape by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf<Int?>(null) }
+    var settingsFor by remember { mutableStateOf<Int?>(null) }
     val channelName = Song.channels.getOrElse(info.channel) { NativeAudio.getChannelName(info.channel) }
 
     if (editingShape) ShapeDialog(pattern, onDone = { change ->
@@ -226,6 +227,9 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
             PatternStore.setShape(patternIndex, change.rows, change.ticksPerRow)
         }
     })
+    settingsFor?.let { c ->
+        ColumnSettingsDialog(info.channel, c, channelName, onDone = { settingsFor = null })
+    }
     confirmClear?.let { c ->
         AlertDialog(
             onDismissRequest = { confirmClear = null },
@@ -311,6 +315,7 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
             info, channelName, column, columnWidth,
             onSelect = { c -> column = c; anchor = null },
             onShape = { editingShape = true },
+            onSettings = { c -> settingsFor = c },
             onClear = { c -> confirmClear = c },
             onAdd = {
                 if (PatternStore.setColumns(info.channel, info.columns + 1)) InstrumentStore.columnsChanged()
@@ -392,7 +397,7 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
             alt -> "Drag the keyboard to move it · Del goes up; hold it to clear to the top"
             field.isVolume -> if (cell.volume == CellData.VOLUME_DEFAULT) "Volume · default (full)"
                 else "Volume · ${cell.volume}/127"
-            else -> EffectDescription.describe(cell, info.mode, Song.events, NativeAudio::effectValue, info.ticksPerBeat)
+            else -> EffectDescription.describe(cell, info.modeOf(column), Song.events, NativeAudio::effectValue, info.ticksPerBeat)
         }
         // Help line, with an Alt key at each end over the 0 and 7 keys, under the thumbs.
         Row(
@@ -435,7 +440,7 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
         val root = currentKey.root
         NoteKeyboard(
             firstNote = firstNote,
-            dimNote = { n -> info.mode == PitchMode.DEGREE && !Pitch.inScale(scale, n - root) },
+            dimNote = { n -> info.modeOf(column) == PitchMode.DEGREE && !Pitch.inScale(scale, n - root) },
             onNoteDown = { n ->
                 val free = slots.indexOfFirst { it == null }
                 if (free >= 0) {
@@ -451,7 +456,7 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
                 }
             },
             onChord = { keys ->
-                Editing.chordCell(keys, info.mode, ctx, currentCell())?.let {
+                Editing.chordCell(keys, info.modeOf(column), ctx, currentCell())?.let {
                     write(it)
                     advance()
                 }
@@ -517,6 +522,7 @@ private fun ColumnHeadings(
     columnWidth: Dp,
     onSelect: (Int) -> Unit,
     onShape: () -> Unit,
+    onSettings: (Int) -> Unit,
     onClear: (Int) -> Unit,
     onAdd: () -> Unit,
     onRemove: (Int) -> Unit,
@@ -565,6 +571,10 @@ private fun ColumnHeadings(
                         )
                     }
                     HorizontalDivider()
+                    DropdownMenuItem(text = { Text("Column ${c + 1} settings…") }, onClick = {
+                        open = false
+                        onSettings(c)
+                    })
                     DropdownMenuItem(text = { Text("Clear column ${c + 1}…") }, onClick = {
                         open = false
                         onClear(c)
@@ -784,7 +794,7 @@ private fun PatternRow(
                 )
             }
             Row(Modifier.padding(start = 6.dp).width(columnWidth)) {
-                part(CellFormat.note(cell, info.mode, ctx), Field.NOTE)
+                part(CellFormat.note(cell, info.modeOf(c), ctx), Field.NOTE)
                 Text(" ", style = MONO)
                 val vol = CellFormat.volume(cell)
                 part(vol.substring(0, 1), Field.VOLUME_HI)

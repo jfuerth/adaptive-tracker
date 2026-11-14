@@ -103,6 +103,7 @@ public:
         filter_.setMode(synth::BiquadFilter::Mode::LOWPASS);
         filter_.setQ(0.707f);
         filter_.setCutoff(20000.0f);
+        for (auto& g : layerGains_) g.reset(1.0f);
     }
 
     /**
@@ -140,17 +141,29 @@ public:
     bool isOneShot() const { return isPlaying() && !loop_; }
 
     /**
-     * Musical mute: while muted, rows trigger no new notes (note-offs still
-     * apply) and the sequence keeps its position, so unmuting resumes in time.
-     * Muting releases sounding notes, which fade out with their own release.
+     * Musical mute, per column (bit c = column c): a muted column triggers no
+     * new notes (note-offs still apply) and the sequence keeps its position,
+     * so unmuting resumes in time. Muting releases sounding notes, which fade
+     * out with their own release.
      */
-    void setMuted(bool muted) {
-        if (muted && !muted_) {
-            for (auto& v : voices_) v.release();
+    void setMutedColumns(uint32_t mask) {
+        for (uint32_t c = 0; c < config::kMaxColumns; ++c) {
+            if ((mask & ~mutedColumns_) & (1u << c)) voices_[c].release();
         }
-        muted_ = muted;
+        mutedColumns_ = mask;
     }
-    bool isMuted() const { return muted_; }
+    void setMuted(bool muted) { setMutedColumns(muted ? kAllColumns : 0u); }
+    uint32_t mutedColumns() const { return mutedColumns_; }
+    /// True if every column is muted.
+    bool isMuted() const { return (mutedColumns_ & kAllColumns) == kAllColumns; }
+
+    /**
+     * Columns whose gate is open (bit c = column c). A closed column starts
+     * no new notes, but lets sounding ones finish; it comes back in with its
+     * next note. Used for parameter thresholds (Song::setColumnGate).
+     */
+    void setOpenColumns(uint32_t mask) { openColumns_ = mask; }
+    uint32_t openColumns() const { return openColumns_; }
 
     /// Columns that are heard (bit 0 = column 0). The others keep playing
     /// silently, so switching columns doesn't freeze them mid-note. Used to
@@ -158,25 +171,34 @@ public:
     void setColumnMask(uint32_t mask) { columnMask_ = mask; }
     uint32_t columnMask() const { return columnMask_; }
 
-    void setPitchMode(PitchMode mode) { pitchMode_ = mode; }
-    PitchMode pitchMode() const { return pitchMode_; }
+    /// How every column's notes are read.
+    void setPitchMode(PitchMode mode) {
+        for (auto& m : pitchModes_) m = mode;
+    }
+    void setPitchMode(uint32_t column, PitchMode mode) {
+        if (column < config::kMaxColumns) pitchModes_[column] = mode;
+    }
+    PitchMode pitchMode(uint32_t column = 0) const {
+        return column < config::kMaxColumns ? pitchModes_[column] : PitchMode::Absolute;
+    }
 
     /// Strip gain (1 = unity), applied immediately.
     void setGain(float gain) { setGain(gain, 0); }
     /// Strip gain, gliding over `rampSamples` samples.
     void setGain(float gain, uint32_t rampSamples) {
         stripGain_ = gain;
-        gainRamp_.set(stripGain_ * layerGain_, rampSamples);
+        gainRamp_.set(stripGain_, rampSamples);
     }
     float gain() const { return stripGain_; }
 
-    /// Combined gain of the layers this channel belongs to; multiplies the strip gain.
-    void setLayerGain(float gain, uint32_t rampSamples) {
-        layerGain_ = gain;
-        gainRamp_.set(stripGain_ * layerGain_, rampSamples);
+    /// Combined gain of the layers a column belongs to; multiplies its voice.
+    void setLayerGain(uint32_t column, float gain, uint32_t rampSamples) {
+        if (column < config::kMaxColumns) layerGains_[column].set(gain, rampSamples);
     }
-    /// The gain being applied right now (strip x layers, mid-glide if fading).
+    /// The strip gain being applied right now (mid-glide if fading).
     float currentGain() const { return gainRamp_.value(); }
+    /// A column's layer gain right now.
+    float layerGain(uint32_t column) const { return column < config::kMaxColumns ? layerGains_[column].value() : 0.0f; }
 
     /// Channel low-pass filter cutoff in Hz, gliding over `rampSamples`.
     /// At or above kFilterBypassHz the filter is off.
@@ -335,23 +357,29 @@ private:
         for (uint32_t c = 0; c < numColumns_; ++c) any = any || voices_[c].isActive();
         if (!any) {
             gainRamp_.advance(n);
+            for (auto& g : layerGains_) g.advance(n);
             advanceCutoff(n);
             return;
         }
 
         for (uint32_t i = 0; i < n; ++i) scratch_[i] = 0.0f;
-        for (uint32_t c = 0; c < numColumns_; ++c) {
+        for (uint32_t c = 0; c < config::kMaxColumns; ++c) {
             synth::WavetableSynth& v = voices_[c];
-            if (!v.isActive()) continue;
+            Ramp& g = layerGains_[c];
+            if (c >= numColumns_ || !v.isActive()) {
+                g.advance(n);
+                continue;
+            }
             if ((columnMask_ & tapColumns) & (1u << c)) {
                 for (uint32_t i = 0; i < n; ++i) {
-                    const float x = v.nextSample(timer_);
+                    const float x = v.nextSample(timer_) * g.next();
                     scratch_[i] += x;
                     tap[i] += x;
                 }
             } else if (columnMask_ & (1u << c)) {
-                for (uint32_t i = 0; i < n; ++i) scratch_[i] += v.nextSample(timer_);
+                for (uint32_t i = 0; i < n; ++i) scratch_[i] += v.nextSample(timer_) * g.next();
             } else {
+                g.advance(n);
                 for (uint32_t i = 0; i < n; ++i) v.nextSample(timer_);  // keep time, stay silent
             }
         }
@@ -508,8 +536,8 @@ private:
             break;
         }
 
-        if (cell.isNote() && !muted_) {
-            const float p = static_cast<float>(resolvePitch(pitchMode_, cell.note, cell.accidental, ctx));
+        if (cell.isNote() && plays(c)) {
+            const float p = static_cast<float>(resolvePitch(pitchModes_[c], cell.note, cell.accidental, ctx));
             s.lastNote = cell.note;
             s.lastAccidental = cell.accidental;
             if (cell.effect == fx::kTonePorta && v.isActive()) {
@@ -519,7 +547,9 @@ private:
                 s.volume = cell.volume == Cell::kVolumeDefault ? 1.0f : cell.volume / 127.0f;
                 v.trigger(midiNoteToHz(p), s.volume);
             }
-        } else if (cell.isOff()) {
+        } else if (cell.isOff() || cell.isNote()) {
+            // A note-off, or a note this column may not play (gate closed or
+            // muted): what was sounding ends here, on the note's boundary.
             v.release();
         }
 
@@ -530,7 +560,7 @@ private:
 
         switch (cell.effect) {
         case fx::kArpeggio:
-            computeArpeggio(s, ctx);
+            computeArpeggio(s, pitchModes_[c], ctx);
             break;
         case fx::kFilterCutoff:
             v.setBaseCutoff(fxmap::cutoffHz(cell.effectParam));
@@ -567,11 +597,11 @@ private:
 
     /// Arpeggio offsets from the column's last note. In Degree mode x and y are
     /// scale steps, so 0x24 plays a triad of whatever scale is current.
-    void computeArpeggio(ColumnState& s, const PitchContext& ctx) const {
+    void computeArpeggio(ColumnState& s, PitchMode mode, const PitchContext& ctx) const {
         const int x = s.effectParam >> 4;
         const int y = s.effectParam & 0x0F;
         s.arpOffset[0] = 0;
-        if (pitchMode_ == PitchMode::Degree && s.lastNote <= 127) {
+        if (mode == PitchMode::Degree && s.lastNote <= 127) {
             const int octave = s.lastNote / 12;
             const int degree = s.lastNote % 12;
             const int base = resolveDegree(octave, degree, s.lastAccidental, ctx);
@@ -650,9 +680,13 @@ private:
     uint32_t entryIndex_ = 0;
     uint32_t numColumns_ = 1;
     bool loop_ = true;
-    bool muted_ = false;
+    static constexpr uint32_t kAllColumns = (1u << config::kMaxColumns) - 1u;
+    /// Starts new notes: not muted, and its gate is open.
+    bool plays(uint32_t c) const { return ((openColumns_ & ~mutedColumns_) >> c) & 1u; }
+    uint32_t mutedColumns_ = 0;
+    uint32_t openColumns_ = ~0u;
     uint32_t columnMask_ = ~0u;
-    PitchMode pitchMode_ = PitchMode::Absolute;
+    PitchMode pitchModes_[config::kMaxColumns] = {};
 
     // Channel strip.
     synth::BiquadFilter filter_;
@@ -660,7 +694,7 @@ private:
     Ramp cutoffLog2_;  ///< log2(cutoff Hz); moves once per kCutoffBlock samples
     uint32_t cutoffPhase_ = 0;
     float stripGain_ = 1.0f;
-    float layerGain_ = 1.0f;
+    Ramp layerGains_[config::kMaxColumns];  ///< 1 until a layer gain mapping says otherwise
     float scratch_[kScratchFrames] = {};
 };
 

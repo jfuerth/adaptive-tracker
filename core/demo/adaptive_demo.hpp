@@ -210,9 +210,9 @@ private:
         song_.numSections = 3;
 
         // ---- Layers ----
-        song_.layers[kRhythmLayer] = (1u << kArp) | (1u << kDrums);
-        song_.layers[kMelodyLayer] = 1u << kLead;
-        song_.layers[kPadLayer] = 1u << kPad;
+        song_.layers[kRhythmLayer] = layerChannelBits(kArp) | layerChannelBits(kDrums);
+        song_.layers[kMelodyLayer] = layerChannelBits(kLead);
+        song_.layers[kPadLayer] = layerChannelBits(kPad);
         song_.numLayers = 3;
 
         // ---- Events ----

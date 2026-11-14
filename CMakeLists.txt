@@ -50,7 +50,8 @@ if(ADAPTIVE_BUILD_HOST_TOOLS)
         core/tests/test_inspect.cpp
         core/tests/test_songfile.cpp
         core/tests/test_pattern_edits.cpp
-        core/tests/test_song_edits.cpp)
+        core/tests/test_song_edits.cpp
+        core/tests/test_columns.cpp)
     find_package(Threads REQUIRED)
     target_link_libraries(adaptive_tests PRIVATE Threads::Threads)
     target_link_libraries(adaptive_tests PRIVATE adaptive_demo adaptive_songfile)

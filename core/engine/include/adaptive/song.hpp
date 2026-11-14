@@ -28,7 +28,7 @@ enum class Entry : uint8_t {
 inline constexpr uint8_t kNoIndex = 0xFF;
 
 /// What Command::added made available.
-enum class Addition : uint8_t { Pattern, Channel, Section };
+enum class Addition : uint8_t { Pattern, Channel, Section, Layer };
 
 /// Parts of a cell, as bits (Command::clearCells, Song::clearCells).
 inline constexpr uint8_t kCellNote = 1;    ///< note and accidental
@@ -81,6 +81,10 @@ struct Command {
         Added,        ///< item b of kind a (an Addition), already written past the end, now counts
         EditSequence, ///< section a, channel b: SeqEdit `parts` at entry data&0xFF, pattern data>>8
         SetSection,   ///< section a: beats per bar b, tempo `value` BPM (0: keep), bridge beats `data`
+        SetColumnPitch, ///< channel a, column b reads notes in PitchMode `data` (cells converted)
+        SetColumnGate,  ///< channel a, column b: gated by parameter `data` (kNoIndex: none) at `value`
+        SetLayerColumns,///< layer a: channel b's columns are the bits of `data`
+        RemoveLayer,    ///< take out layer a (and what refers to it)
         SetColumns,   ///< channel a gets b columns; see Song::setColumns
         RemoveColumn, ///< remove channel a's column b; see Song::removeColumn
     };
@@ -187,6 +191,19 @@ struct Command {
     static constexpr Command setSection(uint8_t section, float bpm, uint8_t beatsPerBar, uint16_t bridgeBeats) {
         return Command{Kind::SetSection, Quantize::Now, Entry::Restart, section, beatsPerBar, bpm, bridgeBeats};
     }
+    static constexpr Command setColumnPitch(uint8_t channel, uint8_t column, PitchMode mode) {
+        return Command{Kind::SetColumnPitch, Quantize::Now, Entry::Restart, channel, column, 0.0f,
+                       static_cast<uint16_t>(mode)};
+    }
+    static constexpr Command setColumnGate(uint8_t channel, uint8_t column, uint8_t param, float threshold) {
+        return Command{Kind::SetColumnGate, Quantize::Now, Entry::Restart, channel, column, threshold, param};
+    }
+    static constexpr Command setLayerColumns(uint8_t layer, uint8_t channel, uint16_t columnBits) {
+        return Command{Kind::SetLayerColumns, Quantize::Now, Entry::Restart, layer, channel, 0.0f, columnBits};
+    }
+    static constexpr Command removeLayer(uint8_t layer) {
+        return Command{Kind::RemoveLayer, Quantize::Now, Entry::Restart, layer, 0};
+    }
     static constexpr Command scaleRows(uint8_t pattern, uint8_t num, uint16_t den) {
         return Command{Kind::ScaleRows, Quantize::Now, Entry::Restart, num, pattern, 0.0f, den};
     }
@@ -258,15 +275,35 @@ struct Event {
 /// How a channel plays: its pitch mode, how many columns (voices) it has,
 /// and each column's instrument.
 struct ChannelSetup {
-    PitchMode pitchMode = PitchMode::Absolute;
     uint8_t numColumns = 1;
     /// Song instrument per column; kNoIndex leaves the voice as it is.
     uint8_t instruments[config::kMaxColumns];
+    /// How each column's notes are read.
+    PitchMode pitchModes[config::kMaxColumns];
+    /// Per column: the parameter that gates it (kNoIndex: it always plays),
+    /// and the value it must be at least for the column to start notes.
+    uint8_t gateParams[config::kMaxColumns];
+    float gateThresholds[config::kMaxColumns];
 
     ChannelSetup() {
-        for (auto& i : instruments) i = kNoIndex;
+        for (uint32_t c = 0; c < config::kMaxColumns; ++c) {
+            instruments[c] = kNoIndex;
+            pitchModes[c] = PitchMode::Absolute;
+            gateParams[c] = kNoIndex;
+            gateThresholds[c] = 0.0f;
+        }
     }
 };
+
+/// A layer's bit for a channel's column (Song::layers).
+constexpr uint32_t layerBit(uint32_t channel, uint32_t column) {
+    return 1u << (channel * config::kMaxColumns + column);
+}
+/// All of a channel's columns in a layer mask.
+constexpr uint32_t layerChannelBits(uint32_t channel) {
+    return ((1u << config::kMaxColumns) - 1u) << (channel * config::kMaxColumns);
+}
+static_assert(config::kMaxChannels * config::kMaxColumns <= 32, "layers are 32-bit masks of columns");
 
 /**
  * Everything the engine plays, as plain data with fixed capacities. Parts
@@ -290,7 +327,7 @@ struct Song {
     Section sections[config::kMaxSections] = {};
     uint8_t numSections = 0;
 
-    /// Each layer is a bitmask of channels, muted and unmuted together.
+    /// Each layer is a bitmask of columns (layerBit), muted and unmuted together.
     uint32_t layers[config::kMaxLayers] = {};
     uint8_t numLayers = 0;
 
@@ -307,6 +344,9 @@ struct Song {
 
     /// Synth patches; channels choose one per column.
     Instrument instruments[config::kMaxInstruments] = {};
+    /// Editing hint per instrument: the PitchMode a column switches to when
+    /// given this instrument (kNoIndex: none). The engine doesn't use it.
+    uint8_t instrumentPitch[config::kMaxInstruments] = {};
     uint8_t numInstruments = 0;
 
     /// Add a channel; returns its index, or kNoIndex when the table is full.
@@ -314,7 +354,7 @@ struct Song {
         if (numChannels >= config::kMaxChannels) return kNoIndex;
         ChannelSetup& c = channels[numChannels];
         c = ChannelSetup();
-        c.pitchMode = mode;
+        for (auto& m : c.pitchModes) m = mode;
         c.numColumns = numColumns < 1 ? 1 : (numColumns > config::kMaxColumns ? config::kMaxColumns : numColumns);
         return numChannels++;
     }
@@ -376,10 +416,116 @@ struct Song {
         return true;
     }
 
+    /**
+     * `channel`'s `column` reads its notes in `mode` from now on. Notes
+     * already written in it, in all the channel's patterns, are rewritten so
+     * they sound the same in the home key (fixed and key-following notes are
+     * the same numbers; degrees go to and from MIDI notes). Arpeggio steps
+     * aren't changed. A note with no equivalent (out of range) stays as it is.
+     */
+    bool setColumnPitch(uint32_t channel, uint32_t column, PitchMode mode) {
+        if (channel >= numChannels || column >= config::kMaxColumns || static_cast<uint32_t>(mode) > 2) return false;
+        PitchMode& current = channels[channel].pitchModes[column];
+        const bool fromDegree = current == PitchMode::Degree;
+        const bool toDegree = mode == PitchMode::Degree;
+        if (fromDegree != toDegree) {
+            PitchContext home;
+            home.home = home.current = homeKey;
+            for (uint32_t p = 0; p < numPatterns; ++p) {
+                if (patterns[p].channel != channel) continue;
+                for (uint32_t r = 0; r < config::kMaxRows; ++r) {
+                    Cell& cell = patterns[p].cells[r][column];
+                    if (!cell.isNote()) continue;
+                    if (toDegree) {
+                        uint8_t note = 0;
+                        int8_t accidental = 0;
+                        if (encodeDegree(cell.note, homeKey, note, accidental)) {
+                            cell.note = note;
+                            cell.accidental = accidental;
+                        }
+                    } else {
+                        cell.note = static_cast<uint8_t>(resolvePitch(PitchMode::Degree, cell.note, cell.accidental, home));
+                        cell.accidental = 0;
+                    }
+                }
+            }
+        }
+        current = mode;
+        return true;
+    }
+
+    /// Gate `channel`'s `column` on parameter `param` (kNoIndex: always plays) at `threshold` (0..1).
+    bool setColumnGate(uint32_t channel, uint32_t column, uint32_t param, float threshold) {
+        if (channel >= numChannels || column >= config::kMaxColumns || (param != kNoIndex && param >= numParams) ||
+            !(threshold >= 0.0f && threshold <= 1.0f)) {
+            return false;
+        }
+        channels[channel].gateParams[column] = static_cast<uint8_t>(param);
+        channels[channel].gateThresholds[column] = threshold;
+        return true;
+    }
+
+    /// True if `column` of `channel` may start notes with parameters `values`.
+    bool gateOpen(uint32_t channel, uint32_t column, const float* values) const {
+        const uint8_t p = channels[channel].gateParams[column];
+        return p >= numParams || values[p] >= channels[channel].gateThresholds[column];
+    }
+
+    /// Add an empty layer; returns its index, or kNoIndex when full.
+    uint8_t addLayer() {
+        if (numLayers >= config::kMaxLayers) return kNoIndex;
+        layers[numLayers] = 0;
+        return numLayers++;
+    }
+
+    /// Layer `layer` holds the columns of `channel` in `columnBits` (bit c = column c), and its other channels' as before.
+    bool setLayerColumns(uint32_t layer, uint32_t channel, uint32_t columnBits) {
+        if (layer >= numLayers || channel >= config::kMaxChannels || columnBits >= (1u << config::kMaxColumns)) {
+            return false;
+        }
+        layers[layer] = (layers[layer] & ~layerChannelBits(channel)) | (columnBits << (channel * config::kMaxColumns));
+        return true;
+    }
+
+    /**
+     * Take out layer `layer`. Mappings that drive it and event actions that
+     * mute it go too; later layers move down one.
+     */
+    bool removeLayer(uint32_t layer) {
+        if (layer >= numLayers) return false;
+        for (uint32_t l = layer; l + 1 < numLayers; ++l) layers[l] = layers[l + 1];
+        layers[--numLayers] = 0;
+        uint8_t kept = 0;
+        for (uint8_t i = 0; i < numMappings; ++i) {
+            Mapping m = mappings[i];
+            if (m.target == Mapping::Target::LayerGain) {
+                if (m.index == layer) continue;
+                if (m.index > layer) --m.index;
+            }
+            mappings[kept++] = m;
+        }
+        numMappings = kept;
+        for (uint8_t e = 0; e < numEvents; ++e) {
+            Event& ev = events[e];
+            uint8_t n = 0;
+            for (uint8_t a = 0; a < ev.numActions; ++a) {
+                Command c = ev.actions[a];
+                if (c.kind == Command::Kind::SetLayerMute) {
+                    if (c.a == layer) continue;
+                    if (c.a > layer) --c.a;
+                }
+                ev.actions[n++] = c;
+            }
+            ev.numActions = n;
+        }
+        return true;
+    }
+
     /// Add an instrument; returns its index, or kNoIndex when the table is full.
     uint8_t addInstrument(const Instrument& i) {
         if (numInstruments >= config::kMaxInstruments) return kNoIndex;
         instruments[numInstruments] = i;
+        instrumentPitch[numInstruments] = kNoIndex;
         return numInstruments++;
     }
     /// Use instrument `index` on every column of `channel`.

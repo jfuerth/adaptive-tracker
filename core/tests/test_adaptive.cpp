@@ -41,7 +41,7 @@ struct Fixture {
         song->sections[kBridge].bridgeBeats = 2;
         song->numSections = 3;
 
-        song->layers[0] = (1u << 1) | (1u << 2);  // the "bass" layer: channels 1 and 2
+        song->layers[0] = layerChannelBits(1) | layerChannelBits(2);  // the "bass" layer: channels 1 and 2
         song->numLayers = 1;
 
         stinger = song->addPattern(kStingerChannel, 2, 24);

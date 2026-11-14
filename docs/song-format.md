@@ -14,6 +14,9 @@ freely without breaking saved songs.
 
 - `format` is always `"adaptive-tracker-song"`; `version` is a whole number.
   The app refuses a file with a higher version than it knows, saying so.
+  Writers use the lowest version that reads the file correctly: 2 when a
+  column's `pitch` differs from its channel's or a layer lists `columns`,
+  otherwise 1.
 - Readers ignore fields they don't know, so newer files that only add
   fields still load in older apps. Additions that older apps may safely
   ignore don't change `version`; anything else does.
@@ -40,7 +43,7 @@ freely without breaking saved songs.
 | `channels` | list | each with its columns and its patterns |
 | `params` | list | values the app sets, 0..1 |
 | `sections` | list | which patterns each channel plays |
-| `layers` | list | groups of channels muted together |
+| `layers` | list | groups of columns (whole channels, or single columns) muted together |
 | `events` | list | named triggers and what they do |
 | `mappings` | list | how parameters drive the music |
 
@@ -56,6 +59,9 @@ or `b`. Scales are `major`, `minor`, `harmonicMinor`, `dorian`, `phrygian`,
 ```json
 {"id": "bass", "name": "Bass", "voice": "subtractive", "params": {"shape": 0, "cutoff": 320, "resonance": 3, ...}}
 ```
+
+`pitch` (optional) is a hint for editing: a column given this instrument
+switches to that pitch mode (see channels). Playback ignores it.
 
 `voice` is the kind of sound source; it decides what `params` means. A
 reader refuses a voice it doesn't know ("needs a newer version") rather than
@@ -89,7 +95,12 @@ Hz, seconds, 0..1. Values outside the synth's range are errors.
 - `pitch`: `absolute` (MIDI notes that never move), `transpose` (notes that
   follow key changes), or `degree` (scale degrees, resolved against the key).
 - `columns`: one per voice, 1 to 4; each may name an `instrument`. The
-  number of columns is the channel's; all its patterns have that many.
+  number of columns is the channel's; all its patterns have that many. A
+  column may have its own `pitch` (default: the channel's), which decides
+  how its cells' notes are written. `"playsWhen": {"param": "intensity",
+  "atLeast": 0.5}` gates the column: while the parameter is below the
+  value, the column starts no new notes (what's sounding ends at its next
+  note). Absent: it always plays.
 - A pattern belongs to its channel. `rows`: 1 to 256. `ticksPerRow` (speed):
   effect ticks per row, 24 per beat, so 6 is four rows per beat, 12 two, 24
   one; values that don't divide 24 (like 5) are fine. Slides, sweeps and
@@ -132,7 +143,8 @@ destination starts.
 
 ```json
 "params": [{"id": "danger", "name": "Danger", "initial": 0}],
-"layers": [{"id": "rhythm", "name": "Rhythm", "channels": ["arp", "drums"]}],
+"layers": [{"id": "rhythm", "name": "Rhythm", "channels": ["arp", "drums"],
+            "columns": [{"channel": "pad", "column": 2}]}],
 "events": [{"id": "alarm", "name": "Alarm", "actions": [
   {"type": "gotoSection", "section": "combat", "when": "now"},
   {"type": "playStinger", "pattern": "hit-stinger", "when": "now"}

@@ -131,7 +131,7 @@ TEST_CASE("Song file: degree cells and custom scales") {
 TEST_CASE("Song file: errors say what is wrong and where") {
     CHECK(loadError("{") .find("parse error") != std::string::npos);
     CHECK(loadError(R"({"format": "something-else", "version": 1})") == "format: expected \"adaptive-tracker-song\"");
-    CHECK(loadError(demoWith(R"("version": 1)", R"("version": 2)")).find("newer version of the app") !=
+    CHECK(loadError(demoWith(R"("version": 1)", R"("version": 3)")).find("newer version of the app") !=
           std::string::npos);
     CHECK(loadError(demoWith(R"("lead": ["explore-lead"])", R"("lead": ["explore-bass"])")) ==
           "sections[0].channels.lead[0]: pattern 'explore-bass' belongs to channel 'bass'");

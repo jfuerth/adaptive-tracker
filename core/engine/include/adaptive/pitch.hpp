@@ -137,6 +137,41 @@ constexpr int resolveDegree(int octave, int degree, int accidental, const PitchC
     return detail::clampMidi(base + semitones + accidental);
 }
 
+/**
+ * The scale degree that plays MIDI note `midi` in `key` (the inverse of
+ * resolveDegree with no key change): the note byte (octave * 12 + degree)
+ * and an accidental of -1, 0 or 1. False if the note is out of range.
+ */
+constexpr bool encodeDegree(int midi, const Key& key, uint8_t& note, int8_t& accidental) {
+    const int offset = midi - 12 - key.root;  // semitones above the root of octave 0
+    int octave = detail::floorDiv(offset, 12);
+    const int pc = offset - 12 * octave;
+    const int size = scaleSize(key.scale);
+    // The scale note at or below, and the one above (the next octave's root past the top).
+    int below = 0;
+    int index = 0;
+    for (int i = 0; i < size; ++i) {
+        if (scaleNoteSemitones(key.scale, i) <= pc) {
+            below = scaleNoteSemitones(key.scale, i);
+            index = i;
+        }
+    }
+    int degree = index;
+    int acc = pc - below;
+    if (acc > 1) {  // nearer the next scale note: flatten it
+        degree = index + 1;
+        acc = pc - (index + 1 < size ? scaleNoteSemitones(key.scale, index + 1) : 12);
+        if (degree == size) {
+            degree = 0;
+            ++octave;
+        }
+    }
+    if (octave < 0 || octave * 12 + degree > 127 || acc < -1 || acc > 1) return false;
+    note = static_cast<uint8_t>(octave * 12 + degree);
+    accidental = static_cast<int8_t>(acc);
+    return true;
+}
+
 /// MIDI pitch for a note byte from a pattern cell, read according to `mode`.
 constexpr int resolvePitch(PitchMode mode, uint8_t note, int accidental, const PitchContext& ctx) {
     switch (mode) {
