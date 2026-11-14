@@ -19,9 +19,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -49,6 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import io.github.jfuerth.adaptivetracker.NativeAudio
@@ -89,7 +97,7 @@ private fun centeredRow(state: LazyListState): Int {
 @Composable
 fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
     var patternIndex by rememberSaveable { mutableIntStateOf(0) }
-    val pattern = remember(patternIndex) { PatternStore.get(patternIndex) }
+    val pattern = remember(patternIndex, PatternStore.shapes) { PatternStore.get(patternIndex) }
     if (pattern == null) {
         Text("This pattern could not be loaded.", modifier.padding(16.dp))
         return
@@ -192,6 +200,29 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
     val slots = remember { arrayOfNulls<Int>(4) }
     fun midiOf(key: Int) = ((octave + 1) * 12 + key).coerceIn(0, 127)
 
+    var editingShape by remember { mutableStateOf(false) }
+    var confirmClear by remember { mutableStateOf<Int?>(null) }
+    val channelName = remember(info.channel) { NativeAudio.getChannelName(info.channel) }
+
+    if (editingShape) ShapeDialog(info, onDone = { shape ->
+        editingShape = false
+        if (shape != null) PatternStore.setShape(patternIndex, shape.first, shape.second)
+    })
+    confirmClear?.let { c ->
+        AlertDialog(
+            onDismissRequest = { confirmClear = null },
+            title = { Text("Clear column ${c + 1}?") },
+            text = { Text("Empties all ${info.rows} rows of column ${c + 1} in ${PatternStore.names.getOrElse(patternIndex) { "this pattern" }}.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmClear = null
+                    PatternStore.clearColumn(patternIndex, c)
+                }) { Text("Clear") }
+            },
+            dismissButton = { TextButton(onClick = { confirmClear = null }) { Text("Cancel") } },
+        )
+    }
+
     Column(modifier.fillMaxSize()) {
         // ---- Top bar: pattern choice, shape, transport ----
         Row(
@@ -204,6 +235,14 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
                     Text("${PatternStore.names.getOrElse(patternIndex) { "?" }} ▾")
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(
+                        text = { Text("Length and speed…  (${info.rows} rows, speed ${info.ticksPerRow})") },
+                        onClick = {
+                            menuOpen = false
+                            editingShape = true
+                        },
+                    )
+                    HorizontalDivider()
                     PatternStore.names.forEachIndexed { i, name ->
                         val shape = PatternStore.get(i)?.info?.let { " · ${it.rows} rows, speed ${it.speedLabel}" } ?: ""
                         DropdownMenuItem(text = { Text(name + shape) }, onClick = {
@@ -229,7 +268,20 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
         val columnWidth = remember(measurer, density) {
             with(density) { measurer.measure("C-4 .. ...", MONO).size.width.toDp() } + 12.dp
         }
-        ColumnHeadings(info, column, columnWidth, onSelect = { c -> column = c; anchor = null })
+        ColumnHeadings(
+            info, channelName, column, columnWidth,
+            onSelect = { c -> column = c; anchor = null },
+            onClear = { c -> confirmClear = c },
+            onAdd = {
+                if (PatternStore.setColumns(info.channel, info.columns + 1)) InstrumentStore.columnsChanged()
+            },
+            onRemove = { c ->
+                val remaining = info.columns - 1
+                if (column >= remaining) column = remaining - 1
+                anchor = null
+                if (PatternStore.removeColumn(info.channel, c)) InstrumentStore.columnsChanged()
+            },
+        )
 
         // ---- Pattern ----
         var viewportPx by remember { mutableIntStateOf(0) }
@@ -387,10 +439,21 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
 /**
  * One heading per column, lined up over the cells, naming the instrument the
  * column plays. Tapping a heading selects the column and offers the song's
- * instruments for it.
+ * instruments for it, and column actions. A "+" after the last adds a column.
+ * Columns belong to the channel, so adding or removing one changes all of
+ * the channel's patterns.
  */
 @Composable
-private fun ColumnHeadings(info: PatternInfo, selectedColumn: Int, columnWidth: Dp, onSelect: (Int) -> Unit) {
+private fun ColumnHeadings(
+    info: PatternInfo,
+    channelName: String,
+    selectedColumn: Int,
+    columnWidth: Dp,
+    onSelect: (Int) -> Unit,
+    onClear: (Int) -> Unit,
+    onAdd: () -> Unit,
+    onRemove: (Int) -> Unit,
+) {
     val colors = MaterialTheme.colorScheme
     val names = InstrumentStore.names
     InstrumentStore.assignments  // read, so a new assignment redraws the headings
@@ -422,8 +485,127 @@ private fun ColumnHeadings(info: PatternInfo, selectedColumn: Int, columnWidth: 
                             },
                         )
                     }
+                    HorizontalDivider()
+                    DropdownMenuItem(text = { Text("Clear column ${c + 1}…") }, onClick = {
+                        open = false
+                        onClear(c)
+                    })
+                    DropdownMenuItem(
+                        text = { Text("Remove column ${c + 1} from all $channelName patterns") },
+                        enabled = info.columns > 1,
+                        onClick = {
+                            open = false
+                            onRemove(c)
+                        },
+                    )
                 }
             }
+        }
+        if (info.columns < MAX_COLUMNS) {
+            var open by remember { mutableStateOf(false) }
+            Box(Modifier.padding(start = 6.dp)) {
+                Text(
+                    "+",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = colors.primary,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .clickable { open = true }
+                        .padding(horizontal = 8.dp, vertical = 2.dp),
+                )
+                DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                    DropdownMenuItem(text = { Text("Add a column to all $channelName patterns") }, onClick = {
+                        open = false
+                        onAdd()
+                    })
+                }
+            }
+        }
+    }
+}
+
+/** Columns a channel can have (the engine's kMaxColumns). */
+private const val MAX_COLUMNS = 4
+
+/** Speeds that divide a beat evenly, with what they're called. */
+private val SPEED_PRESETS = listOf(3 to "8/beat", 6 to "4/beat", 8 to "3/beat", 12 to "2/beat", 24 to "1/beat")
+
+/**
+ * Edits a pattern's length (rows) and speed (ticks per row). Returns the new
+ * (rows, ticksPerRow), or null if cancelled.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ShapeDialog(info: PatternInfo, onDone: (Pair<Int, Int>?) -> Unit) {
+    var rowsText by remember { mutableStateOf(info.rows.toString()) }
+    var speedText by remember { mutableStateOf(info.ticksPerRow.toString()) }
+    val rows = rowsText.toIntOrNull()?.takeIf { it in 1..256 }
+    val speed = speedText.toIntOrNull()?.takeIf { it in 1..255 }
+
+    AlertDialog(
+        onDismissRequest = { onDone(null) },
+        title = { Text("Length and speed") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Stepper("Rows (1–256)", rowsText, { rowsText = it }, rows, 1..256,
+                    listOf("−" to { v -> v - 1 }, "+" to { v -> v + 1 }, "÷2" to { v -> v / 2 }, "×2" to { v -> v * 2 }))
+                Stepper("Speed: ticks per row (${info.ticksPerBeat} per beat)", speedText, { speedText = it }, speed,
+                    1..255, listOf("−" to { v -> v - 1 }, "+" to { v -> v + 1 }))
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    SPEED_PRESETS.forEach { (tpr, label) ->
+                        FilterChip(selected = speed == tpr, onClick = { speedText = tpr.toString() }, label = { Text(label) })
+                    }
+                }
+                if (rows != null && speed != null && info.ticksPerBeat > 0) {
+                    val beats = "%.2f".format(rows * speed / info.ticksPerBeat.toFloat()).trimEnd('0').trimEnd('.')
+                    Text(
+                        "Speed ${info.copy(ticksPerRow = speed).speedLabel} · $beats beats long",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                if (rows != null && rows < info.rows) {
+                    Text(
+                        "Rows past the new end are hidden, not deleted, while the app stays open: make the pattern longer again to bring them back. Saved songs leave them out.",
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { if (rows != null && speed != null) onDone(rows to speed) },
+                enabled = rows != null && speed != null,
+            ) { Text("Set") }
+        },
+        dismissButton = { TextButton(onClick = { onDone(null) }) { Text("Cancel") } },
+    )
+}
+
+/** A number field with buttons that change it ([steps]: label to new value), kept within [range]. */
+@Composable
+private fun Stepper(
+    label: String,
+    text: String,
+    onText: (String) -> Unit,
+    value: Int?,
+    range: IntRange,
+    steps: List<Pair<String, (Int) -> Int>>,
+) {
+    Text(label, style = MaterialTheme.typography.labelLarge)
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        OutlinedTextField(
+            text,
+            onValueChange = { t -> onText(t.filter { it.isDigit() }.take(3)) },
+            singleLine = true,
+            isError = value == null,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            modifier = Modifier.width(80.dp),
+        )
+        steps.forEach { (name, f) ->
+            TextButton(
+                onClick = { onText(f(value ?: range.first).coerceIn(range).toString()) },
+                contentPadding = PaddingValues(horizontal = 6.dp),
+            ) { Text(name) }
         }
     }
 }

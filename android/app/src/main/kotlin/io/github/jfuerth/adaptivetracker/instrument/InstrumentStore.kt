@@ -81,6 +81,11 @@ object InstrumentStore {
         return generateSequence(2) { it + 1 }.map { "$base $it" }.first { it !in names }
     }
 
+    /** Columns were added or removed: views showing assignments should look again. */
+    fun columnsChanged() {
+        assignments++
+    }
+
     /** [channel]'s [column] plays instrument [index] from now on. */
     fun assign(channel: Int, column: Int, index: Int) {
         if (NativeAudio.assignInstrument(channel, column, index)) assignments++

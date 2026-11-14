@@ -387,6 +387,30 @@ private:
         case Command::Kind::SetMonitor:
             monitor_ = c.a;
             break;
+        case Command::Kind::SetPatternShape:
+            if (song_ != nullptr && song_->setPatternShape(c.b, c.data, c.a)) {
+                for (auto& ch : channels_) ch.patternChanged(&song_->patterns[c.b], tick);
+            }
+            break;
+        case Command::Kind::ClearColumn:
+            if (song_ != nullptr) song_->clearColumn(c.b, c.a);
+            break;
+        case Command::Kind::SetColumns:
+            if (song_ != nullptr && c.a < song_->numChannels) {
+                const uint32_t before = song_->channels[c.a].numColumns;
+                if (song_->setColumns(c.a, c.b)) {
+                    channels_[c.a].setNumColumns(c.b);
+                    applyColumnInstruments(c.a, before);
+                }
+            }
+            break;
+        case Command::Kind::RemoveColumn:
+            if (song_ != nullptr && song_->removeColumn(c.a, c.b)) {
+                channels_[c.a].setNumColumns(song_->channels[c.a].numColumns);
+                channels_[c.a].releaseFrom(c.b);  // their cells moved; start them afresh
+                applyColumnInstruments(c.a, c.b);
+            }
+            break;
         case Command::Kind::FireEvent:  // expanded in schedule()
         case Command::Kind::None:
             break;
@@ -395,6 +419,14 @@ private:
 
     /// Push an edited parameter to every voice using instrument `index`,
     /// including previews, so a held note changes as the control moves.
+    /// Set the voices of `channel`'s columns from `from` onward to their instruments.
+    void applyColumnInstruments(uint32_t channel, uint32_t from) {
+        for (uint32_t col = from; col < config::kMaxColumns; ++col) {
+            const uint8_t i = song_->columnInstrument(channel, col);
+            if (i < song_->numInstruments) song_->instruments[i].applyTo(channels_[channel].voice(col));
+        }
+    }
+
     void applyInstrumentParam(uint8_t index, const Instrument& inst, Instrument::Param p) {
         if (song_ != nullptr) {
             for (uint32_t ch = 0; ch < config::kMaxChannels; ++ch) {

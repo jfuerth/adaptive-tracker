@@ -66,6 +66,10 @@ struct Command {
         AddInstrument,///< make song instrument a (already written by the app) available
         AssignInstrument, ///< channel a, column b plays song instrument `data` (kNoIndex: none)
         SetMonitor,   ///< render() copies instrument a's voices to its monitor output (kNoIndex: off)
+        SetPatternShape, ///< song pattern b gets `data` rows at speed a (ticks per row); see Song::setPatternShape
+        ClearColumn,  ///< empty column a of song pattern b
+        SetColumns,   ///< channel a gets b columns; see Song::setColumns
+        RemoveColumn, ///< remove channel a's column b; see Song::removeColumn
     };
 
     Kind kind = Kind::None;
@@ -134,6 +138,20 @@ struct Command {
     }
     static constexpr Command setColumnMask(uint8_t channel, uint16_t columnMask) {
         return Command{Kind::SetColumnMask, Quantize::Now, Entry::Restart, channel, 0, 0.0f, columnMask};
+    }
+    // Pattern and channel shape edits, safe while playing. The app makes the
+    // same change to its own copy with the Song method of the same name.
+    static constexpr Command setPatternShape(uint8_t pattern, uint16_t rows, uint8_t ticksPerRow) {
+        return Command{Kind::SetPatternShape, Quantize::Now, Entry::Restart, ticksPerRow, pattern, 0.0f, rows};
+    }
+    static constexpr Command clearColumn(uint8_t pattern, uint8_t column) {
+        return Command{Kind::ClearColumn, Quantize::Now, Entry::Restart, column, pattern};
+    }
+    static constexpr Command setColumns(uint8_t channel, uint8_t count) {
+        return Command{Kind::SetColumns, Quantize::Now, Entry::Restart, channel, count};
+    }
+    static constexpr Command removeColumn(uint8_t channel, uint8_t column) {
+        return Command{Kind::RemoveColumn, Quantize::Now, Entry::Restart, channel, column};
     }
     static constexpr Command previewOff(uint8_t slot) {
         return Command{Kind::PreviewOff, Quantize::Now, Entry::Restart, 0, slot, 0.0f, 0};
@@ -283,6 +301,68 @@ struct Song {
     uint8_t columnInstrument(uint32_t channel, uint32_t column) const {
         return channel < config::kMaxChannels && column < config::kMaxColumns
                    ? channels[channel].instruments[column] : kNoIndex;
+    }
+
+    /**
+     * Give pattern `index` `rows` rows (1..kMaxRows) at `ticksPerRow` (>= 1).
+     * Rows past the end keep their cells, so making it longer again brings
+     * them back (song files store only the rows inside the pattern).
+     */
+    bool setPatternShape(uint32_t index, uint32_t rows, uint32_t ticksPerRow) {
+        if (index >= numPatterns || rows < 1 || rows > config::kMaxRows || ticksPerRow < 1 || ticksPerRow > 255) {
+            return false;
+        }
+        patterns[index].numRows = static_cast<uint16_t>(rows);
+        patterns[index].ticksPerRow = static_cast<uint8_t>(ticksPerRow);
+        return true;
+    }
+
+    /// Empty every row of `column` in pattern `index`.
+    bool clearColumn(uint32_t index, uint32_t column) {
+        if (index >= numPatterns || column >= config::kMaxColumns) return false;
+        Pattern& p = patterns[index];
+        for (uint32_t r = 0; r < p.numRows; ++r) p.cells[r][column] = Cell();
+        return true;
+    }
+
+    /**
+     * Give `channel` `count` columns (1..kMaxColumns), in all its patterns.
+     * Columns beyond the count keep their cells and instruments, so a removed
+     * column comes back as it was. An added column with no instrument takes
+     * the one before it.
+     */
+    bool setColumns(uint32_t channel, uint32_t count) {
+        if (channel >= numChannels || count < 1 || count > config::kMaxColumns) return false;
+        ChannelSetup& c = channels[channel];
+        for (uint32_t col = c.numColumns; col < count; ++col) {
+            if (c.instruments[col] == kNoIndex && col > 0) c.instruments[col] = c.instruments[col - 1];
+        }
+        c.numColumns = static_cast<uint8_t>(count);
+        return true;
+    }
+
+    /**
+     * Remove `channel`'s `column` from all its patterns: later columns move
+     * left (with their instruments), and the removed one moves just past the
+     * end, where adding a column brings it back. A channel keeps at least one column.
+     */
+    bool removeColumn(uint32_t channel, uint32_t column) {
+        if (channel >= numChannels) return false;
+        ChannelSetup& c = channels[channel];
+        if (c.numColumns <= 1 || column >= c.numColumns) return false;
+        const uint32_t last = c.numColumns - 1u;
+        auto rotate = [&](auto* items) {
+            const auto removed = items[column];
+            for (uint32_t col = column; col < last; ++col) items[col] = items[col + 1];
+            items[last] = removed;
+        };
+        rotate(c.instruments);
+        for (uint32_t i = 0; i < numPatterns; ++i) {
+            if (patterns[i].channel != channel) continue;
+            for (auto& row : patterns[i].cells) rotate(row);
+        }
+        c.numColumns = static_cast<uint8_t>(last);
+        return true;
     }
 
     /// True when every entry of `s` names a playable pattern.

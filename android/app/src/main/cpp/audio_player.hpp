@@ -54,8 +54,10 @@ public:
     bool fireEvent(int event);
     bool setLayerMute(int layer, bool muted);
     bool setParam(int param, float value);
-    /// root: pitch class 0-11. scaleIndex: index into kScales (see .cpp). Applies at the next bar.
-    bool setKey(int root, int scaleIndex);
+    /// root: pitch class 0-11; scale: 12-bit mask. Applies at the next bar.
+    bool setKey(int root, int scale);
+    /// The scales the app offers by name, in NativeAudio.Scale's order.
+    static const uint16_t* scaleMasks(int* count);
 
     // Pattern editing (UI thread only).
     uint32_t patternCount() const { return edit_->numPatterns; }
@@ -66,6 +68,11 @@ public:
     /// param), row by row, numColumns per row.
     bool readPattern(uint32_t i, uint8_t* out, uint32_t capacity);
     bool setCell(uint32_t pattern, int row, int column, const adaptive::Cell& cell);
+    // Shape edits; see the Song methods of the same names.
+    bool setPatternShape(uint32_t pattern, int rows, int ticksPerRow);
+    bool clearColumn(uint32_t pattern, int column);
+    bool setColumns(int channel, int count);
+    bool removeColumn(int channel, int column);
     /// Sound `midiNote` with song instrument `instrument` on preview voice `slot`.
     bool previewOn(int instrument, int slot, int midiNote);
     bool previewOff(int slot);

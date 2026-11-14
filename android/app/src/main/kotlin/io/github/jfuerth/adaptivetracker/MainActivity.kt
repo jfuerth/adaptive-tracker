@@ -310,8 +310,12 @@ private fun PerformScreen(
     var quantize by rememberSaveable { mutableIntStateOf(NativeAudio.Quantize.BAR.ordinal) }
     var entry by rememberSaveable { mutableIntStateOf(NativeAudio.Entry.RESTART.ordinal) }
     var viaBridge by rememberSaveable { mutableStateOf(false) }
-    var root by rememberSaveable { mutableIntStateOf(0) }
-    var scale by rememberSaveable { mutableIntStateOf(0) }
+    // The key buttons start at the song's own key. A scale that isn't one of
+    // the named ones (a song can list its own notes) shows no scale selected,
+    // and changing the root keeps it.
+    val home = remember { NativeAudio.getHomeKey() }
+    var root by rememberSaveable { mutableIntStateOf(home[0]) }
+    var scaleMask by rememberSaveable { mutableIntStateOf(home[1]) }
 
     run {
         Column(
@@ -421,19 +425,19 @@ private fun PerformScreen(
                         selected = root == i,
                         onClick = {
                             root = i
-                            NativeAudio.setKey(root, scale)
+                            NativeAudio.setKey(root, scaleMask)
                         },
                         label = { Text(name) },
                     )
                 }
             }
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                NativeAudio.Scale.entries.forEachIndexed { i, s ->
+                NativeAudio.Scale.entries.forEach { s ->
                     FilterChip(
-                        selected = scale == i,
+                        selected = scaleMask == s.mask,
                         onClick = {
-                            scale = i
-                            NativeAudio.setKey(root, scale)
+                            scaleMask = s.mask
+                            NativeAudio.setKey(root, scaleMask)
                         },
                         label = { Text(s.label) },
                     )

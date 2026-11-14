@@ -187,9 +187,43 @@ public:
     }
     float cutoffHz() const { return std::exp2(cutoffLog2_.value()); }
 
-    /// Number of columns the channel plays (1..kMaxColumns).
+    /// Number of columns the channel plays (1..kMaxColumns). Voices of
+    /// columns it no longer plays are released.
     void setNumColumns(uint32_t n) {
         numColumns_ = n < 1 ? 1 : (n > config::kMaxColumns ? config::kMaxColumns : n);
+        for (uint32_t c = numColumns_; c < config::kMaxColumns; ++c) voices_[c].release();
+    }
+
+    /// Release the voices of columns `from` onward (their cells moved).
+    void releaseFrom(uint32_t from) {
+        for (uint32_t c = from; c < config::kMaxColumns; ++c) voices_[c].release();
+    }
+
+    /**
+     * Pattern `p` changed length or speed. If this channel is playing it,
+     * playing continues from the current row at the new speed (or moves on, if
+     * the pattern now ends before that row), and later entries of the sequence
+     * keep their places. `tick` is the next tick to be processed.
+     */
+    void patternChanged(const Pattern* p, uint64_t tick) {
+        if (!uses(p)) return;
+        totalTicks_ = 0;
+        const uint32_t entries = sequence_ != nullptr ? sequence_->length : 1;
+        for (uint32_t i = 0; i < entries; ++i) totalTicks_ += entryPattern(i).lengthTicks();
+        const int64_t now = static_cast<int64_t>(tick);
+        if (now <= startTick_ || playingRow_ < 0) return;  // not started: nothing to keep in place
+
+        if (currentPattern() == p) {
+            if (static_cast<uint32_t>(playingRow_) >= p->numRows) {
+                entryStartTick_ = now - static_cast<int64_t>(p->lengthTicks());  // ends now
+            } else {
+                entryStartTick_ = rowStartTick_ - int64_t(playingRow_) * int64_t(p->engineTicksPerRow());
+            }
+        }
+        // Where the sequence would have started for this entry to start there.
+        int64_t before = 0;
+        for (uint32_t i = 0; i < entryIndex_; ++i) before += entryPattern(i).lengthTicks();
+        startTick_ = entryStartTick_ - before;
     }
     uint32_t numColumns() const { return numColumns_; }
 
@@ -214,18 +248,20 @@ public:
         numFiredEvents_ = 0;
 
         const Pattern* pattern = currentPattern();
-        if (pattern == nullptr || tick < startTick_) return;
+        const int64_t now = static_cast<int64_t>(tick);
+        if (pattern == nullptr || now < startTick_) return;
 
-        if (tick - entryStartTick_ >= pattern->lengthTicks()) {
+        if (static_cast<uint64_t>(now - entryStartTick_) >= pattern->lengthTicks()) {
             if (!locate(tick)) return;  // a one-shot pattern finished
             pattern = currentPattern();
         }
 
         const uint32_t ticksPerRow = pattern->engineTicksPerRow();
-        const uint64_t tickInPattern = tick - entryStartTick_;
+        const uint64_t tickInPattern = static_cast<uint64_t>(now - entryStartTick_);
         if (tickInPattern % ticksPerRow == 0) {
             const uint32_t row = static_cast<uint32_t>(tickInPattern / ticksPerRow);
             playingRow_ = static_cast<int32_t>(row);
+            rowStartTick_ = now;
             for (uint32_t c = 0; c < numColumns_; ++c) startRow(c, pattern->cells[row][c], pitch);
         } else if (tick % config::kTicksPerEffectTick == 0) {
             for (uint32_t c = 0; c < numColumns_; ++c) effectTick(c);
@@ -311,11 +347,25 @@ private:
         return sequence_ != nullptr ? &pool_[sequence_->entries[entryIndex_]] : single_;
     }
 
+    /// Entry i of what plays (the single pattern, when not a sequence).
+    const Pattern& entryPattern(uint32_t i) const {
+        return sequence_ != nullptr ? pool_[sequence_->entries[i]] : *single_;
+    }
+
+    bool uses(const Pattern* p) const {
+        if (single_ != nullptr) return single_ == p;
+        if (sequence_ == nullptr) return false;
+        for (uint32_t i = 0; i < sequence_->length; ++i) {
+            if (&pool_[sequence_->entries[i]] == p) return true;
+        }
+        return false;
+    }
+
     void restart(uint64_t startTick) {
         lastTick_ = kNoTick;  // allow this tick to be processed again
         playingRow_ = -1;
-        startTick_ = startTick;
-        entryStartTick_ = startTick;
+        startTick_ = static_cast<int64_t>(startTick);
+        entryStartTick_ = startTick_;
         entryIndex_ = 0;
         totalTicks_ = 0;
         for (auto& c : columns_) c.filterSweep = c.slide = c.glide = 0.0f;
@@ -335,7 +385,7 @@ private:
      * pattern has finished.
      */
     bool locate(uint64_t tick) {
-        uint64_t offset = tick - startTick_;
+        uint64_t offset = static_cast<uint64_t>(static_cast<int64_t>(tick) - startTick_);
         if (offset >= totalTicks_) {
             if (!loop_) {
                 sequence_ = nullptr;
@@ -344,9 +394,9 @@ private:
                 return false;
             }
         }
-        const uint64_t loopStart = startTick_ + (offset / totalTicks_) * totalTicks_;
+        const int64_t loopStart = startTick_ + static_cast<int64_t>((offset / totalTicks_) * totalTicks_);
         offset %= totalTicks_;
-        uint64_t entryStart = loopStart;
+        int64_t entryStart = loopStart;
         uint32_t index = 0;
         if (sequence_ != nullptr) {
             while (offset >= pool_[sequence_->entries[index]].lengthTicks()) {
@@ -529,8 +579,11 @@ private:
     const Sequence* sequence_ = nullptr;
     const Pattern* pool_ = nullptr;  // what sequence_ entries index
     const Pattern* single_ = nullptr;
-    uint64_t startTick_ = 0;
-    uint64_t entryStartTick_ = 0;
+    // Signed: after an edit makes rows longer, the current entry can have
+    // "started" before tick 0 (see patternChanged).
+    int64_t startTick_ = 0;
+    int64_t entryStartTick_ = 0;
+    int64_t rowStartTick_ = 0;  ///< When playingRow_ started.
     static constexpr uint64_t kNoTick = ~uint64_t(0);
     uint64_t lastTick_ = kNoTick;
     int32_t playingRow_ = -1;

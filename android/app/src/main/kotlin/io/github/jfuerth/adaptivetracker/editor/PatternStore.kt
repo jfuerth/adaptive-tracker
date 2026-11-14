@@ -1,6 +1,9 @@
 package io.github.jfuerth.adaptivetracker.editor
 
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import io.github.jfuerth.adaptivetracker.NativeAudio
 
@@ -40,6 +43,10 @@ object PatternStore {
     }
 
     private val cache = mutableMapOf<Int, Loaded>()
+
+    /** Goes up when a pattern's shape changes, so views re-read it. */
+    var shapes by mutableIntStateOf(0)
+        private set
     private val ticksPerBeat by lazy { NativeAudio.getTicksPerBeat() }
 
     var names: List<String> = emptyList()
@@ -48,6 +55,7 @@ object PatternStore {
     /** Forgets everything read from the engine: a different song has loaded. */
     fun reset() {
         cache.clear()
+        shapes++
         names = List(NativeAudio.getPatternCount()) { NativeAudio.getPatternName(it) }
     }
 
@@ -58,6 +66,35 @@ object PatternStore {
         val p = get(index) ?: return
         p.cells[row * p.info.columns + column] = cell
         NativeAudio.setCell(index, row, column, cell.note, cell.accidental, cell.volume, cell.effect, cell.param)
+    }
+
+    // Shape edits: the engine's copy of the song changes, and the patterns
+    // affected are read again from it.
+
+    fun setShape(index: Int, rows: Int, ticksPerRow: Int): Boolean =
+        changed(NativeAudio.setPatternShape(index, rows, ticksPerRow)) { cache.remove(index) }
+
+    fun clearColumn(index: Int, column: Int): Boolean =
+        changed(NativeAudio.clearColumn(index, column)) { cache.remove(index) }
+
+    /** Every pattern of [channel] gets [count] columns. */
+    fun setColumns(channel: Int, count: Int): Boolean =
+        changed(NativeAudio.setColumns(channel, count)) { forgetChannel(channel) }
+
+    /** Removes [column] from every pattern of [channel]; adding a column brings it back. */
+    fun removeColumn(channel: Int, column: Int): Boolean =
+        changed(NativeAudio.removeColumn(channel, column)) { forgetChannel(channel) }
+
+    private inline fun changed(ok: Boolean, forget: () -> Unit): Boolean {
+        if (ok) {
+            forget()
+            shapes++
+        }
+        return ok
+    }
+
+    private fun forgetChannel(channel: Int) {
+        cache.entries.removeAll { it.value.info.channel == channel }
     }
 
     private fun load(index: Int): Loaded? {

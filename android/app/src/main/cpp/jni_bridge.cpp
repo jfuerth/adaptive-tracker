@@ -75,8 +75,18 @@ JNIEXPORT jboolean JNICALL JNI_FN(setParam)(JNIEnv*, jobject, jint param, jfloat
     return toJ(player().setParam(param, value));
 }
 
-JNIEXPORT jboolean JNICALL JNI_FN(setKey)(JNIEnv*, jobject, jint root, jint scaleIndex) {
-    return toJ(player().setKey(root, scaleIndex));
+JNIEXPORT jboolean JNICALL JNI_FN(setKey)(JNIEnv*, jobject, jint root, jint scale) {
+    return toJ(player().setKey(root, scale));
+}
+
+/// The masks of the named scales, in NativeAudio.Scale's order.
+JNIEXPORT jintArray JNICALL JNI_FN(getScaleMasks)(JNIEnv* env, jobject) {
+    int n = 0;
+    const uint16_t* masks = AudioPlayer::scaleMasks(&n);
+    std::vector<jint> values(masks, masks + n);
+    jintArray result = env->NewIntArray(n);
+    if (result != nullptr) env->SetIntArrayRegion(result, 0, n, values.data());
+    return result;
 }
 
 /// [underruns, bufferFrames, burstFrames, maxCallbackUs, callbackBudgetUs, currentSection, playing]
@@ -250,6 +260,22 @@ JNIEXPORT jfloatArray JNICALL JNI_FN(readInstrument)(JNIEnv* env, jobject, jint 
     jfloatArray result = env->NewFloatArray(adaptive::Instrument::kNumParams);
     if (result != nullptr) env->SetFloatArrayRegion(result, 0, adaptive::Instrument::kNumParams, values);
     return result;
+}
+
+JNIEXPORT jboolean JNICALL JNI_FN(setPatternShape)(JNIEnv*, jobject, jint pattern, jint rows, jint ticksPerRow) {
+    return toJ(pattern >= 0 && player().setPatternShape(static_cast<uint32_t>(pattern), rows, ticksPerRow));
+}
+
+JNIEXPORT jboolean JNICALL JNI_FN(clearColumn)(JNIEnv*, jobject, jint pattern, jint column) {
+    return toJ(pattern >= 0 && player().clearColumn(static_cast<uint32_t>(pattern), column));
+}
+
+JNIEXPORT jboolean JNICALL JNI_FN(setColumns)(JNIEnv*, jobject, jint channel, jint count) {
+    return toJ(player().setColumns(channel, count));
+}
+
+JNIEXPORT jboolean JNICALL JNI_FN(removeColumn)(JNIEnv*, jobject, jint channel, jint column) {
+    return toJ(player().removeColumn(channel, column));
 }
 
 JNIEXPORT jint JNICALL JNI_FN(getMaxInstruments)(JNIEnv*, jobject) {

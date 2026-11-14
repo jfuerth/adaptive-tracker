@@ -156,10 +156,16 @@ bool AudioPlayer::setParam(int param, float value) {
     return engine_->post(adaptive::Command::setParam(static_cast<uint8_t>(param), value));
 }
 
-bool AudioPlayer::setKey(int root, int scaleIndex) {
+const uint16_t* AudioPlayer::scaleMasks(int* count) {
+    *count = kNumScales;
+    return kScales;
+}
+
+bool AudioPlayer::setKey(int root, int scale) {
     const int r = ((root % 12) + 12) % 12;
-    const int s = (scaleIndex >= 0 && scaleIndex < kNumScales) ? scaleIndex : 0;
-    return engine_->post(adaptive::Command::setKey(static_cast<uint8_t>(r), kScales[s], adaptive::Quantize::Bar));
+    const uint16_t mask = static_cast<uint16_t>(scale & 0xFFF);
+    if ((mask & 1) == 0) return false;  // a scale always contains its root
+    return engine_->post(adaptive::Command::setKey(static_cast<uint8_t>(r), mask, adaptive::Quantize::Bar));
 }
 
 bool AudioPlayer::patternInfo(uint32_t i, int32_t out[5]) {
@@ -202,6 +208,49 @@ bool AudioPlayer::setCell(uint32_t pattern, int row, int column, const adaptive:
         return false;
     }
     edit_->patterns[pattern].cells[row][column] = cell;
+    ++edits_;
+    return true;
+}
+
+// Each shape edit goes to the engine and is made to the UI's copy by the same
+// Song method, so the two agree (the engine ignores what that method rejects).
+bool AudioPlayer::setPatternShape(uint32_t pattern, int rows, int ticksPerRow) {
+    if (rows < 1 || rows > 0xFFFF || ticksPerRow < 1 || ticksPerRow > 255) return false;
+    if (!engine_->post(adaptive::Command::setPatternShape(static_cast<uint8_t>(pattern), static_cast<uint16_t>(rows),
+                                                          static_cast<uint8_t>(ticksPerRow)))) {
+        return false;
+    }
+    if (!edit_->setPatternShape(pattern, rows, ticksPerRow)) return false;
+    ++edits_;
+    return true;
+}
+
+bool AudioPlayer::clearColumn(uint32_t pattern, int column) {
+    if (column < 0 || column > 255) return false;
+    if (!engine_->post(adaptive::Command::clearColumn(static_cast<uint8_t>(pattern), static_cast<uint8_t>(column)))) {
+        return false;
+    }
+    if (!edit_->clearColumn(pattern, column)) return false;
+    ++edits_;
+    return true;
+}
+
+bool AudioPlayer::setColumns(int channel, int count) {
+    if (channel < 0 || channel > 255 || count < 0 || count > 255) return false;
+    if (!engine_->post(adaptive::Command::setColumns(static_cast<uint8_t>(channel), static_cast<uint8_t>(count)))) {
+        return false;
+    }
+    if (!edit_->setColumns(channel, count)) return false;
+    ++edits_;
+    return true;
+}
+
+bool AudioPlayer::removeColumn(int channel, int column) {
+    if (channel < 0 || channel > 255 || column < 0 || column > 255) return false;
+    if (!engine_->post(adaptive::Command::removeColumn(static_cast<uint8_t>(channel), static_cast<uint8_t>(column)))) {
+        return false;
+    }
+    if (!edit_->removeColumn(channel, column)) return false;
     ++edits_;
     return true;
 }

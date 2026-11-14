@@ -27,7 +27,9 @@ object NativeAudio {
         MIXOLYDIAN("Mixolydian"),
         LOCRIAN("Locrian"),
         MAJOR_PENTATONIC("Major pentatonic"),
-        MINOR_PENTATONIC("Minor pentatonic"),
+        MINOR_PENTATONIC("Minor pentatonic");
+
+        val mask: Int get() = namedScaleMasks.getOrElse(ordinal) { 0xFFF }
     }
 
     val NOTE_NAMES = listOf("C", "C♯", "D", "E♭", "E", "F", "F♯", "G", "A♭", "A", "B♭", "B")
@@ -80,8 +82,14 @@ object NativeAudio {
     /** [value] is 0..1. */
     external fun setParam(param: Int, value: Float): Boolean
 
-    /** [root] is a pitch class 0-11 (0 = C). Applies at the next bar. */
-    external fun setKey(root: Int, scaleIndex: Int): Boolean
+    /** [root] is a pitch class 0-11 (0 = C); [scale] a 12-bit mask. Applies at the next bar. */
+    external fun setKey(root: Int, scale: Int): Boolean
+
+    /** The masks of the [Scale]s, in their order. */
+    external fun getScaleMasks(): IntArray
+
+    /** Each named scale's mask. */
+    val namedScaleMasks: IntArray by lazy { getScaleMasks() }
 
     /**
      * [underruns, bufferFrames, burstFrames, maxCallbackUs, callbackBudgetUs,
@@ -116,6 +124,18 @@ object NativeAudio {
     ): Boolean
 
     /** Sounds [midiNote] with song instrument [instrument] on preview voice [slot] (0-3). */
+    /** Pattern [pattern] gets [rows] rows (1-256) at [ticksPerRow] (1-255). Rows past the end keep their cells. */
+    external fun setPatternShape(pattern: Int, rows: Int, ticksPerRow: Int): Boolean
+
+    /** Empties [column] of pattern [pattern]. */
+    external fun clearColumn(pattern: Int, column: Int): Boolean
+
+    /** [channel] gets [count] columns (1-4), in all its patterns; a removed column comes back as it was. */
+    external fun setColumns(channel: Int, count: Int): Boolean
+
+    /** Removes [channel]'s [column] from all its patterns; later columns move left. */
+    external fun removeColumn(channel: Int, column: Int): Boolean
+
     external fun previewOn(instrument: Int, slot: Int, midiNote: Int): Boolean
 
     external fun getChannelCount(): Int
