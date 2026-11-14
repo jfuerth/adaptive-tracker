@@ -156,6 +156,8 @@ JNIEXPORT jobjectArray JNICALL JNI_FN(getSongNames)(JNIEnv* env, jobject, jint k
     case 1: labels = &info.layers; count = song.numLayers; break;
     case 2: labels = &info.params; count = song.numParams; break;
     case 3: labels = &info.events; count = song.numEvents; break;
+    case 4: labels = &info.channels; count = song.numChannels; break;
+    case 5: labels = &info.patterns; count = song.numPatterns; break;
     default: break;
     }
     jobjectArray result = env->NewObjectArray(static_cast<jsize>(count), env->FindClass("java/lang/String"), nullptr);
@@ -166,6 +168,55 @@ JNIEXPORT jobjectArray JNICALL JNI_FN(getSongNames)(JNIEnv* env, jobject, jint k
         env->SetObjectArrayElement(result, static_cast<jsize>(i), s);
         env->DeleteLocalRef(s);
     }
+    return result;
+}
+
+JNIEXPORT jint JNICALL JNI_FN(addPatternBytes)(JNIEnv* env, jobject, jint channel, jbyteArray name, jint copyOf) {
+    return player().addPattern(channel, fromJ(env, name), copyOf);
+}
+
+JNIEXPORT jint JNICALL JNI_FN(addChannelBytes)(JNIEnv* env, jobject, jbyteArray name, jint mode, jint instrument) {
+    return player().addChannel(fromJ(env, name), mode, instrument);
+}
+
+JNIEXPORT jint JNICALL JNI_FN(addSectionBytes)(JNIEnv* env, jobject, jbyteArray name) {
+    return player().addSection(fromJ(env, name));
+}
+
+JNIEXPORT jboolean JNICALL JNI_FN(renameBytes)(JNIEnv* env, jobject, jint kind, jint index, jbyteArray name) {
+    return toJ(index >= 0 && player().rename(kind, static_cast<uint32_t>(index), fromJ(env, name)));
+}
+
+JNIEXPORT jboolean JNICALL JNI_FN(editSequence)(JNIEnv*, jobject, jint section, jint channel, jint op, jint pos,
+                                                jint pattern) {
+    return toJ(player().editSequence(section, channel, op, pos, pattern));
+}
+
+JNIEXPORT jboolean JNICALL JNI_FN(setSection)(JNIEnv*, jobject, jint section, jfloat bpm, jint beatsPerBar,
+                                              jint bridgeBeats) {
+    return toJ(player().setSection(section, bpm, beatsPerBar, bridgeBeats));
+}
+
+/// Pattern indexes `channel` plays in `section`, in order; null if no such section or channel.
+JNIEXPORT jintArray JNICALL JNI_FN(getSequence)(JNIEnv* env, jobject, jint section, jint channel) {
+    const auto& song = player().song();
+    if (section < 0 || section >= song.numSections || channel < 0 || channel >= song.numChannels) return nullptr;
+    const adaptive::Sequence& s = song.sections[section].sequences[channel];
+    jint entries[adaptive::config::kMaxSequenceLength];
+    for (uint32_t i = 0; i < s.length; ++i) entries[i] = s.entries[i];
+    jintArray result = env->NewIntArray(s.length);
+    if (result != nullptr) env->SetIntArrayRegion(result, 0, s.length, entries);
+    return result;
+}
+
+/// [tempo in milli-BPM (0: keeps the tempo), beats per bar, bridge beats], or null.
+JNIEXPORT jintArray JNICALL JNI_FN(getSectionTiming)(JNIEnv* env, jobject, jint section) {
+    const auto& song = player().song();
+    if (section < 0 || section >= song.numSections) return nullptr;
+    const adaptive::Section& s = song.sections[section];
+    const jint values[3] = {static_cast<jint>(s.tempoMilliBpm), s.beatsPerBar, s.bridgeBeats};
+    jintArray result = env->NewIntArray(3);
+    if (result != nullptr) env->SetIntArrayRegion(result, 0, 3, values);
     return result;
 }
 

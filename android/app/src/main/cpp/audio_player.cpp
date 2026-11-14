@@ -270,6 +270,114 @@ bool AudioPlayer::removeColumn(int channel, int column) {
     return true;
 }
 
+// New patterns, channels and sections are written just past the end of
+// their table, where the audio thread doesn't look, then announced.
+
+namespace {
+/// Labels go index for index; make room for `index` and label it.
+void label(std::vector<adaptive::songfile::Label>& labels, uint32_t index, const std::string& name) {
+    labels.resize(index);
+    labels.push_back({adaptive::songfile::makeId(name, labels), name});
+}
+} // namespace
+
+int AudioPlayer::addPattern(int channel, const std::string& name, int copyOf) {
+    const uint32_t i = edit_->numPatterns;
+    if (i >= adaptive::config::kMaxPatterns || channel < 0 || channel >= static_cast<int>(edit_->numChannels) ||
+        copyOf >= static_cast<int>(edit_->numPatterns)) {
+        return -1;
+    }
+    adaptive::Pattern p;
+    if (copyOf >= 0) p = edit_->patterns[copyOf];
+    p.channel = static_cast<uint8_t>(channel);
+    song_->patterns[i] = p;
+    if (!engine_->post(adaptive::Command::added(adaptive::Addition::Pattern, static_cast<uint8_t>(i)))) return -1;
+    edit_->patterns[i] = p;
+    edit_->numPatterns = static_cast<uint8_t>(i + 1);
+    label(info_.patterns, i, name);
+    ++edits_;
+    return static_cast<int>(i);
+}
+
+int AudioPlayer::addChannel(const std::string& name, int mode, int instrument) {
+    const uint32_t i = edit_->numChannels;
+    if (i >= adaptive::config::kMaxChannels || mode < 0 || mode > 2) return -1;
+    adaptive::ChannelSetup c;
+    c.pitchMode = static_cast<adaptive::PitchMode>(mode);
+    c.numColumns = 1;
+    if (instrument >= 0 && instrument < static_cast<int>(edit_->numInstruments)) {
+        c.instruments[0] = static_cast<uint8_t>(instrument);
+    }
+    song_->channels[i] = c;
+    if (!engine_->post(adaptive::Command::added(adaptive::Addition::Channel, static_cast<uint8_t>(i)))) return -1;
+    edit_->channels[i] = c;
+    edit_->numChannels = static_cast<uint8_t>(i + 1);
+    label(info_.channels, i, name);
+    ++edits_;
+    return static_cast<int>(i);
+}
+
+int AudioPlayer::addSection(const std::string& name) {
+    const uint32_t i = edit_->numSections;
+    if (i >= adaptive::config::kMaxSections) return -1;
+    song_->sections[i] = adaptive::Section();
+    if (!engine_->post(adaptive::Command::added(adaptive::Addition::Section, static_cast<uint8_t>(i)))) return -1;
+    edit_->addSection();
+    label(info_.sections, i, name);
+    ++edits_;
+    return static_cast<int>(i);
+}
+
+bool AudioPlayer::rename(int kind, uint32_t index, const std::string& name) {
+    std::vector<adaptive::songfile::Label>* labels = nullptr;
+    uint32_t count = 0;
+    switch (kind) {
+    case 0: labels = &info_.sections; count = edit_->numSections; break;
+    case 1: labels = &info_.layers; count = edit_->numLayers; break;
+    case 2: labels = &info_.params; count = edit_->numParams; break;
+    case 3: labels = &info_.events; count = edit_->numEvents; break;
+    case 4: labels = &info_.channels; count = edit_->numChannels; break;
+    case 5: labels = &info_.patterns; count = edit_->numPatterns; break;
+    default: return false;
+    }
+    if (index >= count || index >= labels->size() || name.empty()) return false;
+    (*labels)[index].name = name;
+    ++edits_;
+    return true;
+}
+
+bool AudioPlayer::editSequence(int section, int channel, int op, int pos, int pattern) {
+    if (section < 0 || section > 255 || channel < 0 || channel > 255 || op < 0 || op > 2 || pos < 0 || pos > 255 ||
+        pattern < 0 || pattern > 255) {
+        return false;
+    }
+    const auto edit = static_cast<adaptive::SeqEdit>(op);
+    if (!engine_->post(adaptive::Command::editSequence(static_cast<uint8_t>(section), static_cast<uint8_t>(channel),
+                                                       edit, static_cast<uint8_t>(pos), static_cast<uint8_t>(pattern)))) {
+        return false;
+    }
+    if (!edit_->editSequence(section, channel, edit, pos, pattern)) return false;
+    ++edits_;
+    return true;
+}
+
+bool AudioPlayer::setSection(int section, float bpm, int beatsPerBar, int bridgeBeats) {
+    if (section < 0 || section > 255 || beatsPerBar < 1 || beatsPerBar > 32 || bridgeBeats < 0 ||
+        bridgeBeats > 0xFFFF || !(bpm >= 0.0f) || bpm > 999.0f) {
+        return false;
+    }
+    if (!engine_->post(adaptive::Command::setSection(static_cast<uint8_t>(section), bpm,
+                                                     static_cast<uint8_t>(beatsPerBar),
+                                                     static_cast<uint16_t>(bridgeBeats)))) {
+        return false;
+    }
+    if (!edit_->setSectionTiming(section, static_cast<uint32_t>(bpm * 1000.0f + 0.5f), beatsPerBar, bridgeBeats)) {
+        return false;
+    }
+    ++edits_;
+    return true;
+}
+
 int AudioPlayer::addInstrument(const float* values, const std::string& name) {
     if (edit_->numInstruments >= adaptive::config::kMaxInstruments) return -1;
     const uint32_t i = edit_->numInstruments;

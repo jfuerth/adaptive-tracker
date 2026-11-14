@@ -27,6 +27,9 @@ enum class Entry : uint8_t {
 
 inline constexpr uint8_t kNoIndex = 0xFF;
 
+/// What Command::added made available.
+enum class Addition : uint8_t { Pattern, Channel, Section };
+
 /// Parts of a cell, as bits (Command::clearCells, Song::clearCells).
 inline constexpr uint8_t kCellNote = 1;    ///< note and accidental
 inline constexpr uint8_t kCellVolume = 2;
@@ -75,6 +78,9 @@ struct Command {
         SetPatternShape, ///< song pattern b gets `data` rows at speed a (ticks per row); see Song::setPatternShape
         ClearCells,   ///< in song pattern b, column a, rows data&0xFF..data>>8: empty the parts in `parts`
         ScaleRows,    ///< song pattern b: row r moves to r * a / data; see Song::scaleRows
+        Added,        ///< item b of kind a (an Addition), already written past the end, now counts
+        EditSequence, ///< section a, channel b: SeqEdit `parts` at entry data&0xFF, pattern data>>8
+        SetSection,   ///< section a: beats per bar b, tempo `value` BPM (0: keep), bridge beats `data`
         SetColumns,   ///< channel a gets b columns; see Song::setColumns
         RemoveColumn, ///< remove channel a's column b; see Song::removeColumn
     };
@@ -162,6 +168,24 @@ struct Command {
                   static_cast<uint16_t>((first & 0xFF) | ((last & 0xFF) << 8))};
         c.parts = parts;
         return c;
+    }
+    /**
+     * Item `index` of kind `what` was written just past the end of its table
+     * (a slot the engine doesn't read yet) and now counts. `index` must be the
+     * table's current count.
+     */
+    static constexpr Command added(Addition what, uint8_t index) {
+        return Command{Kind::Added, Quantize::Now, Entry::Restart, static_cast<uint8_t>(what), index};
+    }
+    static constexpr Command editSequence(uint8_t section, uint8_t channel, SeqEdit op, uint8_t pos,
+                                          uint8_t pattern = 0) {
+        Command c{Kind::EditSequence, Quantize::Now, Entry::Restart, section, channel, 0.0f,
+                  static_cast<uint16_t>(pos | (pattern << 8))};
+        c.parts = static_cast<uint8_t>(op);
+        return c;
+    }
+    static constexpr Command setSection(uint8_t section, float bpm, uint8_t beatsPerBar, uint16_t bridgeBeats) {
+        return Command{Kind::SetSection, Quantize::Now, Entry::Restart, section, beatsPerBar, bpm, bridgeBeats};
     }
     static constexpr Command scaleRows(uint8_t pattern, uint8_t num, uint16_t den) {
         return Command{Kind::ScaleRows, Quantize::Now, Entry::Restart, num, pattern, 0.0f, den};
@@ -304,6 +328,54 @@ struct Song {
         p.ticksPerRow = ticksPerRow;
         return numPatterns++;
     }
+    /// Add an empty section (nothing plays in it); returns its index, or kNoIndex when full.
+    uint8_t addSection() {
+        if (numSections >= config::kMaxSections) return kNoIndex;
+        sections[numSections] = Section();
+        return numSections++;
+    }
+
+    /**
+     * Change the sequence `channel` plays in `section`. Inserted and set
+     * patterns must belong to the channel. False if the change can't be made.
+     */
+    bool editSequence(uint32_t section, uint32_t channel, SeqEdit op, uint32_t pos, uint32_t pattern) {
+        if (section >= numSections || channel >= numChannels) return false;
+        Sequence& s = sections[section].sequences[channel];
+        if (op != SeqEdit::Remove && (pattern >= numPatterns || patterns[pattern].channel != channel)) return false;
+        switch (op) {
+        case SeqEdit::Insert:
+            if (pos > s.length || s.length >= config::kMaxSequenceLength) return false;
+            for (uint32_t i = s.length; i > pos; --i) s.entries[i] = s.entries[i - 1];
+            s.entries[pos] = static_cast<uint8_t>(pattern);
+            ++s.length;
+            return true;
+        case SeqEdit::Remove:
+            if (pos >= s.length) return false;
+            for (uint32_t i = pos; i + 1 < s.length; ++i) s.entries[i] = s.entries[i + 1];
+            --s.length;
+            return true;
+        case SeqEdit::Set:
+            if (pos >= s.length) return false;
+            s.entries[pos] = static_cast<uint8_t>(pattern);
+            return true;
+        }
+        return false;
+    }
+
+    /// Section timing: tempo in milli-BPM (0 keeps the tempo), beats per bar (1..32), bridge beats (0: not a bridge).
+    bool setSectionTiming(uint32_t section, uint32_t milliBpm, uint32_t beatsPerBar, uint32_t bridgeBeats) {
+        if (section >= numSections || beatsPerBar < 1 || beatsPerBar > 32 || bridgeBeats > 0xFFFF ||
+            milliBpm > 999000) {
+            return false;
+        }
+        Section& s = sections[section];
+        s.tempoMilliBpm = milliBpm;
+        s.beatsPerBar = static_cast<uint8_t>(beatsPerBar);
+        s.bridgeBeats = static_cast<uint16_t>(bridgeBeats);
+        return true;
+    }
+
     /// Add an instrument; returns its index, or kNoIndex when the table is full.
     uint8_t addInstrument(const Instrument& i) {
         if (numInstruments >= config::kMaxInstruments) return kNoIndex;

@@ -3,6 +3,7 @@
 
 #include <adaptive/songfile.hpp>
 #include <demo/adaptive_demo_info.hpp>
+#include <json.hpp>
 
 #include <fstream>
 #include <memory>
@@ -174,4 +175,22 @@ TEST_CASE("Song file: songs/adaptive-demo.json is up to date with the demo's cod
     file << in.rdbuf();
     // If this fails after changing the demo or the format, run build/export_demo.
     CHECK(file.str() == demoJson());
+}
+
+TEST_CASE("Song file: songs/new-song.json (what New song starts from) loads and saves as written") {
+    std::ifstream in(ADAPTIVE_SONGS_DIR "/new-song.json", std::ios::binary);
+    REQUIRE(in);
+    std::stringstream file;
+    file << in.rdbuf();
+    auto song = std::make_unique<Song>();
+    songfile::SongInfo info;
+    const auto result = songfile::load(file.str(), *song, info);
+    INFO(result.error);
+    REQUIRE(result.ok);
+    CHECK(song->numChannels == 1);
+    CHECK(song->numPatterns == 1);
+    CHECK(song->numSections == 1);
+    CHECK(song->sections[0].sequences[0].length == 1);
+    // Everything in the file survives a save (key order and spacing aside).
+    CHECK(nlohmann::json::parse(songfile::save(*song, info)) == nlohmann::json::parse(file.str()));
 }

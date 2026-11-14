@@ -81,6 +81,19 @@ public:
     bool soloPattern(uint32_t pattern, int columnMask);
     bool setColumnMask(int channel, int columnMask);
 
+    // Growing the song (UI thread only). Each returns the new index, or -1 when full.
+    /// A pattern for `channel`: empty, or a copy of pattern `copyOf` (>= 0).
+    int addPattern(int channel, const std::string& name, int copyOf);
+    /// A channel with one column playing `instrument` (-1: none), in pitch mode `mode`.
+    int addChannel(const std::string& name, int mode, int instrument);
+    int addSection(const std::string& name);
+    /// kind: 0 sections, 1 layers, 2 params, 3 events, 4 channels, 5 patterns. Ids stay.
+    bool rename(int kind, uint32_t index, const std::string& name);
+    /// op: adaptive::SeqEdit. See Song::editSequence.
+    bool editSequence(int section, int channel, int op, int pos, int pattern);
+    /// Section timing; bpm 0 keeps the tempo. See Song::setSectionTiming.
+    bool setSection(int section, float bpm, int beatsPerBar, int bridgeBeats);
+
     // Instruments (UI thread only).
     uint32_t channelCount() const { return edit_->numChannels; }
     std::string channelName(uint32_t i) const { return name(info_.channels, i); }

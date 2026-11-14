@@ -24,6 +24,8 @@ import java.io.IOException
 object Song {
     /** The song bundled with the app, used the first time and on "Start from the demo song". */
     const val BUNDLED = "adaptive-demo.json"
+    /** What "New song" starts from: one channel, one empty pattern, a few instruments. */
+    const val NEW_SONG = "new-song.json"
     private const val AUTOSAVE = "song.json"
     /** Larger files aren't songs (the limits make songs a few hundred KB at most). */
     private const val MAX_FILE_BYTES = 8 shl 20
@@ -33,11 +35,16 @@ object Song {
         private set
     var title by mutableStateOf("")
         private set
-    var sections: List<String> = emptyList()
+    var sections: List<String> by mutableStateOf(emptyList())
         private set
     /** Per section: beats it plays when used as a bridge (0: not a bridge). */
-    var bridgeBeats: List<Int> = emptyList()
+    var bridgeBeats: List<Int> by mutableStateOf(emptyList())
         private set
+    var channels: List<String> by mutableStateOf(emptyList())
+        private set
+
+    /** The pattern being edited, shared so other screens can open one in the editor. */
+    var pattern by mutableIntStateOf(0)
     var layers: List<String> = emptyList()
         private set
     var params: List<String> = emptyList()
@@ -81,12 +88,12 @@ object Song {
         return loadBundled(context)
     }
 
-    /** Replaces the song with the bundled demo. Returns null, or why it failed. */
-    fun loadBundled(context: Context): String? {
+    /** Replaces the song with a bundled one ([BUNDLED] or [NEW_SONG]). Returns null, or why it failed. */
+    fun loadBundled(context: Context, name: String = BUNDLED): String? {
         val bytes = try {
-            context.assets.open(BUNDLED).use { it.readBytes() }
+            context.assets.open(name).use { it.readBytes() }
         } catch (e: IOException) {
-            return "Could not read $BUNDLED: ${e.message}"
+            return "Could not read $name: ${e.message}"
         }
         load(bytes)?.let { return it }
         autosave(context)
@@ -165,13 +172,20 @@ object Song {
         }
     }
 
+    /** Re-reads section and channel names and timing, after one is added or renamed. */
+    fun structureChanged() {
+        sections = NativeAudio.getSongNames(NativeAudio.NAMES_SECTIONS).toList()
+        bridgeBeats = NativeAudio.getSectionBridgeBeats().toList()
+        channels = NativeAudio.getSongNames(NativeAudio.NAMES_CHANNELS).toList()
+    }
+
     /** Loads a song file's bytes. Returns null, or why it failed (the old song stays). */
     private fun load(json: ByteArray): String? {
         NativeAudio.loadSong(json)?.let { return it }
         savedEdits = null
         title = NativeAudio.getSongTitle()
-        sections = NativeAudio.getSongNames(0).toList()
-        bridgeBeats = NativeAudio.getSectionBridgeBeats().toList()
+        structureChanged()
+        pattern = 0
         layers = NativeAudio.getSongNames(1).toList()
         params = NativeAudio.getSongNames(2).toList()
         paramInitial = NativeAudio.getParamInitialValues().toList()

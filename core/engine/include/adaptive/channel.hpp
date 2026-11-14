@@ -207,23 +207,43 @@ public:
      */
     void patternChanged(const Pattern* p, uint64_t tick) {
         if (!uses(p)) return;
-        totalTicks_ = 0;
-        const uint32_t entries = sequence_ != nullptr ? sequence_->length : 1;
-        for (uint32_t i = 0; i < entries; ++i) totalTicks_ += entryPattern(i).lengthTicks();
+        updateTotalTicks();
         const int64_t now = static_cast<int64_t>(tick);
         if (now <= startTick_ || playingRow_ < 0) return;  // not started: nothing to keep in place
+        if (currentPattern() == p) keepRow(now);
+        reanchor();
+    }
 
-        if (currentPattern() == p) {
-            if (static_cast<uint32_t>(playingRow_) >= p->numRows) {
-                entryStartTick_ = now - static_cast<int64_t>(p->lengthTicks());  // ends now
-            } else {
-                entryStartTick_ = rowStartTick_ - int64_t(playingRow_) * int64_t(p->engineTicksPerRow());
+    /// True if this channel is playing `s` (as a looping sequence).
+    bool playsSequence(const Sequence* s) const { return sequence_ != nullptr && sequence_ == s; }
+
+    /**
+     * The sequence this channel plays was edited (and still has entries): the
+     * pattern playing carries on in place. If it was taken out, the entry
+     * now in its place starts at once; if it was replaced, the new pattern
+     * carries on from the same row.
+     */
+    void sequenceEdited(SeqEdit op, uint32_t pos, uint64_t tick) {
+        updateTotalTicks();
+        const int64_t now = static_cast<int64_t>(tick);
+        if (now <= startTick_ || playingRow_ < 0) return;
+        switch (op) {
+        case SeqEdit::Insert:
+            if (pos <= entryIndex_) ++entryIndex_;
+            break;
+        case SeqEdit::Remove:
+            if (pos < entryIndex_) {
+                --entryIndex_;
+            } else if (pos == entryIndex_) {
+                entryIndex_ = pos < sequence_->length ? pos : 0;
+                entryStartTick_ = now;
             }
+            break;
+        case SeqEdit::Set:
+            if (pos == entryIndex_) keepRow(now);
+            break;
         }
-        // Where the sequence would have started for this entry to start there.
-        int64_t before = 0;
-        for (uint32_t i = 0; i < entryIndex_; ++i) before += entryPattern(i).lengthTicks();
-        startTick_ = entryStartTick_ - before;
+        reanchor();
     }
 
     /**
@@ -372,6 +392,30 @@ private:
             if (&pool_[sequence_->entries[i]] == p) return true;
         }
         return false;
+    }
+
+    void updateTotalTicks() {
+        totalTicks_ = 0;
+        const uint32_t entries = sequence_ != nullptr ? sequence_->length : 1;
+        for (uint32_t i = 0; i < entries; ++i) totalTicks_ += entryPattern(i).lengthTicks();
+    }
+
+    /// The current entry's pattern changed shape (or is another pattern):
+    /// carry on from the row playing, or end the entry now if that row is gone.
+    void keepRow(int64_t now) {
+        const Pattern* p = currentPattern();
+        if (static_cast<uint32_t>(playingRow_) >= p->numRows) {
+            entryStartTick_ = now - static_cast<int64_t>(p->lengthTicks());  // ends now
+        } else {
+            entryStartTick_ = rowStartTick_ - int64_t(playingRow_) * int64_t(p->engineTicksPerRow());
+        }
+    }
+
+    /// Where the sequence would have started for the current entry to start where it did.
+    void reanchor() {
+        int64_t before = 0;
+        for (uint32_t i = 0; i < entryIndex_; ++i) before += entryPattern(i).lengthTicks();
+        startTick_ = entryStartTick_ - before;
     }
 
     void restart(uint64_t startTick) {

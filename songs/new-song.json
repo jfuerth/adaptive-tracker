@@ -1,0 +1,176 @@
+{
+  "format": "adaptive-tracker-song",
+  "version": 1,
+  "title": "New song",
+  "tempo": 120,
+  "key": {
+    "root": "C",
+    "scale": "major"
+  },
+  "start": "main",
+  "instruments": [
+    {
+      "id": "lead",
+      "name": "Lead",
+      "voice": "subtractive",
+      "params": {
+        "shape": 0.5,
+        "cutoff": 2200,
+        "resonance": 0.707,
+        "filterEnvAmount": 0.5,
+        "filterAttack": 0.005,
+        "filterDecay": 0.2,
+        "filterSustain": 0.3,
+        "filterRelease": 0.1,
+        "ampAttack": 0.005,
+        "ampDecay": 0.25,
+        "ampSustain": 0.5,
+        "ampRelease": 0.12,
+        "level": 0.28,
+        "vibratoRate": 5,
+        "vibratoDepth": 0.05,
+        "tremoloRate": 5,
+        "tremoloDepth": 0
+      }
+    },
+    {
+      "id": "bass",
+      "name": "Bass",
+      "voice": "subtractive",
+      "params": {
+        "shape": 0,
+        "cutoff": 320,
+        "resonance": 3,
+        "filterEnvAmount": 0.5,
+        "filterAttack": 0.005,
+        "filterDecay": 0.2,
+        "filterSustain": 0.3,
+        "filterRelease": 0.1,
+        "ampAttack": 0.002,
+        "ampDecay": 0.2,
+        "ampSustain": 0.6,
+        "ampRelease": 0.06,
+        "level": 0.42,
+        "vibratoRate": 5,
+        "vibratoDepth": 0,
+        "tremoloRate": 5,
+        "tremoloDepth": 0
+      }
+    },
+    {
+      "id": "pad",
+      "name": "Pad",
+      "voice": "subtractive",
+      "params": {
+        "shape": 0.3,
+        "cutoff": 1000,
+        "resonance": 0.707,
+        "filterEnvAmount": 0.5,
+        "filterAttack": 0.005,
+        "filterDecay": 0.2,
+        "filterSustain": 0.3,
+        "filterRelease": 0.1,
+        "ampAttack": 0.25,
+        "ampDecay": 0.5,
+        "ampSustain": 0.7,
+        "ampRelease": 0.6,
+        "level": 0.1,
+        "vibratoRate": 5,
+        "vibratoDepth": 0.06,
+        "tremoloRate": 5,
+        "tremoloDepth": 0
+      }
+    },
+    {
+      "id": "kick",
+      "name": "Kick",
+      "voice": "subtractive",
+      "params": {
+        "shape": 0.5,
+        "cutoff": 900,
+        "resonance": 0.707,
+        "filterEnvAmount": 0.5,
+        "filterAttack": 0.005,
+        "filterDecay": 0.2,
+        "filterSustain": 0.3,
+        "filterRelease": 0.1,
+        "ampAttack": 0.001,
+        "ampDecay": 0.18,
+        "ampSustain": 0,
+        "ampRelease": 0.05,
+        "level": 0.85,
+        "vibratoRate": 5,
+        "vibratoDepth": 0,
+        "tremoloRate": 5,
+        "tremoloDepth": 0
+      }
+    },
+    {
+      "id": "hat",
+      "name": "Hat",
+      "voice": "subtractive",
+      "params": {
+        "shape": 1,
+        "cutoff": 12000,
+        "resonance": 0.707,
+        "filterEnvAmount": 0.5,
+        "filterAttack": 0.005,
+        "filterDecay": 0.2,
+        "filterSustain": 0.3,
+        "filterRelease": 0.1,
+        "ampAttack": 0.0005,
+        "ampDecay": 0.03,
+        "ampSustain": 0,
+        "ampRelease": 0.02,
+        "level": 0.12,
+        "vibratoRate": 5,
+        "vibratoDepth": 0,
+        "tremoloRate": 5,
+        "tremoloDepth": 0
+      }
+    }
+  ],
+  "channels": [
+    {
+      "id": "melody",
+      "name": "Melody",
+      "pitch": "degree",
+      "columns": [
+        {
+          "instrument": "lead"
+        }
+      ],
+      "patterns": [
+        {
+          "id": "melody-1",
+          "name": "Melody 1",
+          "rows": 16,
+          "ticksPerRow": 6,
+          "cells": []
+        }
+      ]
+    }
+  ],
+  "params": [
+    {
+      "id": "intensity",
+      "name": "Intensity",
+      "initial": 0.5
+    }
+  ],
+  "sections": [
+    {
+      "id": "main",
+      "name": "Main",
+      "beatsPerBar": 4,
+      "channels": {
+        "melody": [
+          "melody-1"
+        ]
+      }
+    }
+  ],
+  "layers": [],
+  "events": [],
+  "mappings": []
+}

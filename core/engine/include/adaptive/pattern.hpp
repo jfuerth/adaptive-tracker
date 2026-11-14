@@ -122,6 +122,13 @@ struct Sequence {
     }
 };
 
+/// Changes to a sequence (Command::editSequence, Song::editSequence).
+enum class SeqEdit : uint8_t {
+    Insert,  ///< put a pattern before entry `pos` (pos == length appends)
+    Remove,  ///< take out entry `pos`
+    Set,     ///< entry `pos` plays another pattern
+};
+
 static_assert(config::kMaxSequenceLength <= 255 && config::kMaxPatterns <= 255, "indices are 8 bits");
 
 } // namespace adaptive

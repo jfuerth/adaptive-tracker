@@ -64,6 +64,7 @@ import io.github.jfuerth.adaptivetracker.NativeAudio
 import io.github.jfuerth.adaptivetracker.Song
 import io.github.jfuerth.adaptivetracker.instrument.InstrumentStore
 import io.github.jfuerth.adaptivetracker.ui.HoldButton
+import io.github.jfuerth.adaptivetracker.ui.NameDialog
 import io.github.jfuerth.adaptivetracker.ui.NoteKeyboard
 import io.github.jfuerth.adaptivetracker.ui.ToolButton
 import kotlinx.coroutines.delay
@@ -98,7 +99,8 @@ private fun centeredRow(state: LazyListState): Int {
  */
 @Composable
 fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
-    var patternIndex by rememberSaveable { mutableIntStateOf(0) }
+    // Shared with the other screens, so the sequence editor can open a pattern here.
+    var patternIndex by Song::pattern
     val pattern = remember(patternIndex, PatternStore.shapes) { PatternStore.get(patternIndex) }
     if (pattern == null) {
         Text("This pattern could not be loaded.", modifier.padding(16.dp))
@@ -114,8 +116,10 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
     // MIDI note of the keyboard's leftmost key: octave buttons move it by 12,
     // and dragging the keyboard with Alt held moves it by semitones.
     var firstNote by rememberSaveable { mutableIntStateOf(60) }
-    // Alt: held under a thumb, it changes what other controls do.
-    var alt by remember { mutableStateOf(false) }
+    // Alt: held under either thumb, it changes what other controls do.
+    var altLeft by remember { mutableStateOf(false) }
+    var altRight by remember { mutableStateOf(false) }
+    val alt = altLeft || altRight
     var step by rememberSaveable { mutableIntStateOf(1) }
     var follow by rememberSaveable { mutableStateOf(true) }
     var playMode by rememberSaveable { mutableStateOf(PlayMode.SONG) }
@@ -139,7 +143,8 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
 
     // A fresh scroll state per pattern: the old pattern's position must never
     // be read against the new pattern's rows.
-    val listState = remember(patternIndex) { LazyListState() }
+    // Saved, so coming back to this tab finds the same place.
+    val listState = rememberSaveable(patternIndex, saver = LazyListState.Saver) { LazyListState() }
     val scope = rememberCoroutineScope()
     val rowPx = with(LocalDensity.current) { ROW_HEIGHT.toPx() }
     // Clamped as well, since the layout can briefly lag the pattern's length.
@@ -212,7 +217,7 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
 
     var editingShape by remember { mutableStateOf(false) }
     var confirmClear by remember { mutableStateOf<Int?>(null) }
-    val channelName = remember(info.channel) { NativeAudio.getChannelName(info.channel) }
+    val channelName = Song.channels.getOrElse(info.channel) { NativeAudio.getChannelName(info.channel) }
 
     if (editingShape) ShapeDialog(pattern, onDone = { change ->
         editingShape = false
@@ -243,11 +248,39 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             var menuOpen by remember { mutableStateOf(false) }
+            var renaming by remember { mutableStateOf(false) }
+            var full by remember { mutableStateOf(false) }
+            if (renaming) NameDialog("Rename pattern", PatternStore.names.getOrElse(patternIndex) { "" }) { name ->
+                renaming = false
+                if (name != null) PatternStore.rename(patternIndex, name)
+            }
+            if (full) AlertDialog(
+                onDismissRequest = { full = false },
+                title = { Text("No room for another pattern") },
+                text = { Text("A song can have up to 64 patterns.") },
+                confirmButton = { TextButton(onClick = { full = false }) { Text("OK") } },
+            )
             Box {
                 TextButton(onClick = { menuOpen = true }) {
                     Text("${PatternStore.names.getOrElse(patternIndex) { "?" }} ▾")
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                    DropdownMenuItem(text = { Text("New $channelName pattern") }, onClick = {
+                        menuOpen = false
+                        val i = PatternStore.create(info.channel, PatternStore.freshName(channelName))
+                        if (i >= 0) patternIndex = i else full = true
+                    })
+                    DropdownMenuItem(text = { Text("Duplicate this pattern") }, onClick = {
+                        menuOpen = false
+                        val base = PatternStore.names.getOrElse(patternIndex) { channelName }
+                        val i = PatternStore.create(info.channel, "$base copy".let { if (it in PatternStore.names) PatternStore.freshName(it) else it }, patternIndex)
+                        if (i >= 0) patternIndex = i else full = true
+                    })
+                    DropdownMenuItem(text = { Text("Rename this pattern…") }, onClick = {
+                        menuOpen = false
+                        renaming = true
+                    })
+                    HorizontalDivider()
                     PatternStore.byName.forEach { i ->
                         val name = PatternStore.names[i]
                         val shape = PatternStore.get(i)?.info?.let { " · ${it.rows} rows, speed ${it.speedLabel}" } ?: ""
@@ -356,17 +389,26 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
         // ---- Description line ----
         val cell = currentCell()
         val description = when {
-            alt -> "Alt · drag the keyboard to move it · Del goes up, hold Del to clear up to the top"
+            alt -> "Drag the keyboard to move it · Del goes up; hold it to clear to the top"
             field.isVolume -> if (cell.volume == CellData.VOLUME_DEFAULT) "Volume · default (full)"
                 else "Volume · ${cell.volume}/127"
             else -> EffectDescription.describe(cell, info.mode, Song.events, NativeAudio::effectValue, info.ticksPerBeat)
         }
-        Text(
-            description,
-            style = MaterialTheme.typography.bodySmall,
-            maxLines = 1,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-        )
+        // Help line, with an Alt key at each end over the 0 and 7 keys, under the thumbs.
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            HoldButton("Alt", held = altLeft, onHeld = { altLeft = it }, modifier = Modifier.weight(1f).padding(horizontal = 2.dp))
+            Text(
+                description,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(6f).padding(horizontal = 6.dp),
+            )
+            HoldButton("Alt", held = altRight, onHeld = { altRight = it }, modifier = Modifier.weight(1f).padding(horizontal = 2.dp))
+        }
 
         // ---- Hex pad ----
         // A digit goes where the cursor is (the effect command when on the note)
@@ -425,7 +467,6 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            HoldButton("Alt", held = alt, onHeld = { alt = it })
             val narrow = 7.dp
             ToolButton("−", horizontalPadding = narrow, onClick = { firstNote = (firstNote - 12).coerceAtLeast(0) })
             Text(Pitch.noteName(firstNote), style = MONO.copy(fontSize = 13.sp))

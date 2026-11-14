@@ -51,6 +51,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.toMutableStateList
 import androidx.compose.runtime.snapshots.SnapshotStateList
@@ -60,6 +61,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import io.github.jfuerth.adaptivetracker.editor.EditorScreen
 import io.github.jfuerth.adaptivetracker.instrument.InstrumentScreen
+import io.github.jfuerth.adaptivetracker.sequence.SequenceScreen
 import kotlinx.coroutines.delay
 
 class MainActivity : ComponentActivity() {
@@ -180,24 +182,39 @@ private fun App(
             }
             SongBar()
             PrimaryTabRow(selectedTabIndex = tab) {
-                Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Perform") })
-                Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Patterns") })
-                Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Instruments") })
+                TABS.forEachIndexed { i, name ->
+                    Tab(selected = tab == i, onClick = { tab = i }, text = { Text(name, maxLines = 1) })
+                }
             }
             // A new song starts every screen afresh.
             key(Song.generation) {
                 // Held here so they survive switching tabs. Parameters start where the song says.
                 val params = remember { Song.paramInitial.toMutableStateList() }
                 val layerOn = remember { Song.layers.map { true }.toMutableStateList() }
-                when (tab) {
-                    0 -> PerformScreen(audioOk, stats, params, layerOn, Modifier.weight(1f))
-                    1 -> EditorScreen(playing = playing, modifier = Modifier.weight(1f))
-                    else -> InstrumentScreen(Modifier.weight(1f))
+                // Each tab keeps its state (choices, scroll positions) while another is shown.
+                val tabState = rememberSaveableStateHolder()
+                tabState.SaveableStateProvider(tab) {
+                    when (tab) {
+                        0 -> PerformScreen(audioOk, stats, params, layerOn, Modifier.weight(1f))
+                        1 -> SequenceScreen(
+                            playing = playing,
+                            currentSection = stats.getOrElse(5) { -1 },
+                            onOpenPattern = { p ->
+                                Song.pattern = p
+                                tab = 2
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                        2 -> EditorScreen(playing = playing, modifier = Modifier.weight(1f))
+                        else -> InstrumentScreen(Modifier.weight(1f))
+                    }
                 }
             }
         }
     }
 }
+
+private val TABS = listOf("Perform", "Sequence", "Patterns", "Instruments")
 
 /** The song's title, and a menu to rename it, open and export songs. */
 @Composable
@@ -205,8 +222,8 @@ private fun SongBar() {
     val context = LocalContext.current
     var menuOpen by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
-    /** What a confirmed replace loads: true the demo, false a file. */
-    var confirmReplace by remember { mutableStateOf<Boolean?>(null) }
+    /** What a confirmed replace loads. */
+    var confirmReplace by remember { mutableStateOf<Replace?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
 
     val openFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -236,13 +253,17 @@ private fun SongBar() {
                     menuOpen = false
                     exportFile.launch(Song.exportName)
                 })
+                DropdownMenuItem(text = { Text("New song") }, onClick = {
+                    menuOpen = false
+                    confirmReplace = Replace.NEW
+                })
                 DropdownMenuItem(text = { Text("Open a song file…") }, onClick = {
                     menuOpen = false
-                    confirmReplace = false
+                    confirmReplace = Replace.FILE
                 })
                 DropdownMenuItem(text = { Text("Start from the demo song") }, onClick = {
                     menuOpen = false
-                    confirmReplace = true
+                    confirmReplace = Replace.DEMO
                 })
             }
         }
@@ -270,7 +291,7 @@ private fun SongBar() {
         )
     }
 
-    confirmReplace?.let { demo ->
+    confirmReplace?.let { what ->
         AlertDialog(
             onDismissRequest = { confirmReplace = null },
             title = { Text("Replace “${Song.title.ifEmpty { "Untitled" }}”?") },
@@ -282,18 +303,20 @@ private fun SongBar() {
             confirmButton = {
                 TextButton(onClick = {
                     confirmReplace = null
-                    if (demo) {
-                        message = Song.loadBundled(context)?.let { "Couldn't load the demo song: $it" }
-                    } else {
+                    when (what) {
+                        Replace.NEW -> message = Song.loadBundled(context, Song.NEW_SONG)?.let { "Couldn't start a new song: $it" }
+                        Replace.DEMO -> message = Song.loadBundled(context)?.let { "Couldn't load the demo song: $it" }
                         // Song files are JSON, but file managers label .json files inconsistently.
-                        openFile.launch(arrayOf("application/json", "text/*", "application/octet-stream"))
+                        Replace.FILE -> openFile.launch(arrayOf("application/json", "text/*", "application/octet-stream"))
                     }
-                }) { Text(if (demo) "Replace" else "Choose a file") }
+                }) { Text(if (what == Replace.FILE) "Choose a file" else "Replace") }
             },
             dismissButton = { TextButton(onClick = { confirmReplace = null }) { Text("Cancel") } },
         )
     }
 }
+
+private enum class Replace { NEW, FILE, DEMO }
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable

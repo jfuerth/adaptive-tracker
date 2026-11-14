@@ -11,11 +11,16 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
@@ -199,4 +204,19 @@ fun HoldButton(text: String, held: Boolean, onHeld: (Boolean) -> Unit, modifier:
             color = if (held) colors.onTertiary else colors.onTertiaryContainer,
         )
     }
+}
+
+/** Asks for a name; [onDone] gets it (trimmed, not blank), or null if cancelled. */
+@Composable
+fun NameDialog(title: String, initial: String, confirm: String = "OK", onDone: (String?) -> Unit) {
+    var text by remember { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = { onDone(null) },
+        title = { Text(title) },
+        text = { OutlinedTextField(text, onValueChange = { text = it }, singleLine = true) },
+        confirmButton = {
+            TextButton(onClick = { onDone(text.trim()) }, enabled = text.isNotBlank()) { Text(confirm) }
+        },
+        dismissButton = { TextButton(onClick = { onDone(null) }) { Text("Cancel") } },
+    )
 }

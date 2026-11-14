@@ -395,6 +395,21 @@ private:
         case Command::Kind::ClearCells:
             if (song_ != nullptr) song_->clearCells(c.b, c.a, c.data & 0xFFu, c.data >> 8, c.parts);
             break;
+        case Command::Kind::Added:
+            if (song_ != nullptr) added(static_cast<Addition>(c.a), c.b);
+            break;
+        case Command::Kind::EditSequence:
+            if (song_ != nullptr && song_->editSequence(c.a, c.b, static_cast<SeqEdit>(c.parts), c.data & 0xFFu, c.data >> 8)) {
+                sequenceEdited(c.a, c.b, static_cast<SeqEdit>(c.parts), c.data & 0xFFu, tick);
+            }
+            break;
+        case Command::Kind::SetSection:
+            if (song_ != nullptr &&
+                song_->setSectionTiming(c.a, static_cast<uint32_t>(c.value * 1000.0f + 0.5f), c.b, c.data) &&
+                c.a == currentSection_ && song_->sections[c.a].tempoMilliBpm != 0) {
+                setTempoMilliBpm(song_->sections[c.a].tempoMilliBpm);
+            }
+            break;
         case Command::Kind::ScaleRows:
             if (song_ != nullptr && song_->scaleRows(c.b, c.a, c.data)) {
                 for (auto& ch : channels_) ch.rowsScaled(&song_->patterns[c.b], c.a, c.data, tick);
@@ -517,6 +532,42 @@ private:
     void applyTempo() {
         const float t = static_cast<float>(baseTempoMilliBpm_) * tempoScale_.value();
         clock_.setTempoMilliBpm(static_cast<uint32_t>(t));
+    }
+
+    void added(Addition what, uint8_t index) {
+        switch (what) {
+        case Addition::Pattern:
+            if (index == song_->numPatterns && index < config::kMaxPatterns) ++song_->numPatterns;
+            break;
+        case Addition::Channel:
+            if (index == song_->numChannels && index < config::kMaxChannels) {
+                ++song_->numChannels;
+                channels_[index].setPitchMode(song_->channels[index].pitchMode);
+                channels_[index].setNumColumns(song_->channels[index].numColumns);
+                applyColumnInstruments(index, 0);
+            }
+            break;
+        case Addition::Section:
+            if (index == song_->numSections && index < config::kMaxSections) ++song_->numSections;
+            break;
+        }
+    }
+
+    /// A sequence changed: the channel playing it carries on, and a channel
+    /// that had nothing to play in the current section joins in time.
+    void sequenceEdited(uint8_t section, uint8_t channel, SeqEdit op, uint32_t pos, uint64_t tick) {
+        if (section != currentSection_) return;
+        const Sequence& s = song_->sections[section].sequences[channel];
+        Channel& ch = channels_[channel];
+        if (ch.playsSequence(&s)) {
+            if (s.length == 0) {
+                ch.play(nullptr, 0);
+            } else {
+                ch.sequenceEdited(op, pos, tick);
+            }
+        } else if (!ch.isOneShot() && song_->isPlayable(s)) {
+            ch.playSequence(&s, song_->patterns, sectionStartTick_);
+        }
     }
 
     void enterSection(uint8_t index, Entry entry, uint8_t bridge, uint64_t tick) {

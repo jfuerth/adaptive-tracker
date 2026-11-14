@@ -140,6 +140,39 @@ object NativeAudio {
      */
     external fun scaleRows(pattern: Int, num: Int, den: Int): Boolean
 
+    // ---- Growing the song: each returns the new index, or -1 when the song is full ----
+
+    /** A pattern for [channel], empty or a copy of pattern [copyOf] (-1: empty). */
+    fun addPattern(channel: Int, name: String, copyOf: Int = -1): Int = addPatternBytes(channel, name.toByteArray(), copyOf)
+    /** A channel with one column playing [instrument] (-1: none); [mode]: PitchMode ordinal. */
+    fun addChannel(name: String, mode: Int, instrument: Int): Int = addChannelBytes(name.toByteArray(), mode, instrument)
+    fun addSection(name: String): Int = addSectionBytes(name.toByteArray())
+    /** Renames item [index] of [kind] (getSongNames' kinds: NAMES_*). Its id stays. */
+    fun rename(kind: Int, index: Int, name: String): Boolean = renameBytes(kind, index, name.toByteArray())
+    private external fun addPatternBytes(channel: Int, name: ByteArray, copyOf: Int): Int
+    private external fun addChannelBytes(name: ByteArray, mode: Int, instrument: Int): Int
+    private external fun addSectionBytes(name: ByteArray): Int
+    private external fun renameBytes(kind: Int, index: Int, name: ByteArray): Boolean
+
+    /** Changes what [channel] plays in [section]; [op]: SEQ_INSERT, SEQ_REMOVE or SEQ_SET at entry [pos]. */
+    external fun editSequence(section: Int, channel: Int, op: Int, pos: Int, pattern: Int): Boolean
+    /** Section timing: [bpm] 0 keeps the tempo; [bridgeBeats] 0: not a bridge. */
+    external fun setSection(section: Int, bpm: Float, beatsPerBar: Int, bridgeBeats: Int): Boolean
+    /** Pattern indexes [channel] plays in [section], in order. */
+    external fun getSequence(section: Int, channel: Int): IntArray?
+    /** [tempo in milli-BPM (0: keeps the tempo), beats per bar, bridge beats]. */
+    external fun getSectionTiming(section: Int): IntArray?
+
+    const val NAMES_SECTIONS = 0
+    const val NAMES_LAYERS = 1
+    const val NAMES_PARAMS = 2
+    const val NAMES_EVENTS = 3
+    const val NAMES_CHANNELS = 4
+    const val NAMES_PATTERNS = 5
+    const val SEQ_INSERT = 0
+    const val SEQ_REMOVE = 1
+    const val SEQ_SET = 2
+
     const val CELL_NOTE = 1
     const val CELL_VOLUME = 2
     const val CELL_EFFECT = 4

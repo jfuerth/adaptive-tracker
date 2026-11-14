@@ -3,6 +3,7 @@ package io.github.jfuerth.adaptivetracker.editor
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import io.github.jfuerth.adaptivetracker.NativeAudio
@@ -49,8 +50,31 @@ object PatternStore {
         private set
     private val ticksPerBeat by lazy { NativeAudio.getTicksPerBeat() }
 
-    var names: List<String> = emptyList()
+    var names: List<String> by mutableStateOf(emptyList())
         private set
+
+    /** Patterns of [channel], by index. */
+    fun ofChannel(channel: Int): List<Int> = names.indices.filter { NativeAudio.getPatternInfo(it)?.getOrNull(0) == channel }
+
+    /**
+     * A new pattern on [channel], empty or a copy of [copyOf]; returns its
+     * index, or -1 if the song has no room.
+     */
+    fun create(channel: Int, name: String, copyOf: Int = -1): Int {
+        val i = NativeAudio.addPattern(channel, name, copyOf)
+        if (i >= 0) names = names + NativeAudio.getPatternName(i)
+        return i
+    }
+
+    fun rename(index: Int, name: String) {
+        val n = name.trim()
+        if (n.isEmpty() || !NativeAudio.rename(NativeAudio.NAMES_PATTERNS, index, n)) return
+        names = names.toMutableList().also { it[index] = n }
+    }
+
+    /** "Name 2": the first "[base] N" not taken. */
+    fun freshName(base: String): String =
+        generateSequence(1) { it + 1 }.map { "$base $it" }.first { it !in names }
 
     /** Pattern indexes in name order, for choosing one. */
     val byName: List<Int> get() = names.indices.sortedWith(compareBy(NaturalOrder) { names[it] })
