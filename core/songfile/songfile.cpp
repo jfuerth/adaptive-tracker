@@ -483,7 +483,7 @@ void readSections(const Json& root, Song& song, SongInfo& info, Ids& ids) {
 
 const char* const kActions[] = {"gotoSection",    "playStinger",    "setLayerMute",    "setParam",
                                 "setKey",         "setTempo",       "stop",            "setChannelMute",
-                                "setChannelSolo", "setChannelPause", "restartChannel", "rewind"};
+                                "setChannelSolo", "setChannelPause", "restartChannel", "bumpBack"};
 const char* const kRewindTo[] = {"bar", "pattern"};
 
 Command parseAction(const Json& j, const Song& song, const Ids& ids, const std::string& where) {
@@ -637,7 +637,7 @@ Json actionJson(const Command& c, const Song& song, const SongInfo& info) {
     case Command::Kind::RestartChannel:
         return Json{{"type", "restartChannel"}, {"channel", idOf(info.channels, c.a, "channel")}, {"when", when(c.when)}};
     case Command::Kind::Rewind:
-        return Json{{"type", "rewind"}, {"to", kRewindTo[c.a <= 1 ? c.a : 0]}, {"when", when(c.when)}};
+        return Json{{"type", "bumpBack"}, {"to", kRewindTo[c.a <= 1 ? c.a : 0]}, {"when", when(c.when)}};
     default:
         (void)song;
         return Json();  // not something an event can do

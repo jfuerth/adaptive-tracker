@@ -2,7 +2,8 @@ package io.github.jfuerth.adaptivetracker.editor
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.snapping.SnapPosition
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.interaction.DragInteraction
@@ -47,7 +48,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
@@ -199,9 +202,12 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
     }
 
     // ---- Horizontal swipes move the cursor: note, then each digit, then the next column ----
+    // Read through state: the gesture handler lives as long as the editor, so
+    // it must see columns added or removed since it started.
+    val columnCount by rememberUpdatedState(info.columns)
     fun moveCursor(delta: Int) {
         val fields = Field.entries
-        val index = (column * fields.size + field.ordinal + delta).coerceIn(0, info.columns * fields.size - 1)
+        val index = (column * fields.size + field.ordinal + delta).coerceIn(0, columnCount * fields.size - 1)
         column = index / fields.size
         field = fields[index % fields.size]
         anchor = null
@@ -384,18 +390,41 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
                 .fillMaxWidth()
                 .onSizeChanged { viewportPx = it.height }
                 .pointerInput(Unit) {
+                    // Seen before the rows (Initial pass): a drag that goes
+                    // sideways first moves the cursor, and the rows don't
+                    // scroll until the finger lifts. One that goes up or down
+                    // first is left to scroll them.
                     val stepPx = SWIPE_STEP.toPx()
-                    var accumulated = 0f
-                    detectHorizontalDragGestures(onDragStart = { accumulated = 0f }) { change, dx ->
-                        change.consume()
-                        accumulated += dx
-                        while (accumulated >= stepPx) {
-                            move(1)
-                            accumulated -= stepPx
-                        }
-                        while (accumulated <= -stepPx) {
-                            move(-1)
-                            accumulated += stepPx
+                    val slop = viewConfiguration.touchSlop
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                        var dx = 0f
+                        var dy = 0f
+                        var sideways = false
+                        var accumulated = 0f
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) break
+                            val delta = change.positionChange()
+                            if (!sideways) {
+                                dx += delta.x
+                                dy += delta.y
+                                if (abs(dy) > slop && abs(dy) >= abs(dx)) break  // scrolling
+                                if (abs(dx) <= slop || abs(dx) <= abs(dy)) continue
+                                sideways = true
+                            } else {
+                                accumulated += delta.x
+                            }
+                            event.changes.forEach { it.consume() }
+                            while (accumulated >= stepPx) {
+                                move(1)
+                                accumulated -= stepPx
+                            }
+                            while (accumulated <= -stepPx) {
+                                move(-1)
+                                accumulated += stepPx
+                            }
                         }
                     }
                 },
@@ -605,6 +634,12 @@ private fun ColumnHeadings(
                         .padding(horizontal = 2.dp, vertical = 4.dp),
                 )
                 DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                    Text(
+                        "Instrument for column ${c + 1} in every $channelName pattern",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = colors.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp).width(220.dp),
+                    )
                     names.forEachIndexed { i, name ->
                         DropdownMenuItem(
                             text = { Text(if (i == current) "✓ $name" else name) },

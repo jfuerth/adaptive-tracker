@@ -47,7 +47,7 @@ import io.github.jfuerth.adaptivetracker.ui.NameDialog
 internal val GLOBAL_WIDTH = 156.dp
 
 /**
- * The console's global section: jumping back to replay the bar or the
+ * The console's global section: bumping back to replay the bar or the
  * patterns, where the song goes next (sections, and how it gets there), the
  * parameters as faders, events, layers and the key.
  * [params] and [layerOn] mirror what was sent to the engine.
@@ -92,14 +92,14 @@ internal fun GlobalStrip(
             )
         }
 
-        // Bump: everything jumps back, at once, to replay the bar or the patterns.
-        Heading("Back to start of")
+        // Bump back: everything jumps back at once, to replay the bar or the patterns.
+        Heading("Bump back")
         Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             Box(Modifier.weight(1f)) {
-                StripChip("⏮ Bar", on = false, enabled = playing, onClick = { NativeAudio.rewind(toPattern = false) })
+                StripChip("Bar", on = false, enabled = playing, onClick = { NativeAudio.rewind(toPattern = false) })
             }
             Box(Modifier.weight(1f)) {
-                StripChip("⏮ Pattern", on = false, enabled = playing, onClick = { NativeAudio.rewind(toPattern = true) })
+                StripChip("Pattern", on = false, enabled = playing, onClick = { NativeAudio.rewind(toPattern = true) })
             }
         }
 

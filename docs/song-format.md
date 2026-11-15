@@ -164,7 +164,7 @@ Up to 4 actions per event, run in order:
 | `setChannelSolo` | `channel`, `soloed` (default true): channels not soloed are silent | `now` |
 | `setChannelPause` | `channel`, `paused` (default true): starts no notes, keeps its place | `bar` |
 | `restartChannel` | `channel`: plays its sequence from the top | `bar` |
-| `rewind` | `to` `bar` (default: every channel replays the bar playing, and the bar count starts over) or `pattern` (each channel's pattern from its first row) | `now` |
+| `bumpBack` | `to` `bar` (default: every channel replays the bar playing, and the bar count starts over) or `pattern` (each channel's pattern from its first row) | `now` |
 | `setKey` | `root`, `scale` as in a key | `bar` |
 | `setTempo` | `tempo` (BPM) | `beat` |
 | `stop` | | (immediate) |

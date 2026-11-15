@@ -197,11 +197,11 @@ TEST_CASE("Song file: songs/new-song.json (what New song starts from) loads and 
     CHECK(nlohmann::json::parse(songfile::save(*song, info)) == nlohmann::json::parse(file.str()));
 }
 
-TEST_CASE("Song file: the mixer actions and rewind round trip") {
+TEST_CASE("Song file: the mixer actions and bump back round trip") {
     const std::string json = demoWith(
         R"({"type": "playStinger", "pattern": "hit-stinger", "when": "now"})",
         R"({"type": "setChannelMute", "channel": "bass"}, {"type": "restartChannel", "channel": "pad"},)"
-        R"({"type": "rewind", "to": "pattern", "when": "beat"}, {"type": "rewind"})");
+        R"({"type": "bumpBack", "to": "pattern", "when": "beat"}, {"type": "bumpBack"})");
     auto song = std::make_unique<Song>();
     songfile::SongInfo info;
     const auto r = songfile::load(json, *song, info);
