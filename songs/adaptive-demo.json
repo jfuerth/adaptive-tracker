@@ -179,6 +179,7 @@
     {
       "id": "lead",
       "name": "Lead",
+      "volume": 1,
       "columns": [
         {
           "instrument": "lead",
@@ -266,6 +267,7 @@
     {
       "id": "bass",
       "name": "Bass",
+      "volume": 1,
       "columns": [
         {"instrument": "bass", "pitch": "degree"}
       ],
@@ -340,6 +342,7 @@
     {
       "id": "pad",
       "name": "Pad",
+      "volume": 1,
       "columns": [
         {
           "instrument": "pad",
@@ -403,6 +406,7 @@
     {
       "id": "arp",
       "name": "Arp",
+      "volume": 1,
       "columns": [
         {
           "instrument": "arp",
@@ -552,6 +556,7 @@
     {
       "id": "drums",
       "name": "Drums",
+      "volume": 1,
       "columns": [
         {
           "instrument": "kick",
@@ -602,6 +607,7 @@
     {
       "id": "stinger",
       "name": "Stinger",
+      "volume": 1,
       "columns": [
         {"instrument": "stinger", "pitch": "degree"}
       ],

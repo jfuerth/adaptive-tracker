@@ -61,7 +61,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import io.github.jfuerth.adaptivetracker.editor.EditorScreen
 import io.github.jfuerth.adaptivetracker.instrument.InstrumentScreen
-import io.github.jfuerth.adaptivetracker.sequence.SequenceScreen
+import io.github.jfuerth.adaptivetracker.mixer.MixerScreen
 import io.github.jfuerth.adaptivetracker.ui.NameDialog
 import kotlinx.coroutines.delay
 
@@ -147,11 +147,6 @@ private fun rememberStats(): IntArray {
 }
 
 @Composable
-private fun SectionTitle(text: String) {
-    Text(text, style = MaterialTheme.typography.titleMedium)
-}
-
-@Composable
 private fun App(
     audioOk: Boolean,
     songError: String?,
@@ -181,11 +176,11 @@ private fun App(
                     TextButton(onClick = onDismissSongError) { Text("OK") }
                 }
             }
-            SongBar()
+            SongBar(stats)
             PrimaryTabRow(selectedTabIndex = tab) {
                 TABS.forEachIndexed { i, name ->
                     Tab(selected = tab == i, onClick = {
-                        // The Perform tab always hears the adaptive mix.
+                        // The mixer always hears the adaptive mix.
                         if (i == 0 && tab != 0) NativeAudio.setHearAll(false)
                         tab = i
                     }, text = { Text(name, maxLines = 1) })
@@ -205,17 +200,19 @@ private fun App(
                 val tabState = rememberSaveableStateHolder()
                 tabState.SaveableStateProvider(tab) {
                     when (tab) {
-                        0 -> PerformScreen(audioOk, stats, params, layerOn, Modifier.weight(1f))
-                        1 -> SequenceScreen(
+                        0 -> MixerScreen(
+                            audioOk = audioOk,
                             playing = playing,
                             currentSection = stats.getOrElse(5) { -1 },
+                            params = params,
+                            layerOn = layerOn,
                             onOpenPattern = { p ->
                                 Song.pattern = p
-                                tab = 2
+                                tab = 1
                             },
                             modifier = Modifier.weight(1f),
                         )
-                        2 -> EditorScreen(playing = playing, modifier = Modifier.weight(1f))
+                        1 -> EditorScreen(playing = playing, modifier = Modifier.weight(1f))
                         else -> InstrumentScreen(Modifier.weight(1f))
                     }
                 }
@@ -224,17 +221,18 @@ private fun App(
     }
 }
 
-private val TABS = listOf("Perform", "Sequence", "Patterns", "Instruments")
+private val TABS = listOf("Mixer", "Patterns", "Instruments")
 
 /** The song's title, and a menu to rename it, open and export songs. */
 @Composable
-private fun SongBar() {
+private fun SongBar(stats: IntArray) {
     val context = LocalContext.current
     var menuOpen by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     /** What a confirmed replace loads. */
     var confirmReplace by remember { mutableStateOf<Replace?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
+    var diagnostics by remember { mutableStateOf(false) }
 
     val openFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) message = Song.import(context, uri)?.let { "Couldn't open that song: $it" }
@@ -296,6 +294,10 @@ private fun SongBar() {
                     menuOpen = false
                     confirmReplace = Replace.DEMO
                 })
+                DropdownMenuItem(text = { Text("Audio diagnostics…") }, onClick = {
+                    menuOpen = false
+                    diagnostics = true
+                })
             }
         }
     }
@@ -304,6 +306,14 @@ private fun SongBar() {
             Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
             TextButton(onClick = { message = null }) { Text("OK") }
         }
+    }
+
+    if (diagnostics) {
+        AlertDialog(
+            onDismissRequest = { diagnostics = false },
+            text = { DiagnosticsCard(stats) },
+            confirmButton = { TextButton(onClick = { diagnostics = false }) { Text("Close") } },
+        )
     }
 
     if (renaming) {
@@ -349,248 +359,6 @@ private fun SongBar() {
 
 private enum class Replace { NEW, FILE, DEMO }
 
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun PerformScreen(
-    audioOk: Boolean,
-    stats: IntArray,
-    params: SnapshotStateList<Float>,
-    layerOn: SnapshotStateList<Boolean>,
-    modifier: Modifier = Modifier,
-) {
-    val currentSection = stats.getOrElse(5) { -1 }
-    val playing = stats.getOrElse(6) { 0 } == 1
-
-    var quantize by rememberSaveable { mutableIntStateOf(NativeAudio.Quantize.BAR.ordinal) }
-    var entry by rememberSaveable { mutableIntStateOf(NativeAudio.Entry.RESTART.ordinal) }
-    var viaBridge by rememberSaveable { mutableStateOf(false) }
-    // The key buttons start at the song's own key. A scale that isn't one of
-    // the named ones (a song can list its own notes) shows no scale selected,
-    // and changing the root keeps it.
-    val home = remember { NativeAudio.getHomeKey() }
-    var root by rememberSaveable { mutableIntStateOf(home[0]) }
-    var scaleMask by rememberSaveable { mutableIntStateOf(home[1]) }
-
-    run {
-        Column(
-            modifier = modifier
-                .fillMaxSize()
-                .padding(horizontal = 16.dp, vertical = 8.dp)
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            if (!audioOk) {
-                Text("Could not open audio output.", color = MaterialTheme.colorScheme.error)
-            }
-
-            // Transport
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Button(onClick = { if (playing) NativeAudio.stop() else NativeAudio.play() }) {
-                    Text(if (playing) "Stop" else "Play")
-                }
-                Text(
-                    when {
-                        !playing -> "  Stopped"
-                        currentSection < 0 -> "  Playing a solo pattern"
-                        else -> "  Now playing: ${Song.sections.getOrElse(currentSection) { "?" }}"
-                    },
-                    style = MaterialTheme.typography.bodyLarge,
-                )
-            }
-
-            // Parameters
-            SectionTitle("Parameters")
-            Song.params.forEachIndexed { i, name ->
-                Text("$name: ${(params[i] * 100).toInt()}%")
-                Slider(
-                    value = params[i],
-                    onValueChange = {
-                        params[i] = it
-                        NativeAudio.setParam(i, it)
-                    },
-                )
-            }
-
-            // Events
-            SectionTitle("Events")
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Song.events.forEachIndexed { index, label ->
-                    FilledTonalButton(onClick = { NativeAudio.fireEvent(index) }, enabled = playing) {
-                        Text(label)
-                    }
-                }
-            }
-
-            // Sections
-            SectionTitle("Sections")
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Song.playableSections.forEach { i ->
-                    val name = Song.sections[i]
-                    FilledTonalButton(
-                        onClick = { NativeAudio.gotoSection(i, quantize, entry, viaBridge) },
-                        enabled = playing,
-                    ) { Text("Go to $name") }
-                }
-            }
-            Text("Transition", style = MaterialTheme.typography.labelLarge)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                NativeAudio.Quantize.entries.forEach { q ->
-                    FilterChip(
-                        selected = quantize == q.ordinal,
-                        onClick = { quantize = q.ordinal },
-                        label = { Text(q.label) },
-                    )
-                }
-            }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                NativeAudio.Entry.entries.forEach { e ->
-                    FilterChip(
-                        selected = entry == e.ordinal,
-                        onClick = { entry = e.ordinal },
-                        label = { Text(e.label) },
-                    )
-                }
-            }
-            if (Song.hasBridge) Row(verticalAlignment = Alignment.CenterVertically) {
-                Switch(checked = viaBridge, onCheckedChange = { viaBridge = it })
-                Text("  Play the bridge first")
-            }
-
-            // Layers: mute and unmute; in edit mode, make, rename and remove them.
-            var editingLayers by rememberSaveable { mutableStateOf(false) }
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.weight(1f)) { SectionTitle("Layers (mute at the next bar)") }
-                TextButton(onClick = { editingLayers = !editingLayers }) { Text(if (editingLayers) "Done" else "Edit") }
-            }
-            if (editingLayers) {
-                LayerEditor(layerOn)
-            } else {
-                if (Song.layers.isEmpty()) Text("No layers. Tap Edit to make one.", style = MaterialTheme.typography.bodySmall)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Song.layers.forEachIndexed { i, name ->
-                        FilterChip(
-                            selected = layerOn.getOrElse(i) { true },
-                            onClick = {
-                                if (i < layerOn.size) {
-                                    layerOn[i] = !layerOn[i]
-                                    NativeAudio.setLayerMute(i, !layerOn[i])
-                                }
-                            },
-                            label = { Text(name) },
-                        )
-                    }
-                }
-            }
-
-            // Key
-            SectionTitle("Key (changes at the next bar)")
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                NativeAudio.NOTE_NAMES.forEachIndexed { i, name ->
-                    FilterChip(
-                        selected = root == i,
-                        onClick = {
-                            root = i
-                            NativeAudio.setKey(root, scaleMask)
-                        },
-                        label = { Text(name) },
-                    )
-                }
-            }
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                NativeAudio.Scale.entries.forEach { s ->
-                    FilterChip(
-                        selected = scaleMask == s.mask,
-                        onClick = {
-                            scaleMask = s.mask
-                            NativeAudio.setKey(root, scaleMask)
-                        },
-                        label = { Text(s.label) },
-                    )
-                }
-            }
-
-            DiagnosticsCard(stats)
-        }
-    }
-}
-
-/**
- * Layers being edited: each with its name (tap to rename), its channels (tap
- * one to put all its columns in or out; single columns are chosen in a
- * column's settings), and Remove. [layerOn] follows additions and removals.
- */
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun LayerEditor(layerOn: SnapshotStateList<Boolean>) {
-    var renaming by remember { mutableStateOf<Int?>(null) }
-    var removing by remember { mutableStateOf<Int?>(null) }
-    var adding by remember { mutableStateOf(false) }
-    Song.layers.forEachIndexed { i, name ->
-        Card(Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onClick = { renaming = i }) { Text("$name ✎") }
-                    Spacer(Modifier.weight(1f))
-                    TextButton(onClick = { removing = i }) { Text("Remove") }
-                }
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Song.channels.forEachIndexed { ch, chName ->
-                        val bits = Song.layerColumns(i, ch)
-                        val all = (1 shl NativeAudio.getChannelColumns(ch)) - 1
-                        val whole = bits and all == all
-                        FilterChip(
-                            selected = bits != 0,
-                            onClick = {
-                                NativeAudio.setLayerColumns(i, ch, if (whole) 0 else 0xF)
-                                Song.structureChanged()
-                            },
-                            label = { Text(if (bits != 0 && !whole) "$chName (some columns)" else chName) },
-                        )
-                    }
-                }
-            }
-        }
-    }
-    TextButton(onClick = { adding = true }, enabled = Song.layers.size < MAX_LAYERS) { Text("+ New layer") }
-    Text(
-        "To put single columns in a layer, use a column's settings in the Patterns tab (tap its heading).",
-        style = MaterialTheme.typography.bodySmall,
-    )
-
-    if (adding) NameDialog("New layer", "Layer ${Song.layers.size + 1}", "Add") { name ->
-        adding = false
-        if (name != null && NativeAudio.addLayer(name) >= 0) {
-            layerOn.add(true)
-            Song.structureChanged()
-        }
-    }
-    renaming?.let { i ->
-        NameDialog("Rename layer", Song.layers[i], "Rename") { name ->
-            renaming = null
-            if (name != null && NativeAudio.rename(NativeAudio.NAMES_LAYERS, i, name)) Song.structureChanged()
-        }
-    }
-    removing?.let { i ->
-        AlertDialog(
-            onDismissRequest = { removing = null },
-            title = { Text("Remove “${Song.layers[i]}”?") },
-            text = { Text("Its columns play as they would without it. Mappings and event actions that use it are removed too.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    removing = null
-                    if (NativeAudio.removeLayer(i)) {
-                        if (i < layerOn.size) layerOn.removeAt(i)
-                        Song.structureChanged()
-                    }
-                }) { Text("Remove") }
-            },
-            dismissButton = { TextButton(onClick = { removing = null }) { Text("Cancel") } },
-        )
-    }
-}
-
-/** Layers a song can have (the engine's kMaxLayers). */
-private const val MAX_LAYERS = 8
 
 @Composable
 private fun DiagnosticsCard(stats: IntArray) {

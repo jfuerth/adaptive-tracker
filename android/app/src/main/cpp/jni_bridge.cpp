@@ -232,6 +232,13 @@ JNIEXPORT jintArray JNICALL JNI_FN(getColumnSettings)(JNIEnv* env, jobject, jint
     return result;
 }
 
+JNIEXPORT jintArray JNICALL JNI_FN(getMixerState)(JNIEnv* env, jobject) {
+    const std::vector<int32_t> v = player().mixerState();
+    jintArray result = env->NewIntArray(static_cast<jsize>(v.size()));
+    if (result != nullptr) env->SetIntArrayRegion(result, 0, static_cast<jsize>(v.size()), v.data());
+    return result;
+}
+
 JNIEXPORT jboolean JNICALL JNI_FN(setColumnPitch)(JNIEnv*, jobject, jint channel, jint column, jint mode) {
     return toJ(player().setColumnPitch(channel, column, mode));
 }
@@ -249,6 +256,19 @@ JNIEXPORT jboolean JNICALL JNI_FN(removeLayer)(JNIEnv*, jobject, jint layer) {
     return toJ(player().removeLayer(layer));
 }
 
+JNIEXPORT jboolean JNICALL JNI_FN(setChannelVolume)(JNIEnv*, jobject, jint ch, jfloat v) {
+    return toJ(player().setChannelVolume(ch, v));
+}
+JNIEXPORT jboolean JNICALL JNI_FN(setChannelMute)(JNIEnv*, jobject, jint ch, jboolean on) {
+    return toJ(player().setChannelMute(ch, on == JNI_TRUE));
+}
+JNIEXPORT jboolean JNICALL JNI_FN(setChannelSolo)(JNIEnv*, jobject, jint ch, jboolean on) {
+    return toJ(player().setChannelSolo(ch, on == JNI_TRUE));
+}
+JNIEXPORT jboolean JNICALL JNI_FN(setChannelPause)(JNIEnv*, jobject, jint ch, jboolean on) {
+    return toJ(player().setChannelPause(ch, on == JNI_TRUE));
+}
+JNIEXPORT jboolean JNICALL JNI_FN(restartChannel)(JNIEnv*, jobject, jint ch) { return toJ(player().restartChannel(ch)); }
 JNIEXPORT jboolean JNICALL JNI_FN(deletePattern)(JNIEnv*, jobject, jint i) { return toJ(player().deletePattern(i)); }
 JNIEXPORT jboolean JNICALL JNI_FN(deleteChannel)(JNIEnv*, jobject, jint i) { return toJ(player().deleteChannel(i)); }
 JNIEXPORT jboolean JNICALL JNI_FN(deleteSection)(JNIEnv*, jobject, jint i) { return toJ(player().deleteSection(i)); }

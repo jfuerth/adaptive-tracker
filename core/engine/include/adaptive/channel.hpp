@@ -270,9 +270,39 @@ public:
         locate(tick);
     }
 
+    // ---- Mixer strip controls ----
+
+    /// The strip's fader (0..1, applied as a curve) and whether it is
+    /// silenced (muted, or another strip is soloed). Changes glide over a few
+    /// milliseconds, so they never click.
+    void setMix(float fader, bool silent) {
+        const float g = silent ? 0.0f : fader * fader;
+        mixGain_.set(g, kMixRampSamples);
+    }
+    float mixGain() const { return mixGain_.value(); }
+    void setStripMuted(bool on) { userMuted_ = on; }
+    bool stripMuted() const { return userMuted_; }
+    void setSoloed(bool on) { soloed_ = on; }
+    bool soloed() const { return soloed_; }
+    /// Paused: time runs on (it stays in step) but it starts no notes, and
+    /// what was sounding stops.
+    void setPaused(bool on) {
+        if (on && !paused_) {
+            for (auto& v : voices_) v.release();
+        }
+        paused_ = on;
+    }
+    bool paused() const { return paused_; }
+    /// Start over from the first entry of what it plays, at `tick`.
+    void restartAt(uint64_t tick) {
+        if (isPlaying()) restart(tick);
+    }
+
     /// Back to how a new channel starts: stopped, unity gain, filter open.
     void reset() {
         play(nullptr, 0);
+        userMuted_ = soloed_ = paused_ = false;
+        mixGain_.reset(1.0f);
         loop_ = true;
         setGain(1.0f, 0);
         setCutoff(20000.0f, 0);
@@ -403,6 +433,7 @@ private:
         for (uint32_t c = 0; c < numColumns_; ++c) any = any || voices_[c].isActive();
         if (!any) {
             gainRamp_.advance(n);
+            mixGain_.advance(n);
             for (auto& g : layerGains_) g.advance(n);
             advanceCutoff(n);
             return;
@@ -438,7 +469,7 @@ private:
                 if (filterOn) filter_.setCutoff(std::exp2(cutoffLog2_.value()));
             }
             const float x = filterOn ? filter_.processSample(scratch_[i]) : scratch_[i];
-            mix[i] += x * gainRamp_.next();
+            mix[i] += x * gainRamp_.next() * mixGain_.next();
         }
     }
 
@@ -728,7 +759,12 @@ private:
     bool loop_ = true;
     static constexpr uint32_t kAllColumns = (1u << config::kMaxColumns) - 1u;
     /// Starts new notes: not muted, and its gate is open.
-    bool plays(uint32_t c) const { return ((openColumns_ & ~mutedColumns_) >> c) & 1u; }
+    bool plays(uint32_t c) const { return !paused_ && (((openColumns_ & ~mutedColumns_) >> c) & 1u); }
+    static constexpr uint32_t kMixRampSamples = 240;  // 5 ms at 48 kHz
+    Ramp mixGain_{1.0f};  ///< fader and mute
+    bool userMuted_ = false;
+    bool soloed_ = false;
+    bool paused_ = false;
     uint32_t mutedColumns_ = 0;
     uint32_t openColumns_ = ~0u;
     uint32_t columnMask_ = ~0u;

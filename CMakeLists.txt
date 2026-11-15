@@ -52,7 +52,8 @@ if(ADAPTIVE_BUILD_HOST_TOOLS)
         core/tests/test_pattern_edits.cpp
         core/tests/test_song_edits.cpp
         core/tests/test_columns.cpp
-        core/tests/test_song_swap.cpp)
+        core/tests/test_song_swap.cpp
+        core/tests/test_mixer.cpp)
     find_package(Threads REQUIRED)
     target_link_libraries(adaptive_tests PRIVATE Threads::Threads)
     target_link_libraries(adaptive_tests PRIVATE adaptive_demo adaptive_songfile)

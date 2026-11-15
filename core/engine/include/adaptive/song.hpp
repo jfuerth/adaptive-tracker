@@ -87,6 +87,11 @@ struct Command {
         RemoveLayer,    ///< take out layer a (and what refers to it)
         HearAll,        ///< a != 0: ignore gates, layer mutes and layer gains (hear every note)
         SwapSong,       ///< take the song offered in swap slot a (see Engine::offer)
+        SetChannelVolume, ///< channel a's fader = value (0..1); a song edit
+        SetChannelMute, ///< channel a muted while b != 0 (at once, notes keep time silently)
+        SetChannelSolo, ///< channel a soloed while b != 0: unsoloed channels are silent
+        SetChannelPause,///< channel a paused while b != 0: starts no notes, keeps its place
+        RestartChannel, ///< channel a starts what it plays over, from its first entry
         SetColumns,   ///< channel a gets b columns; see Song::setColumns
         RemoveColumn, ///< remove channel a's column b; see Song::removeColumn
     };
@@ -202,6 +207,21 @@ struct Command {
     }
     static constexpr Command setLayerColumns(uint8_t layer, uint8_t channel, uint16_t columnBits) {
         return Command{Kind::SetLayerColumns, Quantize::Now, Entry::Restart, layer, channel, 0.0f, columnBits};
+    }
+    static constexpr Command setChannelVolume(uint8_t channel, float volume) {
+        return Command{Kind::SetChannelVolume, Quantize::Now, Entry::Restart, channel, 0, volume, 0};
+    }
+    static constexpr Command setChannelMute(uint8_t channel, bool on) {
+        return Command{Kind::SetChannelMute, Quantize::Now, Entry::Restart, channel, uint8_t(on ? 1 : 0)};
+    }
+    static constexpr Command setChannelSolo(uint8_t channel, bool on) {
+        return Command{Kind::SetChannelSolo, Quantize::Now, Entry::Restart, channel, uint8_t(on ? 1 : 0)};
+    }
+    static constexpr Command setChannelPause(uint8_t channel, bool on, Quantize when = Quantize::Now) {
+        return Command{Kind::SetChannelPause, when, Entry::Restart, channel, uint8_t(on ? 1 : 0)};
+    }
+    static constexpr Command restartChannel(uint8_t channel, Quantize when = Quantize::Bar) {
+        return Command{Kind::RestartChannel, when, Entry::Restart, channel, 0};
     }
     static constexpr Command swapSong(uint8_t slot) {
         return Command{Kind::SwapSong, Quantize::Now, Entry::Restart, slot, 0};
@@ -366,6 +386,8 @@ struct ChannelSetup {
     /// and the value it must be at least for the column to start notes.
     uint8_t gateParams[config::kMaxColumns];
     float gateThresholds[config::kMaxColumns];
+    /// The mixer fader, 0..1 (heard as its square; 1 is unity).
+    float volume = 1.0f;
 
     ChannelSetup() {
         for (uint32_t c = 0; c < config::kMaxColumns; ++c) {
@@ -577,6 +599,13 @@ struct Song {
         return static_cast<uint8_t>((convert(param >> 4) << 4) | convert(param & 0x0F));
     }
 
+    /// `channel`'s mixer fader (0..1).
+    bool setChannelVolume(uint32_t channel, float volume) {
+        if (channel >= numChannels || !(volume >= 0.0f && volume <= 1.0f)) return false;
+        channels[channel].volume = volume;
+        return true;
+    }
+
     /// Gate `channel`'s `column` on parameter `param` (kNoIndex: always plays) at `threshold` (0..1).
     bool setColumnGate(uint32_t channel, uint32_t column, uint32_t param, float threshold) {
         if (channel >= numChannels || column >= config::kMaxColumns || (param != kNoIndex && param >= numParams) ||
@@ -738,13 +767,28 @@ struct Song {
         }
         numMappings = kept;
         filterActions([index](Command& c) {
-            if (c.kind != Command::Kind::PlayStinger) return true;
+            if (!aimsAtChannel(c)) return true;
             if (c.a == index) return false;
             if (c.a > index) --c.a;
             return true;
         });
         if (r != nullptr) Renumbering::removed(r->channels, config::kMaxChannels, index);
         return true;
+    }
+
+    /// True for commands whose `a` is a channel.
+    static bool aimsAtChannel(const Command& c) {
+        switch (c.kind) {
+        case Command::Kind::PlayStinger:
+        case Command::Kind::SetChannelVolume:
+        case Command::Kind::SetChannelMute:
+        case Command::Kind::SetChannelSolo:
+        case Command::Kind::SetChannelPause:
+        case Command::Kind::RestartChannel:
+            return true;
+        default:
+            return false;
+        }
     }
 
     /// Keep the event actions for which `keep` (which may change them) says true.

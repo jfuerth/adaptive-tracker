@@ -391,6 +391,7 @@ void readChannels(const Json& root, Song& song, SongInfo& info, Ids& ids) {
         checkCapacity(columns.size(), config::kMaxColumns, at(where, "columns"), "columns");
         song.addChannel(PitchMode::Absolute, uint8_t(columns.size()));
         ChannelSetup& setup = song.channels[ch];
+        setup.volume = float(number(j, "volume", where, 1, 0, 1));
         for (size_t c = 0; c < columns.size(); ++c) {
             const std::string cw = at(at(where, "columns"), c);
             const Json& col = object(columns[c], cw);
@@ -480,8 +481,9 @@ void readSections(const Json& root, Song& song, SongInfo& info, Ids& ids) {
     }
 }
 
-const char* const kActions[] = {"gotoSection", "playStinger", "setLayerMute", "setParam",
-                                "setKey",      "setTempo",    "stop"};
+const char* const kActions[] = {"gotoSection",    "playStinger",    "setLayerMute",    "setParam",
+                                "setKey",         "setTempo",       "stop",            "setChannelMute",
+                                "setChannelSolo", "setChannelPause", "restartChannel"};
 
 Command parseAction(const Json& j, const Song& song, const Ids& ids, const std::string& where) {
     object(j, where);
@@ -506,6 +508,20 @@ Command parseAction(const Json& j, const Song& song, const Ids& ids, const std::
     }
     case 5:
         return Command::setTempo(float(number(j, "tempo", where, kRequired, 1, 999)), when(1));
+    case 7: {
+        Command c = Command::setChannelMute(ids.channels.ref(j, "channel", where), boolean(j, "muted", where, true));
+        c.when = when(0);
+        return c;
+    }
+    case 8: {
+        Command c = Command::setChannelSolo(ids.channels.ref(j, "channel", where), boolean(j, "soloed", where, true));
+        c.when = when(0);
+        return c;
+    }
+    case 9:
+        return Command::setChannelPause(ids.channels.ref(j, "channel", where), boolean(j, "paused", where, true), when(2));
+    case 10:
+        return Command::restartChannel(ids.channels.ref(j, "channel", where), when(2));
     default:
         return Command::stop();
     }
@@ -606,6 +622,17 @@ Json actionJson(const Command& c, const Song& song, const SongInfo& info) {
         return Json{{"type", "setTempo"}, {"tempo", real(c.value)}, {"when", when(c.when)}};
     case Command::Kind::Stop:
         return Json{{"type", "stop"}};
+    case Command::Kind::SetChannelMute:
+        return Json{{"type", "setChannelMute"}, {"channel", idOf(info.channels, c.a, "channel")}, {"muted", c.b != 0},
+                    {"when", when(c.when)}};
+    case Command::Kind::SetChannelSolo:
+        return Json{{"type", "setChannelSolo"}, {"channel", idOf(info.channels, c.a, "channel")}, {"soloed", c.b != 0},
+                    {"when", when(c.when)}};
+    case Command::Kind::SetChannelPause:
+        return Json{{"type", "setChannelPause"}, {"channel", idOf(info.channels, c.a, "channel")}, {"paused", c.b != 0},
+                    {"when", when(c.when)}};
+    case Command::Kind::RestartChannel:
+        return Json{{"type", "restartChannel"}, {"channel", idOf(info.channels, c.a, "channel")}, {"when", when(c.when)}};
     default:
         (void)song;
         return Json();  // not something an event can do
@@ -748,6 +775,7 @@ std::string save(const Song& song, const SongInfo& info) {
     for (uint8_t ch = 0; ch < song.numChannels; ++ch) {
         const ChannelSetup& setup = song.channels[ch];
         Json j = labelJson(info.channels, ch, "channel");
+        j["volume"] = real(setup.volume);
         Json& columns = j["columns"] = Json::array();
         for (uint8_t c = 0; c < setup.numColumns; ++c) {
             Json col = Json::object();

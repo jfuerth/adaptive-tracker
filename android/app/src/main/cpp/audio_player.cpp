@@ -36,6 +36,7 @@ AudioPlayer::AudioPlayer()
 void AudioPlayer::resetPositions() {
     for (auto& a : playingPattern_) a.store(-1);
     for (auto& a : playingRow_) a.store(-1);
+    for (auto& a : stripFlags_) a.store(0);
 }
 
 std::string AudioPlayer::loadSong(std::string_view json) {
@@ -660,6 +661,8 @@ void AudioPlayer::updateStats(oboe::AudioStream* stream, int64_t callbackNs, int
         }
         playingPattern_[c].store(index, std::memory_order_relaxed);
         playingRow_[c].store(ch.playingRow(), std::memory_order_relaxed);
+        stripFlags_[c].store((ch.stripMuted() ? 1 : 0) | (ch.soloed() ? 2 : 0) | (ch.paused() ? 4 : 0),
+                             std::memory_order_relaxed);
     }
     keyRoot_.store(engine_->pitch().current.root, std::memory_order_relaxed);
     keyScale_.store(engine_->pitch().current.scale, std::memory_order_relaxed);
@@ -860,4 +863,46 @@ bool AudioPlayer::deleteChannel(int channel) {
     for (uint32_t p : gone) eraseAt(info_.patterns, p);
     eraseAt(info_.channels, ch);
     return true;
+}
+
+// ---- Mixer strips ----
+
+bool AudioPlayer::setChannelVolume(int channel, float volume) {
+    if (channel < 0 || channel >= static_cast<int>(edit_->numChannels) || !(volume >= 0.0f && volume <= 1.0f)) {
+        return false;
+    }
+    checkpoint("Channel volume", Merge::Volume, static_cast<uint32_t>(channel));
+    if (!engine_->post(adaptive::Command::setChannelVolume(static_cast<uint8_t>(channel), volume))) return false;
+    edit_->setChannelVolume(channel, volume);
+    ++edits_;
+    return true;
+}
+
+bool AudioPlayer::setChannelMute(int channel, bool on) {
+    if (channel < 0 || channel >= static_cast<int>(adaptive::config::kMaxChannels)) return false;
+    return engine_->post(adaptive::Command::setChannelMute(static_cast<uint8_t>(channel), on));
+}
+
+bool AudioPlayer::setChannelSolo(int channel, bool on) {
+    if (channel < 0 || channel >= static_cast<int>(adaptive::config::kMaxChannels)) return false;
+    return engine_->post(adaptive::Command::setChannelSolo(static_cast<uint8_t>(channel), on));
+}
+
+bool AudioPlayer::setChannelPause(int channel, bool on) {
+    if (channel < 0 || channel >= static_cast<int>(adaptive::config::kMaxChannels)) return false;
+    return engine_->post(adaptive::Command::setChannelPause(static_cast<uint8_t>(channel), on));
+}
+
+bool AudioPlayer::restartChannel(int channel) {
+    if (channel < 0 || channel >= static_cast<int>(adaptive::config::kMaxChannels)) return false;
+    return engine_->post(adaptive::Command::restartChannel(static_cast<uint8_t>(channel)));
+}
+
+std::vector<int32_t> AudioPlayer::mixerState() const {
+    std::vector<int32_t> out;
+    for (uint32_t c = 0; c < edit_->numChannels; ++c) {
+        out.push_back(stripFlags_[c].load(std::memory_order_relaxed));
+        out.push_back(static_cast<int32_t>(edit_->channels[c].volume * 1000.0f + 0.5f));
+    }
+    return out;
 }

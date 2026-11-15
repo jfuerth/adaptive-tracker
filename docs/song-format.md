@@ -77,7 +77,7 @@ Hz, seconds, 0..1. Values outside the synth's range are errors.
 
 ```json
 {
-  "id": "drums", "name": "Drums",
+  "id": "drums", "name": "Drums", "volume": 0.8,
   "columns": [{"instrument": "kick", "pitch": "absolute", "layers": ["rhythm"]},
               {"instrument": "hat", "pitch": "absolute",
                "playsWhen": {"param": "intensity", "atLeast": 0.5}}],
@@ -91,6 +91,8 @@ Hz, seconds, 0..1. Values outside the synth's range are errors.
 }
 ```
 
+- `volume` (optional, default 1): the mixer fader, 0 to 1, heard as its
+  square (1 is unity, 0.5 is a quarter).
 - `columns`: one per voice, 1 to 4. The number of columns is the
   channel's; all its patterns have that many. Each column has:
   - `pitch` (required): how its cells' notes are written: `absolute` (MIDI
@@ -158,6 +160,10 @@ Up to 4 actions per event, run in order:
 | `playStinger` | `pattern` (plays once on the pattern's channel) | `now` |
 | `setLayerMute` | `layer`, `muted` (default true) | `bar` |
 | `setParam` | `param`, `value` 0..1 | (immediate) |
+| `setChannelMute` | `channel`, `muted` (default true): silent at once, keeps its place | `now` |
+| `setChannelSolo` | `channel`, `soloed` (default true): channels not soloed are silent | `now` |
+| `setChannelPause` | `channel`, `paused` (default true): starts no notes, keeps its place | `bar` |
+| `restartChannel` | `channel`: plays its sequence from the top | `bar` |
 | `setKey` | `root`, `scale` as in a key | `bar` |
 | `setTempo` | `tempo` (BPM) | `beat` |
 | `stop` | | (immediate) |

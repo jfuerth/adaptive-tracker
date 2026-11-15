@@ -117,6 +117,17 @@ public:
     int instrumentPitch(int instrument) const;
     bool setInstrumentPitch(int instrument, int mode);
 
+    // Mixer strips (UI thread only). The fader is part of the song (an undoable
+    // edit); mute, solo, pause and restart are playing controls.
+    bool setChannelVolume(int channel, float volume);
+    bool setChannelMute(int channel, bool on);
+    bool setChannelSolo(int channel, bool on);
+    bool setChannelPause(int channel, bool on);
+    /// Starts the channel's sequence over at the next bar.
+    bool restartChannel(int channel);
+    /// Per channel (numChannels of them): flags (1 muted, 2 soloed, 4 paused) and fader x 1000.
+    std::vector<int32_t> mixerState() const;
+
     // Taking things out (UI thread only). Playback carries on in place.
     bool deletePattern(int pattern);
     bool deleteChannel(int channel);
@@ -189,7 +200,7 @@ public:
 private:
     /// Consecutive edits of the same kind and target merge into one undo step
     /// (typing a cell's digits, dragging a slider).
-    enum class Merge { None, Cell, Section, Gate, Instrument };
+    enum class Merge { None, Cell, Section, Gate, Instrument, Volume };
     /// The song as it was: Song's bytes outside its pattern table, and its
     /// patterns, shared with the step before where unchanged.
     struct Snapshot {
@@ -260,6 +271,7 @@ private:
     std::atomic<int32_t> playing_{0};
     std::atomic<int32_t> playingPattern_[adaptive::config::kMaxChannels];
     std::atomic<int32_t> playingRow_[adaptive::config::kMaxChannels];
+    std::atomic<int32_t> stripFlags_[adaptive::config::kMaxChannels];
     std::atomic<int32_t> keyRoot_{0};
     std::atomic<int32_t> keyScale_{adaptive::scales::kMajor};
     std::atomic<bool> resetStatsRequested_{false};

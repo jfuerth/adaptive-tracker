@@ -139,6 +139,7 @@
     {
       "id": "melody",
       "name": "Melody",
+      "volume": 1,
       "columns": [
         {
           "instrument": "lead",

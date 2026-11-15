@@ -183,6 +183,23 @@ object NativeAudio {
     /** Takes out the layer, with mappings and event actions that refer to it. */
     external fun removeLayer(layer: Int): Boolean
 
+    // Mixer strips. The fader is part of the song (undoable); the rest are playing controls.
+    /** Channel fader, 0..1 (heard as its square). */
+    external fun setChannelVolume(channel: Int, volume: Float): Boolean
+    /** Silent at once while on; it keeps playing in time. */
+    external fun setChannelMute(channel: Int, on: Boolean): Boolean
+    /** While any channel is soloed, the others are silent. */
+    external fun setChannelSolo(channel: Int, on: Boolean): Boolean
+    /** Paused: starts no notes (what sounds stops) but keeps its place. */
+    external fun setChannelPause(channel: Int, on: Boolean): Boolean
+    /** Starts the channel's sequence over at the next bar. */
+    external fun restartChannel(channel: Int): Boolean
+    /** Per channel: flags (STRIP_*), fader x 1000. */
+    external fun getMixerState(): IntArray
+    const val STRIP_MUTED = 1
+    const val STRIP_SOLOED = 2
+    const val STRIP_PAUSED = 4
+
     // Taking things out; later ones move down. Playback carries on in place.
     /** Takes out the pattern, its places in sequences and the stingers that play it. */
     external fun deletePattern(pattern: Int): Boolean

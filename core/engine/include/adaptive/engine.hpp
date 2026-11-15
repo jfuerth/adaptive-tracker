@@ -109,6 +109,7 @@ public:
         for (auto& m : layerMuted_) m = false;
         updateMutes();
         updateGates();
+        updateMix();
     }
 
     /// Current value of a parameter (audio thread).
@@ -378,6 +379,27 @@ private:
                 if (swap != nullptr) swapsTaken_.fetch_add(1, std::memory_order_acq_rel);
             }
             break;
+        case Command::Kind::SetChannelVolume:
+            if (song_ != nullptr && song_->setChannelVolume(c.a, c.value)) updateMix();
+            break;
+        case Command::Kind::SetChannelMute:
+            if (c.a < config::kMaxChannels) {
+                channels_[c.a].setStripMuted(c.b != 0);
+                updateMix();
+            }
+            break;
+        case Command::Kind::SetChannelSolo:
+            if (c.a < config::kMaxChannels) {
+                channels_[c.a].setSoloed(c.b != 0);
+                updateMix();
+            }
+            break;
+        case Command::Kind::SetChannelPause:
+            if (c.a < config::kMaxChannels) channels_[c.a].setPaused(c.b != 0);
+            break;
+        case Command::Kind::RestartChannel:
+            if (c.a < config::kMaxChannels) channels_[c.a].restartAt(tick);
+            break;
         case Command::Kind::HearAll:
             hearAll_ = c.a != 0;
             updateGates();
@@ -634,6 +656,17 @@ private:
         }
     }
 
+    /// Faders, mutes and solos to each channel's mix gain.
+    void updateMix() {
+        bool anySolo = false;
+        for (const auto& ch : channels_) anySolo = anySolo || ch.soloed();
+        for (uint32_t c = 0; c < config::kMaxChannels; ++c) {
+            Channel& ch = channels_[c];
+            const float fader = song_ != nullptr && c < song_->numChannels ? song_->channels[c].volume : 1.0f;
+            ch.setMix(fader, ch.stripMuted() || (anySolo && !ch.soloed()));
+        }
+    }
+
     void setUpChannel(uint32_t ch) {
         for (uint32_t col = 0; col < config::kMaxColumns; ++col) {
             channels_[ch].setPitchMode(col, song_->channels[ch].pitchModes[col]);
@@ -752,6 +785,13 @@ private:
                 pc.a = renumbered(r.layers, config::kMaxLayers, pc.a);
                 ok = pc.a != kNoIndex;
                 break;
+            case Command::Kind::SetChannelMute:
+            case Command::Kind::SetChannelSolo:
+            case Command::Kind::SetChannelPause:
+            case Command::Kind::RestartChannel:
+                pc.a = renumbered(r.channels, config::kMaxChannels, pc.a);
+                ok = pc.a != kNoIndex;
+                break;
             default:
                 break;
             }
@@ -775,6 +815,7 @@ private:
         updateMutes();
         updateGates();
         updateLayerGains(0);
+        updateMix();
     }
 
     /// A silent channel with something to play in the current section joins in time.
@@ -795,6 +836,7 @@ private:
                 setUpChannel(index);
                 applyColumnInstruments(index, 0);
                 updateGates();
+                updateMix();
             }
             break;
         case Addition::Layer:
