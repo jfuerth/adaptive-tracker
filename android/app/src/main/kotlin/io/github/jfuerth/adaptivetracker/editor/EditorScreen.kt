@@ -257,6 +257,14 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
             var menuOpen by remember { mutableStateOf(false) }
             var renaming by remember { mutableStateOf(false) }
             var full by remember { mutableStateOf(false) }
+            var problem by remember { mutableStateOf<String?>(null) }
+            problem?.let {
+                AlertDialog(
+                    onDismissRequest = { problem = null },
+                    text = { Text(it) },
+                    confirmButton = { TextButton(onClick = { problem = null }) { Text("OK") } },
+                )
+            }
             if (renaming) NameDialog("Rename pattern", PatternStore.names.getOrElse(patternIndex) { "" }) { name ->
                 renaming = false
                 if (name != null) PatternStore.rename(patternIndex, name)
@@ -286,6 +294,10 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
                     DropdownMenuItem(text = { Text("Rename this pattern…") }, onClick = {
                         menuOpen = false
                         renaming = true
+                    })
+                    DropdownMenuItem(text = { Text("Delete this pattern") }, onClick = {
+                        menuOpen = false
+                        problem = Song.delete(NativeAudio.NAMES_PATTERNS, patternIndex)
                     })
                     HorizontalDivider()
                     PatternStore.byName.forEach { i ->

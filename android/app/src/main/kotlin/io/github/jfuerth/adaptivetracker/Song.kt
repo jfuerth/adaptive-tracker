@@ -178,6 +178,82 @@ object Song {
         }
     }
 
+    /** Goes up when undo, redo or a delete changes the song under the screens, so they read it again. */
+    var revision by mutableIntStateOf(0)
+        private set
+
+    /** Runs [edits] as one undo step called [label]. */
+    inline fun <T> step(label: String, edits: () -> T): T {
+        NativeAudio.beginStep(label)
+        try {
+            return edits()
+        } finally {
+            NativeAudio.endStep()
+        }
+    }
+
+    /** Undoes the last step; returns what it was, or null if there was nothing to undo. */
+    fun undo(): String? {
+        val label = NativeAudio.getUndoLabel()
+        if (label.isEmpty() || !NativeAudio.undo()) return null
+        reloadAll()
+        return label
+    }
+
+    fun redo(): String? {
+        val label = NativeAudio.getRedoLabel()
+        if (label.isEmpty() || !NativeAudio.redo()) return null
+        reloadAll()
+        return label
+    }
+
+    /**
+     * Deletes pattern, channel or section [index] ([kind]: NAMES_PATTERNS,
+     * NAMES_CHANNELS or NAMES_SECTIONS). Returns null, or why it can't be.
+     */
+    fun delete(kind: Int, index: Int): String? {
+        when (kind) {
+            NativeAudio.NAMES_PATTERNS -> {
+                val channel = NativeAudio.getPatternInfo(index)?.getOrNull(0) ?: return "No such pattern."
+                val siblings = PatternStore.ofChannel(channel)
+                if (siblings.size <= 1) {
+                    return "It's the only pattern of ${channels.getOrElse(channel) { "its channel" }}: delete the channel instead."
+                }
+                if (!NativeAudio.deletePattern(index)) return "Couldn't delete it."
+                if (pattern > index) pattern-- else if (pattern == index) {
+                    // Another pattern of the same channel, numbered as it is now.
+                    pattern = siblings.first { it != index }.let { if (it > index) it - 1 else it }
+                }
+            }
+            NativeAudio.NAMES_CHANNELS -> {
+                if (channels.size <= 1) return "A song needs at least one channel."
+                val mine = PatternStore.ofChannel(index)
+                if (!NativeAudio.deleteChannel(index)) return "Couldn't delete it."
+                if (pattern in mine) pattern = 0 else pattern -= mine.count { it < pattern }
+            }
+            NativeAudio.NAMES_SECTIONS -> {
+                if (sections.size <= 1) return "A song needs at least one section."
+                if (!NativeAudio.deleteSection(index)) return "Couldn't delete it."
+            }
+            else -> return "Can't delete that."
+        }
+        reloadAll()
+        return null
+    }
+
+    /** Reads everything again: undo, redo or a delete changed the song. */
+    fun reloadAll() {
+        title = NativeAudio.getSongTitle()
+        structureChanged()
+        params = NativeAudio.getSongNames(2).toList()
+        events = NativeAudio.getSongNames(3).toList()
+        PatternStore.reset()
+        InstrumentStore.reset()
+        val count = PatternStore.names.size
+        if (pattern >= count) pattern = (count - 1).coerceAtLeast(0)
+        revision++
+    }
+
     /** Re-reads section and channel names and timing, after one is added or renamed. */
     fun structureChanged() {
         sections = NativeAudio.getSongNames(NativeAudio.NAMES_SECTIONS).toList()

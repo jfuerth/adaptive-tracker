@@ -54,6 +54,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.jfuerth.adaptivetracker.NativeAudio
+import io.github.jfuerth.adaptivetracker.Song
 import io.github.jfuerth.adaptivetracker.instrument.InstrumentParam as P
 import io.github.jfuerth.adaptivetracker.ui.NoteKeyboard
 import io.github.jfuerth.adaptivetracker.ui.ToolButton
@@ -89,7 +90,7 @@ fun InstrumentScreen(modifier: Modifier = Modifier) {
     if (index !in names.indices) index = 0
     var selected by rememberSaveable { mutableStateOf(P.CUTOFF) }
     var octave by rememberSaveable { mutableIntStateOf(4) }
-    val values = remember(index) { InstrumentStore.values(index) }
+    val values = remember(index, Song.revision) { InstrumentStore.values(index) }
     if (values == null) {
         Text("This instrument could not be loaded.", modifier.padding(16.dp))
         return

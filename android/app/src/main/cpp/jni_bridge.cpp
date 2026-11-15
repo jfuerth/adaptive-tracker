@@ -249,6 +249,18 @@ JNIEXPORT jboolean JNICALL JNI_FN(removeLayer)(JNIEnv*, jobject, jint layer) {
     return toJ(player().removeLayer(layer));
 }
 
+JNIEXPORT jboolean JNICALL JNI_FN(deletePattern)(JNIEnv*, jobject, jint i) { return toJ(player().deletePattern(i)); }
+JNIEXPORT jboolean JNICALL JNI_FN(deleteChannel)(JNIEnv*, jobject, jint i) { return toJ(player().deleteChannel(i)); }
+JNIEXPORT jboolean JNICALL JNI_FN(deleteSection)(JNIEnv*, jobject, jint i) { return toJ(player().deleteSection(i)); }
+JNIEXPORT jboolean JNICALL JNI_FN(undo)(JNIEnv*, jobject) { return toJ(player().undo()); }
+JNIEXPORT jboolean JNICALL JNI_FN(redo)(JNIEnv*, jobject) { return toJ(player().redo()); }
+JNIEXPORT jstring JNICALL JNI_FN(getUndoLabel)(JNIEnv* env, jobject) { return toJ(env, player().undoLabel()); }
+JNIEXPORT jstring JNICALL JNI_FN(getRedoLabel)(JNIEnv* env, jobject) { return toJ(env, player().redoLabel()); }
+JNIEXPORT void JNICALL JNI_FN(beginStepBytes)(JNIEnv* env, jobject, jbyteArray label) {
+    player().beginStep(fromJ(env, label));
+}
+JNIEXPORT void JNICALL JNI_FN(endStep)(JNIEnv*, jobject) { player().endStep(); }
+
 JNIEXPORT jboolean JNICALL JNI_FN(setLayerColumns)(JNIEnv*, jobject, jint layer, jint channel, jint columnBits) {
     return toJ(player().setLayerColumns(layer, channel, columnBits));
 }

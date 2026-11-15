@@ -11,6 +11,7 @@
 #include <output_processor.hpp>
 
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <utility>
@@ -23,6 +24,13 @@ std::array<Channel, sizeof...(I)> makeChannels(float sampleRate, std::index_sequ
     return {{(static_cast<void>(I), Channel(sampleRate))...}};
 }
 } // namespace detail
+
+/// A changed copy of the song for the engine to play from now on, and how
+/// the change renumbered things (see Engine::offer).
+struct SongSwap {
+    Song song;
+    Renumbering renumbering;
+};
 
 /**
  * Top-level renderer: tick clock, channels, master output stage, and the
@@ -112,6 +120,27 @@ public:
      */
     bool post(const Command& command) { return queue_.push(command); }
 
+    /**
+     * Hand the engine a whole new song (the current one, changed), from the
+     * posting thread. Playback carries on in place, following
+     * `swap->renumbering`. The swap must stay alive while the engine uses its
+     * song; once swapsTaken() has passed it, the song it replaced is no
+     * longer used. Returns false (nothing changes) if the swap couldn't be
+     * queued.
+     */
+    bool offer(SongSwap* swap) {
+        for (uint8_t slot = 0; slot < kSwapSlots; ++slot) {
+            if (swapSlots_[slot].load(std::memory_order_acquire) != nullptr) continue;
+            swapSlots_[slot].store(swap, std::memory_order_release);
+            if (post(Command::swapSong(slot))) return true;
+            swapSlots_[slot].store(nullptr, std::memory_order_release);
+            return false;
+        }
+        return false;
+    }
+    /// How many offered swaps the audio thread has taken, in the order offered. Any thread.
+    uint32_t swapsTaken() const { return swapsTaken_.load(std::memory_order_acquire); }
+
     /// True if any channel is playing a sequence or pattern (stingers excluded).
     bool isPlaying() const {
         for (const auto& ch : channels_) {
@@ -119,6 +148,9 @@ public:
         }
         return false;
     }
+
+    /// The song playing (audio thread: it changes when a swap is taken).
+    const Song* song() const { return song_; }
 
     /// Index of the section playing now, or kNoIndex.
     uint8_t currentSection() const { return currentSection_; }
@@ -333,6 +365,17 @@ private:
                 channels_[c.a].play(song_->pattern(c.b), tick);
                 channels_[c.a].setColumnMask(c.data);
                 updateGates();
+            }
+            break;
+        case Command::Kind::SwapSong:
+            if (c.a < kSwapSlots) {
+                SongSwap* swap = swapSlots_[c.a].exchange(nullptr, std::memory_order_acq_rel);
+                if (swap != nullptr && song_ != nullptr) {
+                    const Song* old = song_;
+                    song_ = &swap->song;
+                    rebase(*old, swap->renumbering, tick);
+                }
+                if (swap != nullptr) swapsTaken_.fetch_add(1, std::memory_order_acq_rel);
             }
             break;
         case Command::Kind::HearAll:
@@ -603,6 +646,144 @@ private:
         clock_.setTempoMilliBpm(static_cast<uint32_t>(t));
     }
 
+    /// Where a channel was in the old song: a sequence (section, channel) or a single pattern.
+    struct PlayedFrom {
+        uint8_t section = kNoIndex;
+        uint8_t channel = kNoIndex;
+        uint8_t pattern = kNoIndex;
+    };
+
+    PlayedFrom playedFrom(const Channel& ch, const Song& old) const {
+        PlayedFrom w;
+        if (const Sequence* seq = ch.playingSequence()) {
+            for (uint8_t sec = 0; sec < config::kMaxSections; ++sec) {
+                const Sequence* first = old.sections[sec].sequences;
+                if (seq >= first && seq < first + config::kMaxChannels) {
+                    w.section = sec;
+                    w.channel = static_cast<uint8_t>(seq - first);
+                }
+            }
+        } else if (const Pattern* p = ch.singlePattern()) {
+            if (p >= old.patterns && p < old.patterns + config::kMaxPatterns) {
+                w.pattern = static_cast<uint8_t>(p - old.patterns);
+            }
+        }
+        return w;
+    }
+
+    static uint8_t renumbered(const uint8_t* map, uint32_t size, uint8_t index) {
+        return index < size ? map[index] : kNoIndex;
+    }
+
+    /// song_ was just replaced by a changed copy of `old`: carry on playing in place.
+    void rebase(const Song& old, const Renumbering& r, uint64_t tick) {
+        PlayedFrom was[config::kMaxChannels];
+        for (uint32_t c = 0; c < config::kMaxChannels; ++c) was[c] = playedFrom(channels_[c], old);
+
+        // Channels move with their numbers (the renumbering keeps their order).
+        uint8_t from[config::kMaxChannels];
+        for (auto& f : from) f = kNoIndex;
+        for (uint32_t c = 0; c < config::kMaxChannels; ++c) {
+            if (r.channels[c] < config::kMaxChannels) from[r.channels[c]] = static_cast<uint8_t>(c);
+        }
+        for (uint32_t c = 0; c < config::kMaxChannels; ++c) {
+            if (from[c] != kNoIndex && from[c] > c) channels_[c] = std::move(channels_[from[c]]);
+        }
+        for (uint32_t c = config::kMaxChannels; c-- > 0;) {
+            if (from[c] != kNoIndex && from[c] < c) channels_[c] = std::move(channels_[from[c]]);
+        }
+
+        currentSection_ = renumbered(r.sections, config::kMaxSections, currentSection_);
+        if (currentSection_ >= song_->numSections) currentSection_ = kNoIndex;
+
+        for (uint32_t c = 0; c < config::kMaxChannels; ++c) {
+            Channel& ch = channels_[c];
+            if (from[c] == kNoIndex) {
+                ch.reset();
+                joinSection(c);
+                continue;
+            }
+            const PlayedFrom w = was[from[c]];
+            const uint8_t sec = renumbered(r.sections, config::kMaxSections, w.section);
+            const uint8_t seqCh = renumbered(r.channels, config::kMaxChannels, w.channel);
+            const uint8_t pat = renumbered(r.patterns, config::kMaxPatterns, w.pattern);
+            if (sec < song_->numSections && seqCh < config::kMaxChannels &&
+                song_->isPlayable(song_->sections[sec].sequences[seqCh])) {
+                ch.retarget(&song_->sections[sec].sequences[seqCh], song_->patterns, nullptr, tick);
+            } else if (song_->pattern(pat) != nullptr) {
+                ch.retarget(nullptr, nullptr, &song_->patterns[pat], tick);
+            } else {
+                ch.retarget(nullptr, nullptr, nullptr, tick);
+                joinSection(c);
+            }
+        }
+
+        bool muted[config::kMaxLayers] = {};
+        float gains[config::kMaxLayers];
+        for (auto& g : gains) g = 1.0f;
+        for (uint32_t l = 0; l < config::kMaxLayers; ++l) {
+            if (r.layers[l] < config::kMaxLayers) {
+                muted[r.layers[l]] = layerMuted_[l];
+                gains[r.layers[l]] = layerGains_[l];
+            }
+        }
+        for (uint32_t l = 0; l < config::kMaxLayers; ++l) {
+            layerMuted_[l] = muted[l];
+            layerGains_[l] = gains[l];
+        }
+
+        // Scheduled commands name things by number too.
+        uint32_t keep = 0;
+        for (uint32_t i = 0; i < numPending_; ++i) {
+            Command& pc = pending_[i].command;
+            bool ok = true;
+            switch (pc.kind) {
+            case Command::Kind::GotoSection:
+                pc.a = renumbered(r.sections, config::kMaxSections, pc.a);
+                if (pc.b != kNoIndex) pc.b = renumbered(r.sections, config::kMaxSections, pc.b);
+                ok = pc.a != kNoIndex;
+                break;
+            case Command::Kind::PlayStinger:
+                pc.a = renumbered(r.channels, config::kMaxChannels, pc.a);
+                pc.data = renumbered(r.patterns, config::kMaxPatterns, static_cast<uint8_t>(pc.data));
+                ok = pc.a != kNoIndex && pc.data != kNoIndex;
+                break;
+            case Command::Kind::SetLayerMute:
+                pc.a = renumbered(r.layers, config::kMaxLayers, pc.a);
+                ok = pc.a != kNoIndex;
+                break;
+            default:
+                break;
+            }
+            if (ok) pending_[keep++] = pending_[i];
+        }
+        numPending_ = keep;
+
+        // Everything else is read afresh from the new song.
+        for (uint32_t ch = 0; ch < song_->numChannels; ++ch) {
+            setUpChannel(ch);
+            applyColumnInstruments(ch, 0);
+        }
+        pitch_.home = song_->homeKey;
+        if (currentSection_ != kNoIndex && song_->sections[currentSection_].tempoMilliBpm != 0) {
+            setTempoMilliBpm(song_->sections[currentSection_].tempoMilliBpm);
+        }
+        for (uint8_t i = 0; i < song_->numMappings; ++i) {
+            const Mapping& m = song_->mappings[i];
+            applyMapping(m, params_[m.param], tick, false);
+        }
+        updateMutes();
+        updateGates();
+        updateLayerGains(0);
+    }
+
+    /// A silent channel with something to play in the current section joins in time.
+    void joinSection(uint32_t c) {
+        if (currentSection_ == kNoIndex || channels_[c].isPlaying()) return;
+        const Sequence& s = song_->sections[currentSection_].sequences[c];
+        if (song_->isPlayable(s)) channels_[c].playSequence(&s, song_->patterns, sectionStartTick_);
+    }
+
     void added(Addition what, uint8_t index) {
         switch (what) {
         case Addition::Pattern:
@@ -700,6 +881,11 @@ private:
     uint32_t baseTempoMilliBpm_ = 120000;
     Ramp tempoScale_{1.0f};
     Ramp masterCutoffLog2_;
+
+    // Song swaps (see offer()).
+    static constexpr uint8_t kSwapSlots = 4;
+    std::atomic<SongSwap*> swapSlots_[kSwapSlots] = {};
+    std::atomic<uint32_t> swapsTaken_{0};
 
     // Editor note previews.
     std::array<synth::WavetableSynth, config::kPreviewVoices> previews_;

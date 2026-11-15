@@ -86,6 +86,7 @@ struct Command {
         SetLayerColumns,///< layer a: channel b's columns are the bits of `data`
         RemoveLayer,    ///< take out layer a (and what refers to it)
         HearAll,        ///< a != 0: ignore gates, layer mutes and layer gains (hear every note)
+        SwapSong,       ///< take the song offered in swap slot a (see Engine::offer)
         SetColumns,   ///< channel a gets b columns; see Song::setColumns
         RemoveColumn, ///< remove channel a's column b; see Song::removeColumn
     };
@@ -202,6 +203,9 @@ struct Command {
     static constexpr Command setLayerColumns(uint8_t layer, uint8_t channel, uint16_t columnBits) {
         return Command{Kind::SetLayerColumns, Quantize::Now, Entry::Restart, layer, channel, 0.0f, columnBits};
     }
+    static constexpr Command swapSong(uint8_t slot) {
+        return Command{Kind::SwapSong, Quantize::Now, Entry::Restart, slot, 0};
+    }
     static constexpr Command hearAll(bool on) {
         return Command{Kind::HearAll, Quantize::Now, Entry::Restart, static_cast<uint8_t>(on ? 1 : 0), 0};
     }
@@ -273,6 +277,80 @@ struct Event {
         if (numActions >= config::kMaxEventActions || c.kind == Command::Kind::FireEvent) return false;
         actions[numActions++] = c;
         return true;
+    }
+};
+
+/**
+ * How an edit renumbered the song's tables: for each old index, the new one
+ * (kNoIndex: removed). Things added at the end need no entry. Used to keep
+ * playback in place when the engine is handed a changed copy of its song.
+ */
+struct Renumbering {
+    uint8_t channels[config::kMaxChannels];
+    uint8_t patterns[config::kMaxPatterns];
+    uint8_t sections[config::kMaxSections];
+    uint8_t layers[config::kMaxLayers];
+
+    Renumbering() {
+        identity(channels, config::kMaxChannels);
+        identity(patterns, config::kMaxPatterns);
+        identity(sections, config::kMaxSections);
+        identity(layers, config::kMaxLayers);
+    }
+
+    /// Entry `index` of the table that `map` renumbers was taken out.
+    static void removed(uint8_t* map, uint32_t size, uint32_t index) {
+        for (uint32_t i = 0; i < size; ++i) {
+            if (map[i] == kNoIndex) continue;
+            if (map[i] == index) {
+                map[i] = kNoIndex;
+            } else if (map[i] > index) {
+                --map[i];
+            }
+        }
+    }
+
+    /// From the new numbering back to the old (what was removed is new again).
+    Renumbering inverse() const {
+        Renumbering r;
+        invert(channels, r.channels, config::kMaxChannels);
+        invert(patterns, r.patterns, config::kMaxPatterns);
+        invert(sections, r.sections, config::kMaxSections);
+        invert(layers, r.layers, config::kMaxLayers);
+        return r;
+    }
+
+    /// This renumbering followed by `next`.
+    Renumbering then(const Renumbering& next) const {
+        Renumbering r;
+        compose(channels, next.channels, r.channels, config::kMaxChannels);
+        compose(patterns, next.patterns, r.patterns, config::kMaxPatterns);
+        compose(sections, next.sections, r.sections, config::kMaxSections);
+        compose(layers, next.layers, r.layers, config::kMaxLayers);
+        return r;
+    }
+
+    bool isIdentity() const {
+        const Renumbering id;
+        for (uint32_t i = 0; i < config::kMaxChannels; ++i) if (channels[i] != id.channels[i]) return false;
+        for (uint32_t i = 0; i < config::kMaxPatterns; ++i) if (patterns[i] != id.patterns[i]) return false;
+        for (uint32_t i = 0; i < config::kMaxSections; ++i) if (sections[i] != id.sections[i]) return false;
+        for (uint32_t i = 0; i < config::kMaxLayers; ++i) if (layers[i] != id.layers[i]) return false;
+        return true;
+    }
+
+private:
+    static void identity(uint8_t* map, uint32_t size) {
+        for (uint32_t i = 0; i < size; ++i) map[i] = static_cast<uint8_t>(i);
+    }
+    static void invert(const uint8_t* map, uint8_t* out, uint32_t size) {
+        for (uint32_t i = 0; i < size; ++i) out[i] = kNoIndex;
+        for (uint32_t i = 0; i < size; ++i) {
+            if (map[i] < size) out[map[i]] = static_cast<uint8_t>(i);
+        }
+    }
+    static void compose(const uint8_t* first, const uint8_t* second, uint8_t* out, uint32_t size) {
+        for (uint32_t i = 0; i < size; ++i) out[i] = first[i] < size ? second[first[i]] : kNoIndex;
     }
 };
 
@@ -425,7 +503,10 @@ struct Song {
      * already written in it, in all the channel's patterns, are rewritten so
      * they sound the same in the home key (fixed and key-following notes are
      * the same numbers; degrees go to and from MIDI notes). Arpeggio steps
-     * aren't changed. A note with no equivalent (out of range) stays as it is.
+     * change between semitones and scale steps too, measured from the note
+     * they arpeggiate (the column's last note above them, else its first);
+     * semitones that fall between scale notes go to the nearest. A note with
+     * no equivalent (out of range) stays as it is.
      */
     bool setColumnPitch(uint32_t channel, uint32_t column, PitchMode mode) {
         if (channel >= numChannels || column >= config::kMaxColumns || static_cast<uint32_t>(mode) > 2) return false;
@@ -437,8 +518,23 @@ struct Song {
             home.home = home.current = homeKey;
             for (uint32_t p = 0; p < numPatterns; ++p) {
                 if (patterns[p].channel != channel) continue;
+                // MIDI note the arpeggios are measured from: the last note, else the first.
+                int base = 60 + homeKey.root;
+                for (uint32_t r = 0; r < config::kMaxRows; ++r) {
+                    const Cell& cell = patterns[p].cells[r][column];
+                    if (cell.isNote()) {
+                        base = fromDegree ? resolvePitch(PitchMode::Degree, cell.note, cell.accidental, home) : cell.note;
+                        break;
+                    }
+                }
                 for (uint32_t r = 0; r < config::kMaxRows; ++r) {
                     Cell& cell = patterns[p].cells[r][column];
+                    if (cell.isNote()) {
+                        base = fromDegree ? resolvePitch(PitchMode::Degree, cell.note, cell.accidental, home) : cell.note;
+                    }
+                    if (cell.effect == fx::kArpeggio && cell.effectParam != 0) {
+                        cell.effectParam = convertArpeggio(cell.effectParam, base, toDegree, home);
+                    }
                     if (!cell.isNote()) continue;
                     if (toDegree) {
                         uint8_t note = 0;
@@ -456,6 +552,29 @@ struct Song {
         }
         current = mode;
         return true;
+    }
+
+    /// Arpeggio parameter 0xy measured from MIDI note `base`, from semitones
+    /// to scale steps in the home key (`toDegree`) or back.
+    static uint8_t convertArpeggio(uint8_t param, int base, bool toDegree, const PitchContext& home) {
+        const int size = scaleSize(home.home.scale);
+        uint8_t baseNote = 0;
+        int8_t baseAcc = 0;
+        if (!encodeDegree(base, home.home, baseNote, baseAcc)) return param;
+        const int baseIndex = (baseNote / 12) * size + baseNote % 12;
+        auto convert = [&](int step) {
+            int out = step;
+            if (toDegree) {
+                uint8_t n = 0;
+                int8_t acc = 0;
+                if (encodeDegree(base + step, home.home, n, acc)) out = (n / 12) * size + n % 12 - baseIndex;
+            } else {
+                out = resolveDegree(baseNote / 12, baseNote % 12 + step, baseAcc, home) -
+                      resolveDegree(baseNote / 12, baseNote % 12, baseAcc, home);
+            }
+            return out < 0 ? 0 : (out > 15 ? 15 : out);
+        };
+        return static_cast<uint8_t>((convert(param >> 4) << 4) | convert(param & 0x0F));
     }
 
     /// Gate `channel`'s `column` on parameter `param` (kNoIndex: always plays) at `threshold` (0..1).
@@ -495,8 +614,9 @@ struct Song {
      * Take out layer `layer`. Mappings that drive it and event actions that
      * mute it go too; later layers move down one.
      */
-    bool removeLayer(uint32_t layer) {
+    bool removeLayer(uint32_t layer, Renumbering* r = nullptr) {
         if (layer >= numLayers) return false;
+        if (r != nullptr) Renumbering::removed(r->layers, config::kMaxLayers, layer);
         for (uint32_t l = layer; l + 1 < numLayers; ++l) layers[l] = layers[l + 1];
         layers[--numLayers] = 0;
         uint8_t kept = 0;
@@ -523,6 +643,122 @@ struct Song {
             ev.numActions = n;
         }
         return true;
+    }
+
+    /**
+     * Take out pattern `index`: its sequence entries and the stinger actions
+     * that play it go too, and later patterns move down. `r` (if given)
+     * records the renumbering.
+     */
+    bool removePattern(uint32_t index, Renumbering* r = nullptr) {
+        if (index >= numPatterns) return false;
+        for (uint32_t i = index; i + 1 < numPatterns; ++i) patterns[i] = patterns[i + 1];
+        patterns[--numPatterns] = Pattern();
+        for (uint8_t sec = 0; sec < numSections; ++sec) {
+            for (auto& seq : sections[sec].sequences) {
+                uint8_t n = 0;
+                for (uint8_t e = 0; e < seq.length; ++e) {
+                    const uint8_t p = seq.entries[e];
+                    if (p == index) continue;
+                    seq.entries[n++] = p > index ? static_cast<uint8_t>(p - 1) : p;
+                }
+                seq.length = n;
+            }
+        }
+        filterActions([index](Command& c) {
+            if (c.kind != Command::Kind::PlayStinger) return true;
+            if (c.data == index) return false;
+            if (c.data > index) --c.data;
+            return true;
+        });
+        if (r != nullptr) Renumbering::removed(r->patterns, config::kMaxPatterns, index);
+        return true;
+    }
+
+    /**
+     * Take out section `index`: actions that go to it go too (as a bridge,
+     * they go straight to their section). Later sections move down.
+     */
+    bool removeSection(uint32_t index, Renumbering* r = nullptr) {
+        if (index >= numSections) return false;
+        for (uint32_t i = index; i + 1 < numSections; ++i) sections[i] = sections[i + 1];
+        sections[--numSections] = Section();
+        filterActions([index](Command& c) {
+            if (c.kind != Command::Kind::GotoSection) return true;
+            if (c.a == index) return false;
+            if (c.a > index) --c.a;
+            if (c.b == index) {
+                c.b = kNoIndex;
+            } else if (c.b != kNoIndex && c.b > index) {
+                --c.b;
+            }
+            return true;
+        });
+        if (startSection == index) {
+            startSection = 0;
+        } else if (startSection > index && startSection != kNoIndex) {
+            --startSection;
+        }
+        if (r != nullptr) Renumbering::removed(r->sections, config::kMaxSections, index);
+        return true;
+    }
+
+    /**
+     * Take out channel `index` with its patterns, its place in layers, and
+     * the mappings and stinger actions aimed at it. Later channels move down.
+     */
+    bool removeChannel(uint32_t index, Renumbering* r = nullptr) {
+        if (index >= numChannels) return false;
+        for (uint32_t p = numPatterns; p-- > 0;) {
+            if (patterns[p].channel == index) removePattern(p, r);
+        }
+        for (uint32_t p = 0; p < numPatterns; ++p) {
+            if (patterns[p].channel > index) --patterns[p].channel;
+        }
+        for (uint32_t i = index; i + 1 < numChannels; ++i) channels[i] = channels[i + 1];
+        channels[--numChannels] = ChannelSetup();
+        for (uint8_t sec = 0; sec < config::kMaxSections; ++sec) {
+            Sequence* seqs = sections[sec].sequences;
+            for (uint32_t i = index; i + 1 < config::kMaxChannels; ++i) seqs[i] = seqs[i + 1];
+            seqs[config::kMaxChannels - 1] = Sequence();
+        }
+        const uint32_t below = layerBit(index, 0) - 1u;
+        for (uint8_t l = 0; l < config::kMaxLayers; ++l) {
+            const uint64_t above = uint64_t(layers[l]) >> ((index + 1) * config::kMaxColumns);
+            layers[l] = (layers[l] & below) | static_cast<uint32_t>(above << (index * config::kMaxColumns));
+        }
+        uint8_t kept = 0;
+        for (uint8_t i = 0; i < numMappings; ++i) {
+            Mapping m = mappings[i];
+            if (m.target == Mapping::Target::ChannelGain || m.target == Mapping::Target::ChannelCutoff) {
+                if (m.index == index) continue;
+                if (m.index > index) --m.index;
+            }
+            mappings[kept++] = m;
+        }
+        numMappings = kept;
+        filterActions([index](Command& c) {
+            if (c.kind != Command::Kind::PlayStinger) return true;
+            if (c.a == index) return false;
+            if (c.a > index) --c.a;
+            return true;
+        });
+        if (r != nullptr) Renumbering::removed(r->channels, config::kMaxChannels, index);
+        return true;
+    }
+
+    /// Keep the event actions for which `keep` (which may change them) says true.
+    template<typename Fn>
+    void filterActions(Fn&& keep) {
+        for (uint8_t e = 0; e < numEvents; ++e) {
+            Event& ev = events[e];
+            uint8_t n = 0;
+            for (uint8_t a = 0; a < ev.numActions; ++a) {
+                Command c = ev.actions[a];
+                if (keep(c)) ev.actions[n++] = c;
+            }
+            ev.numActions = n;
+        }
     }
 
     /// Add an instrument; returns its index, or kNoIndex when the table is full.

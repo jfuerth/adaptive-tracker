@@ -196,6 +196,11 @@ private fun App(
                 // Held here so they survive switching tabs. Parameters start where the song says.
                 val params = remember { Song.paramInitial.toMutableStateList() }
                 val layerOn = remember { Song.layers.map { true }.toMutableStateList() }
+                // Undo and redo can add or take away layers.
+                LaunchedEffect(Song.revision) {
+                    while (layerOn.size < Song.layers.size) layerOn.add(true)
+                    while (layerOn.size > Song.layers.size) layerOn.removeAt(layerOn.lastIndex)
+                }
                 // Each tab keeps its state (choices, scroll positions) while another is shown.
                 val tabState = rememberSaveableStateHolder()
                 tabState.SaveableStateProvider(tab) {
@@ -247,6 +252,27 @@ private fun SongBar() {
             maxLines = 1,
             modifier = Modifier.weight(1f),
         )
+        // Undo and redo: what they would change is read a few times a second,
+        // since edits come from every screen.
+        var undoLabel by remember { mutableStateOf("") }
+        var redoLabel by remember { mutableStateOf("") }
+        LaunchedEffect(Unit) {
+            while (true) {
+                undoLabel = NativeAudio.getUndoLabel()
+                redoLabel = NativeAudio.getRedoLabel()
+                kotlinx.coroutines.delay(250)
+            }
+        }
+        TextButton(enabled = undoLabel.isNotEmpty(), onClick = {
+            message = Song.undo()?.let { "Undid: $it" }
+            undoLabel = NativeAudio.getUndoLabel()
+            redoLabel = NativeAudio.getRedoLabel()
+        }) { Text("Undo") }
+        TextButton(enabled = redoLabel.isNotEmpty(), onClick = {
+            message = Song.redo()?.let { "Redid: $it" }
+            undoLabel = NativeAudio.getUndoLabel()
+            redoLabel = NativeAudio.getRedoLabel()
+        }) { Text("Redo") }
         Box {
             TextButton(onClick = { menuOpen = true }) { Text("Song ▾") }
             DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
@@ -445,8 +471,10 @@ private fun PerformScreen(
                         FilterChip(
                             selected = layerOn.getOrElse(i) { true },
                             onClick = {
-                                layerOn[i] = !layerOn[i]
-                                NativeAudio.setLayerMute(i, !layerOn[i])
+                                if (i < layerOn.size) {
+                                    layerOn[i] = !layerOn[i]
+                                    NativeAudio.setLayerMute(i, !layerOn[i])
+                                }
                             },
                             label = { Text(name) },
                         )

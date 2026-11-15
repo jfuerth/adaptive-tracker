@@ -67,7 +67,7 @@ fun ColumnSettingsDialog(channel: Int, column: Int, channelName: String, onDone:
                 if (mode != startMode) {
                     Text(
                         "The column's notes, in every $channelName pattern, are rewritten to sound the same " +
-                            "in the song's key. Arpeggio steps stay as they are.",
+                            "in the song's key, arpeggios included.",
                         style = MaterialTheme.typography.bodySmall,
                     )
                 }

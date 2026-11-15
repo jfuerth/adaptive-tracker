@@ -4,6 +4,9 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstddef>
+#include <cstring>
+#include <type_traits>
 
 
 #define LOG_TAG "AdaptiveTracker"
@@ -45,6 +48,10 @@ std::string AudioPlayer::loadSong(std::string_view json) {
     const bool wasOpen = wantOpen_.load();
     close();
     engine_ = std::make_unique<adaptive::Engine>(kSampleRate);
+    swaps_.clear();
+    swapsFreed_ = 0;
+    undo_.clear();
+    redo_.clear();
     *edit_ = *song;
     song_ = std::move(song);
     info_ = std::move(info);
@@ -205,6 +212,7 @@ bool AudioPlayer::setCell(uint32_t pattern, int row, int column, const adaptive:
         column >= static_cast<int>(adaptive::config::kMaxColumns)) {
         return false;
     }
+    checkpoint("Edit cell", Merge::Cell, pattern, row, column);
     if (!engine_->post(adaptive::Command::setCell(static_cast<uint8_t>(pattern), static_cast<uint16_t>(row),
                                                   static_cast<uint8_t>(column), cell))) {
         return false;
@@ -218,6 +226,7 @@ bool AudioPlayer::setCell(uint32_t pattern, int row, int column, const adaptive:
 // Song method, so the two agree (the engine ignores what that method rejects).
 bool AudioPlayer::setPatternShape(uint32_t pattern, int rows, int ticksPerRow) {
     if (rows < 1 || rows > 0xFFFF || ticksPerRow < 1 || ticksPerRow > 255) return false;
+    checkpoint("Change pattern length");
     if (!engine_->post(adaptive::Command::setPatternShape(static_cast<uint8_t>(pattern), static_cast<uint16_t>(rows),
                                                           static_cast<uint8_t>(ticksPerRow)))) {
         return false;
@@ -232,6 +241,7 @@ bool AudioPlayer::clearCells(uint32_t pattern, int column, int first, int last, 
         return false;
     }
     const auto bits = static_cast<uint8_t>(parts);
+    checkpoint("Clear cells");
     if (!engine_->post(adaptive::Command::clearCells(static_cast<uint8_t>(pattern), static_cast<uint8_t>(column),
                                                      static_cast<uint32_t>(first), static_cast<uint32_t>(last), bits))) {
         return false;
@@ -243,6 +253,7 @@ bool AudioPlayer::clearCells(uint32_t pattern, int column, int first, int last, 
 
 bool AudioPlayer::scaleRows(uint32_t pattern, int num, int den) {
     if (num < 1 || num > 255 || den < 1 || den > 255) return false;
+    checkpoint("Stretch or squash");
     if (!engine_->post(adaptive::Command::scaleRows(static_cast<uint8_t>(pattern), static_cast<uint8_t>(num),
                                                     static_cast<uint16_t>(den)))) {
         return false;
@@ -254,6 +265,7 @@ bool AudioPlayer::scaleRows(uint32_t pattern, int num, int den) {
 
 bool AudioPlayer::setColumns(int channel, int count) {
     if (channel < 0 || channel > 255 || count < 0 || count > 255) return false;
+    checkpoint("Add column");
     if (!engine_->post(adaptive::Command::setColumns(static_cast<uint8_t>(channel), static_cast<uint8_t>(count)))) {
         return false;
     }
@@ -264,6 +276,7 @@ bool AudioPlayer::setColumns(int channel, int count) {
 
 bool AudioPlayer::removeColumn(int channel, int column) {
     if (channel < 0 || channel > 255 || column < 0 || column > 255) return false;
+    checkpoint("Remove column");
     if (!engine_->post(adaptive::Command::removeColumn(static_cast<uint8_t>(channel), static_cast<uint8_t>(column)))) {
         return false;
     }
@@ -292,7 +305,8 @@ int AudioPlayer::addPattern(int channel, const std::string& name, int copyOf) {
     adaptive::Pattern p;
     if (copyOf >= 0) p = edit_->patterns[copyOf];
     p.channel = static_cast<uint8_t>(channel);
-    song_->patterns[i] = p;
+    checkpoint("New pattern");
+    live()->patterns[i] = p;
     if (!engine_->post(adaptive::Command::added(adaptive::Addition::Pattern, static_cast<uint8_t>(i)))) return -1;
     edit_->patterns[i] = p;
     edit_->numPatterns = static_cast<uint8_t>(i + 1);
@@ -310,7 +324,8 @@ int AudioPlayer::addChannel(const std::string& name, int mode, int instrument) {
     if (instrument >= 0 && instrument < static_cast<int>(edit_->numInstruments)) {
         c.instruments[0] = static_cast<uint8_t>(instrument);
     }
-    song_->channels[i] = c;
+    checkpoint("New channel");
+    live()->channels[i] = c;
     if (!engine_->post(adaptive::Command::added(adaptive::Addition::Channel, static_cast<uint8_t>(i)))) return -1;
     edit_->channels[i] = c;
     edit_->numChannels = static_cast<uint8_t>(i + 1);
@@ -322,7 +337,8 @@ int AudioPlayer::addChannel(const std::string& name, int mode, int instrument) {
 int AudioPlayer::addSection(const std::string& name) {
     const uint32_t i = edit_->numSections;
     if (i >= adaptive::config::kMaxSections) return -1;
-    song_->sections[i] = adaptive::Section();
+    checkpoint("New section");
+    live()->sections[i] = adaptive::Section();
     if (!engine_->post(adaptive::Command::added(adaptive::Addition::Section, static_cast<uint8_t>(i)))) return -1;
     edit_->addSection();
     label(info_.sections, i, name);
@@ -343,6 +359,7 @@ bool AudioPlayer::rename(int kind, uint32_t index, const std::string& name) {
     default: return false;
     }
     if (index >= count || index >= labels->size() || name.empty()) return false;
+    checkpoint("Rename");
     (*labels)[index].name = name;
     ++edits_;
     return true;
@@ -354,6 +371,7 @@ bool AudioPlayer::editSequence(int section, int channel, int op, int pos, int pa
         return false;
     }
     const auto edit = static_cast<adaptive::SeqEdit>(op);
+    checkpoint("Change sequence");
     if (!engine_->post(adaptive::Command::editSequence(static_cast<uint8_t>(section), static_cast<uint8_t>(channel),
                                                        edit, static_cast<uint8_t>(pos), static_cast<uint8_t>(pattern)))) {
         return false;
@@ -368,6 +386,7 @@ bool AudioPlayer::setSection(int section, float bpm, int beatsPerBar, int bridge
         bridgeBeats > 0xFFFF || !(bpm >= 0.0f) || bpm > 999.0f) {
         return false;
     }
+    checkpoint("Section timing", Merge::Section, section);
     if (!engine_->post(adaptive::Command::setSection(static_cast<uint8_t>(section), bpm,
                                                      static_cast<uint8_t>(beatsPerBar),
                                                      static_cast<uint16_t>(bridgeBeats)))) {
@@ -395,6 +414,7 @@ std::vector<int32_t> AudioPlayer::columnSettings(int channel) const {
 bool AudioPlayer::setColumnPitch(int channel, int column, int mode) {
     if (channel < 0 || channel > 255 || column < 0 || column > 255 || mode < 0 || mode > 2) return false;
     const auto m = static_cast<adaptive::PitchMode>(mode);
+    checkpoint("Column pitch mode");
     if (!engine_->post(adaptive::Command::setColumnPitch(static_cast<uint8_t>(channel), static_cast<uint8_t>(column), m))) {
         return false;
     }
@@ -406,6 +426,7 @@ bool AudioPlayer::setColumnPitch(int channel, int column, int mode) {
 bool AudioPlayer::setColumnGate(int channel, int column, int param, float threshold) {
     if (channel < 0 || channel > 255 || column < 0 || column > 255 || param < -1 || param > 254) return false;
     const uint8_t p = param < 0 ? adaptive::kNoIndex : static_cast<uint8_t>(param);
+    checkpoint("Column threshold", Merge::Gate, channel, column);
     if (!engine_->post(adaptive::Command::setColumnGate(static_cast<uint8_t>(channel), static_cast<uint8_t>(column), p,
                                                         threshold))) {
         return false;
@@ -418,7 +439,8 @@ bool AudioPlayer::setColumnGate(int channel, int column, int param, float thresh
 int AudioPlayer::addLayer(const std::string& name) {
     const uint32_t i = edit_->numLayers;
     if (i >= adaptive::config::kMaxLayers) return -1;
-    song_->layers[i] = 0;
+    checkpoint("New layer");
+    live()->layers[i] = 0;
     if (!engine_->post(adaptive::Command::added(adaptive::Addition::Layer, static_cast<uint8_t>(i)))) return -1;
     edit_->addLayer();
     label(info_.layers, i, name);
@@ -428,8 +450,11 @@ int AudioPlayer::addLayer(const std::string& name) {
 
 bool AudioPlayer::removeLayer(int layer) {
     if (layer < 0 || layer >= static_cast<int>(edit_->numLayers)) return false;
+    checkpoint("Remove layer");
     if (!engine_->post(adaptive::Command::removeLayer(static_cast<uint8_t>(layer)))) return false;
-    edit_->removeLayer(layer);
+    adaptive::Renumbering r;
+    edit_->removeLayer(layer, &r);
+    undo_.back().renumbering = undo_.back().renumbering.then(r);
     if (layer < static_cast<int>(info_.layers.size())) info_.layers.erase(info_.layers.begin() + layer);
     ++edits_;
     return true;
@@ -437,6 +462,7 @@ bool AudioPlayer::removeLayer(int layer) {
 
 bool AudioPlayer::setLayerColumns(int layer, int channel, int columnBits) {
     if (layer < 0 || layer > 255 || channel < 0 || channel > 255 || columnBits < 0 || columnBits > 0xFFFF) return false;
+    checkpoint("Layer columns");
     if (!engine_->post(adaptive::Command::setLayerColumns(static_cast<uint8_t>(layer), static_cast<uint8_t>(channel),
                                                           static_cast<uint16_t>(columnBits)))) {
         return false;
@@ -454,6 +480,7 @@ int AudioPlayer::instrumentPitch(int instrument) const {
 
 bool AudioPlayer::setInstrumentPitch(int instrument, int mode) {
     if (instrument < 0 || instrument >= static_cast<int>(edit_->numInstruments) || mode < -1 || mode > 2) return false;
+    checkpoint("Instrument note hint");
     edit_->instrumentPitch[instrument] = mode < 0 ? adaptive::kNoIndex : static_cast<uint8_t>(mode);
     ++edits_;
     return true;
@@ -469,7 +496,8 @@ int AudioPlayer::addInstrument(const float* values, const std::string& name) {
         }
     }
     // Not yet in use, so the audio thread doesn't read it until AddInstrument.
-    song_->instruments[i] = inst;
+    checkpoint("New instrument");
+    live()->instruments[i] = inst;
     if (!engine_->post(adaptive::Command::addInstrument(static_cast<uint8_t>(i)))) return -1;
     edit_->addInstrument(inst);
     info_.instruments.resize(i);  // labels go index for index with instruments
@@ -480,6 +508,7 @@ int AudioPlayer::addInstrument(const float* values, const std::string& name) {
 
 bool AudioPlayer::renameInstrument(uint32_t i, const std::string& name) {
     if (i >= edit_->numInstruments || i >= info_.instruments.size() || name.empty()) return false;
+    checkpoint("Rename instrument");
     info_.instruments[i].name = name;
     ++edits_;
     return true;
@@ -491,6 +520,7 @@ bool AudioPlayer::assignInstrument(int channel, int column, int instrument) {
         instrument < 0 || instrument >= static_cast<int>(edit_->numInstruments)) {
         return false;
     }
+    checkpoint("Assign instrument");
     if (!engine_->post(adaptive::Command::assignInstrument(static_cast<uint8_t>(channel),
                                                           static_cast<uint8_t>(column),
                                                           static_cast<uint8_t>(instrument)))) {
@@ -523,6 +553,7 @@ bool AudioPlayer::readInstrument(uint32_t i, float* out, uint32_t capacity) cons
 bool AudioPlayer::setInstrumentParam(uint32_t i, int param, float value) {
     if (i >= edit_->numInstruments || param < 0 || param >= adaptive::Instrument::kNumParams) return false;
     const auto p = static_cast<adaptive::Instrument::Param>(param);
+    checkpoint("Instrument setting", Merge::Instrument, i, static_cast<uint32_t>(param));
     if (!engine_->post(adaptive::Command::setInstrumentParam(static_cast<uint8_t>(i), p, value))) return false;
     edit_->instruments[i].set(p, value);
     ++edits_;
@@ -623,8 +654,9 @@ void AudioPlayer::updateStats(oboe::AudioStream* stream, int64_t callbackNs, int
         const adaptive::Channel& ch = engine_->channel(c);
         const adaptive::Pattern* p = ch.playingPattern();
         int32_t index = -1;
-        if (p != nullptr && p >= song_->patterns && p < song_->patterns + song_->numPatterns) {
-            index = static_cast<int32_t>(p - song_->patterns);
+        const adaptive::Song* song = engine_->song();
+        if (p != nullptr && song != nullptr && p >= song->patterns && p < song->patterns + song->numPatterns) {
+            index = static_cast<int32_t>(p - song->patterns);
         }
         playingPattern_[c].store(index, std::memory_order_relaxed);
         playingRow_[c].store(ch.playingRow(), std::memory_order_relaxed);
@@ -647,4 +679,185 @@ void AudioPlayer::onErrorAfterClose(oboe::AudioStream*, oboe::Result error) {
     stream_.reset();
     latencyTuner_.reset();
     if (wantOpen_.load()) openLocked();
+}
+
+// ---- Swaps, deletes and undo ----
+
+void AudioPlayer::collectSwaps() {
+    const uint32_t taken = engine_->swapsTaken();
+    while (!swaps_.empty() && swapsFreed_ + 1 < taken) {
+        swaps_.pop_front();
+        ++swapsFreed_;
+    }
+    if (taken > 0) song_.reset();
+}
+
+bool AudioPlayer::swapIn(const adaptive::Song& song, const adaptive::Renumbering& r) {
+    collectSwaps();
+    auto swap = std::make_unique<adaptive::SongSwap>();
+    swap->song = song;
+    swap->renumbering = r;
+    if (!engine_->offer(swap.get())) return false;
+    swaps_.push_back(std::move(swap));
+    return true;
+}
+
+namespace {
+constexpr size_t kPatternsAt = offsetof(adaptive::Song, patterns);
+constexpr size_t kPatternsEnd = kPatternsAt + sizeof(adaptive::Song::patterns);
+static_assert(std::is_trivially_copyable_v<adaptive::Song> && std::is_standard_layout_v<adaptive::Song>,
+              "undo snapshots copy Song's bytes");
+} // namespace
+
+AudioPlayer::Snapshot AudioPlayer::capture() const {
+    Snapshot snap;
+    const auto* bytes = reinterpret_cast<const uint8_t*>(edit_.get());
+    snap.rest.assign(bytes, bytes + kPatternsAt);
+    snap.rest.insert(snap.rest.end(), bytes + kPatternsEnd, bytes + sizeof(adaptive::Song));
+    // Share patterns that haven't changed since the last snapshot.
+    const Snapshot* last = undo_.empty() ? nullptr : &undo_.back().before;
+    for (uint32_t i = 0; i < edit_->numPatterns; ++i) {
+        const adaptive::Pattern& p = edit_->patterns[i];
+        if (last != nullptr && i < last->patterns.size() &&
+            std::memcmp(last->patterns[i].get(), &p, sizeof p) == 0) {
+            snap.patterns.push_back(last->patterns[i]);
+        } else {
+            snap.patterns.push_back(std::make_shared<const adaptive::Pattern>(p));
+        }
+    }
+    snap.info = info_;
+    return snap;
+}
+
+void AudioPlayer::restore(const Snapshot& snap, adaptive::Song& song) {
+    auto* bytes = reinterpret_cast<uint8_t*>(&song);
+    std::memcpy(bytes, snap.rest.data(), kPatternsAt);
+    std::memcpy(bytes + kPatternsEnd, snap.rest.data() + kPatternsAt, sizeof(adaptive::Song) - kPatternsEnd);
+    for (uint32_t i = 0; i < adaptive::config::kMaxPatterns; ++i) {
+        song.patterns[i] = i < snap.patterns.size() ? *snap.patterns[i] : adaptive::Pattern();
+    }
+}
+
+void AudioPlayer::checkpoint(const char* label, Merge merge, uint32_t a, uint32_t b, uint32_t c) {
+    if (stepDepth_ > 0) {
+        if (stepTaken_) return;
+        stepTaken_ = true;
+        label = stepLabel_.c_str();
+        merge = Merge::None;
+    } else if (merge != Merge::None && redo_.empty() && !undo_.empty()) {
+        const Step& top = undo_.back();
+        if (top.merge == merge && top.target[0] == a && top.target[1] == b && top.target[2] == c) return;
+    }
+    Step step;
+    step.before = capture();
+    step.label = label;
+    step.merge = merge;
+    step.target[0] = a;
+    step.target[1] = b;
+    step.target[2] = c;
+    undo_.push_back(std::move(step));
+    if (undo_.size() > kMaxUndo) undo_.pop_front();
+    redo_.clear();
+}
+
+void AudioPlayer::beginStep(const std::string& label) {
+    if (stepDepth_++ == 0) {
+        stepTaken_ = false;
+        stepLabel_ = label;
+    }
+}
+
+void AudioPlayer::endStep() {
+    if (stepDepth_ > 0) --stepDepth_;
+}
+
+bool AudioPlayer::undo() {
+    if (undo_.empty()) return false;
+    Step& top = undo_.back();
+    auto restored = std::make_unique<adaptive::Song>();
+    restore(top.before, *restored);
+    if (!swapIn(*restored, top.renumbering.inverse())) return false;
+    Step redoStep;
+    redoStep.before = capture();  // the song as it is now, to come back to
+    redoStep.renumbering = top.renumbering;
+    redoStep.label = top.label;
+    *edit_ = *restored;
+    info_ = top.before.info;
+    redo_.push_back(std::move(redoStep));
+    undo_.pop_back();
+    ++edits_;
+    return true;
+}
+
+bool AudioPlayer::redo() {
+    if (redo_.empty()) return false;
+    Step& top = redo_.back();
+    auto restored = std::make_unique<adaptive::Song>();
+    restore(top.before, *restored);
+    if (!swapIn(*restored, top.renumbering)) return false;
+    Step undoStep;
+    undoStep.before = capture();
+    undoStep.renumbering = top.renumbering;
+    undoStep.label = top.label;
+    *edit_ = *restored;
+    info_ = top.before.info;
+    undo_.push_back(std::move(undoStep));
+    redo_.pop_back();
+    ++edits_;
+    return true;
+}
+
+template<typename Fn>
+bool AudioPlayer::removeAndSwap(const char* label, Fn&& remove) {
+    auto next = std::make_unique<adaptive::Song>(*edit_);
+    adaptive::Renumbering r;
+    if (!remove(*next, r) || !swapIn(*next, r)) return false;
+    checkpoint(label);
+    undo_.back().renumbering = undo_.back().renumbering.then(r);  // a step may hold several
+    *edit_ = *next;
+    ++edits_;
+    return true;
+}
+
+namespace {
+template<typename T>
+void eraseAt(std::vector<T>& v, uint32_t i) {
+    if (i < v.size()) v.erase(v.begin() + i);
+}
+} // namespace
+
+bool AudioPlayer::deletePattern(int pattern) {
+    if (pattern < 0 || pattern >= static_cast<int>(edit_->numPatterns)) return false;
+    const auto p = static_cast<uint32_t>(pattern);
+    if (!removeAndSwap("Delete pattern", [p](adaptive::Song& s, adaptive::Renumbering& r) { return s.removePattern(p, &r); })) {
+        return false;
+    }
+    eraseAt(info_.patterns, p);
+    return true;
+}
+
+bool AudioPlayer::deleteSection(int section) {
+    if (section < 0 || section >= static_cast<int>(edit_->numSections)) return false;
+    const auto i = static_cast<uint32_t>(section);
+    if (!removeAndSwap("Delete section", [i](adaptive::Song& s, adaptive::Renumbering& r) { return s.removeSection(i, &r); })) {
+        return false;
+    }
+    eraseAt(info_.sections, i);
+    return true;
+}
+
+bool AudioPlayer::deleteChannel(int channel) {
+    if (channel < 0 || channel >= static_cast<int>(edit_->numChannels)) return false;
+    const auto ch = static_cast<uint32_t>(channel);
+    // Its patterns' labels go with them (highest first, as removeChannel takes them).
+    std::vector<uint32_t> gone;
+    for (uint32_t p = edit_->numPatterns; p-- > 0;) {
+        if (edit_->patterns[p].channel == ch) gone.push_back(p);
+    }
+    if (!removeAndSwap("Delete channel", [ch](adaptive::Song& s, adaptive::Renumbering& r) { return s.removeChannel(ch, &r); })) {
+        return false;
+    }
+    for (uint32_t p : gone) eraseAt(info_.patterns, p);
+    eraseAt(info_.channels, ch);
+    return true;
 }

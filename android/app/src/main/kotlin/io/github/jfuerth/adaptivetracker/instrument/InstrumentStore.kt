@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateList
 import androidx.compose.runtime.toMutableStateList
 import io.github.jfuerth.adaptivetracker.NativeAudio
+import io.github.jfuerth.adaptivetracker.Song
 import io.github.jfuerth.adaptivetracker.editor.PatternStore
 import io.github.jfuerth.adaptivetracker.editor.PitchMode
 
@@ -93,10 +94,10 @@ object InstrumentStore {
      * instrument suggests a pitch mode, the column switches to it (its notes
      * are rewritten to sound the same).
      */
-    fun assign(channel: Int, column: Int, index: Int) {
-        if (!NativeAudio.assignInstrument(channel, column, index)) return
+    fun assign(channel: Int, column: Int, index: Int) = Song.step("Assign instrument") {
+        if (!NativeAudio.assignInstrument(channel, column, index)) return@step
         assignments++
-        val hint = pitchHint(index) ?: return
+        val hint = pitchHint(index) ?: return@step
         val current = NativeAudio.getColumnSettings(channel).getOrNull(column * 3)
         if (current != hint.ordinal) PatternStore.setColumnPitch(channel, column, hint)
     }

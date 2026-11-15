@@ -6,6 +6,7 @@
 #include <oboe/Oboe.h>
 
 #include <atomic>
+#include <deque>
 #include <cstdint>
 #include <memory>
 #include <mutex>
@@ -41,7 +42,11 @@ public:
     const adaptive::songfile::SongInfo& songInfo() const { return info_; }
     /// The UI thread's copy of the song (see edit_).
     const adaptive::Song& song() const { return *edit_; }
-    void setTitle(std::string title) { info_.title = std::move(title); ++edits_; }
+    void setTitle(std::string title) {
+        checkpoint("Rename song");
+        info_.title = std::move(title);
+        ++edits_;
+    }
     /// Counts edits to the song, for autosave: unchanged count, nothing to save.
     uint64_t editCount() const { return edits_; }
 
@@ -112,6 +117,21 @@ public:
     int instrumentPitch(int instrument) const;
     bool setInstrumentPitch(int instrument, int mode);
 
+    // Taking things out (UI thread only). Playback carries on in place.
+    bool deletePattern(int pattern);
+    bool deleteChannel(int channel);
+    bool deleteSection(int section);
+
+    // Undo (UI thread only). Every edit above is a step; edits between
+    // beginStep and endStep make one step together.
+    bool undo();
+    bool redo();
+    /// What undo / redo would change ("" if nothing).
+    std::string undoLabel() const { return undo_.empty() ? std::string() : undo_.back().label; }
+    std::string redoLabel() const { return redo_.empty() ? std::string() : redo_.back().label; }
+    void beginStep(const std::string& label);
+    void endStep();
+
     // Instruments (UI thread only).
     uint32_t channelCount() const { return edit_->numChannels; }
     std::string channelName(uint32_t i) const { return name(info_.channels, i); }
@@ -167,6 +187,39 @@ public:
     void onErrorAfterClose(oboe::AudioStream* stream, oboe::Result error) override;
 
 private:
+    /// Consecutive edits of the same kind and target merge into one undo step
+    /// (typing a cell's digits, dragging a slider).
+    enum class Merge { None, Cell, Section, Gate, Instrument };
+    /// The song as it was: Song's bytes outside its pattern table, and its
+    /// patterns, shared with the step before where unchanged.
+    struct Snapshot {
+        std::vector<uint8_t> rest;
+        std::vector<std::shared_ptr<const adaptive::Pattern>> patterns;
+        adaptive::songfile::SongInfo info;
+    };
+    struct Step {
+        Snapshot before;  ///< or, on the redo stack, after
+        adaptive::Renumbering renumbering;  ///< how the edit renumbered things (before to after)
+        std::string label;
+        Merge merge = Merge::None;
+        uint32_t target[3] = {};
+    };
+    static constexpr size_t kMaxUndo = 100;
+
+    void checkpoint(const char* label, Merge merge = Merge::None, uint32_t a = 0, uint32_t b = 0, uint32_t c = 0);
+    Snapshot capture() const;
+    static void restore(const Snapshot& snap, adaptive::Song& song);
+    /// Hand the engine a copy of `song` (renumbered from its current one by `r`).
+    bool swapIn(const adaptive::Song& song, const adaptive::Renumbering& r);
+    /// Free songs the engine has finished with.
+    void collectSwaps();
+    /// The song the engine plays (or will, once it takes the latest swap). New
+    /// items are written past its end before they are announced.
+    adaptive::Song* live() { return swaps_.empty() ? song_.get() : &swaps_.back()->song; }
+    /// Delete via `remove` (a Song method taking the index and a Renumbering).
+    template<typename Fn>
+    bool removeAndSwap(const char* label, Fn&& remove);
+
     static std::string name(const std::vector<adaptive::songfile::Label>& labels, uint32_t i) {
         return i < labels.size() ? labels[i].name : std::string();
     }
@@ -184,6 +237,14 @@ private:
     std::unique_ptr<adaptive::Song> edit_;
     adaptive::songfile::SongInfo info_;
     uint64_t edits_ = 0;
+    /// Songs handed to the engine, oldest first; the first is swap number swapsFreed_ + 1.
+    std::deque<std::unique_ptr<adaptive::SongSwap>> swaps_;
+    uint32_t swapsFreed_ = 0;
+    std::deque<Step> undo_;
+    std::deque<Step> redo_;
+    int stepDepth_ = 0;
+    bool stepTaken_ = false;  ///< a checkpoint was made since beginStep
+    std::string stepLabel_;
     std::shared_ptr<oboe::AudioStream> stream_;
     std::mutex streamMutex_;  // guards stream_ between UI thread and error-restart thread
     std::atomic<bool> wantOpen_{false};

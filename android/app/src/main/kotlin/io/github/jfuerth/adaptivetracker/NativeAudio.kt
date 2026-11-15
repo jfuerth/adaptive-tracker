@@ -182,6 +182,24 @@ object NativeAudio {
     private external fun addLayerBytes(name: ByteArray): Int
     /** Takes out the layer, with mappings and event actions that refer to it. */
     external fun removeLayer(layer: Int): Boolean
+
+    // Taking things out; later ones move down. Playback carries on in place.
+    /** Takes out the pattern, its places in sequences and the stingers that play it. */
+    external fun deletePattern(pattern: Int): Boolean
+    /** Takes out the channel with its patterns, its place in layers, and mappings and stingers aimed at it. */
+    external fun deleteChannel(channel: Int): Boolean
+    /** Takes out the section, and event actions that go to it. */
+    external fun deleteSection(section: Int): Boolean
+
+    // Undo: each edit is a step, or several made between beginStep and endStep.
+    external fun undo(): Boolean
+    external fun redo(): Boolean
+    /** What undo would change, or "" if nothing. */
+    external fun getUndoLabel(): String
+    external fun getRedoLabel(): String
+    fun beginStep(label: String) = beginStepBytes(label.toByteArray())
+    private external fun beginStepBytes(label: ByteArray)
+    external fun endStep()
     /** The layer holds [channel]'s columns in [columnBits] (bit c: column c). */
     external fun setLayerColumns(layer: Int, channel: Int, columnBits: Int): Boolean
     /** Each layer's columns, bit (channel × 4 + column). */

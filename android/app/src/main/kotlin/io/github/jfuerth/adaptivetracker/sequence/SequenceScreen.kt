@@ -74,10 +74,10 @@ fun SequenceScreen(
     // Goes up after each edit, so the sequences are read again.
     var edits by remember { mutableIntStateOf(0) }
     val channels = Song.channels
-    val sequences = remember(section, edits, channels) {
+    val sequences = remember(section, edits, channels, Song.revision) {
         channels.indices.map { NativeAudio.getSequence(section, it)?.toList() ?: emptyList() }
     }
-    val timing = remember(section, edits) { NativeAudio.getSectionTiming(section) ?: intArrayOf(0, 4, 0) }
+    val timing = remember(section, edits, Song.revision) { NativeAudio.getSectionTiming(section) ?: intArrayOf(0, 4, 0) }
 
     // Which pattern each channel is playing now, for highlighting.
     var playingPatterns by remember { mutableStateOf(List(channels.size) { -1 }) }
@@ -94,6 +94,9 @@ fun SequenceScreen(
     fun edited() {
         edits++
         Song.structureChanged()
+    }
+    fun delete(kind: Int, index: Int) {
+        Song.delete(kind, index)?.let { message = it }
     }
     fun seq(channel: Int, op: Int, pos: Int, pattern: Int = 0) {
         if (NativeAudio.editSequence(section, channel, op, pos, pattern)) edits++
@@ -120,6 +123,10 @@ fun SequenceScreen(
                     DropdownMenuItem(text = { Text("New section…") }, onClick = { open = false; dialog = Dialog.NewSection })
                     DropdownMenuItem(text = { Text("Rename this section…") }, onClick = { open = false; dialog = Dialog.RenameSection })
                     DropdownMenuItem(text = { Text("Tempo, bar and bridge…") }, onClick = { open = false; dialog = Dialog.Timing })
+                    DropdownMenuItem(text = { Text("Delete this section") }, onClick = {
+                        open = false
+                        delete(NativeAudio.NAMES_SECTIONS, section)
+                    })
                 }
             }
             ToolButton(if (hereNow) "Stop" else "Play", onClick = {
@@ -161,12 +168,22 @@ fun SequenceScreen(
                     playingPattern = if (hereNow) playingPatterns.getOrElse(ch) { -1 } else -1,
                     onOpenPattern = onOpenPattern,
                     onEdit = { op, pos, pattern -> seq(ch, op, pos, pattern) },
-                    onNewPattern = { pos ->
-                        val p = PatternStore.create(ch, PatternStore.freshName(name))
-                        if (p < 0) message = "No room for another pattern (a song holds up to 64)."
-                        else seq(ch, NativeAudio.SEQ_INSERT, pos, p)
+                    onMove = { pos, to, pattern ->
+                        Song.step("Move pattern") {
+                            seq(ch, NativeAudio.SEQ_REMOVE, pos)
+                            seq(ch, NativeAudio.SEQ_INSERT, to, pattern)
+                        }
                     },
+                    onNewPattern = { pos ->
+                        Song.step("New pattern") {
+                            val p = PatternStore.create(ch, PatternStore.freshName(name))
+                            if (p < 0) message = "No room for another pattern (a song holds up to 64)."
+                            else seq(ch, NativeAudio.SEQ_INSERT, pos, p)
+                        }
+                    },
+                    onDeletePattern = { pattern -> delete(NativeAudio.NAMES_PATTERNS, pattern) },
                     onRename = { dialog = Dialog.RenameChannel(ch) },
+                    onDelete = { delete(NativeAudio.NAMES_CHANNELS, ch) },
                 )
             }
             if (channels.size < MAX_CHANNELS) {
@@ -205,16 +222,18 @@ fun SequenceScreen(
         Dialog.NewChannel -> NewChannelDialog("Channel ${channels.size + 1}") { c ->
             dialog = null
             if (c != null) {
-                val ch = NativeAudio.addChannel(c.name, c.mode.ordinal, c.instrument)
-                if (ch < 0) {
-                    message = "No room for another channel."
-                } else {
-                    Song.structureChanged()
-                    InstrumentStore.columnsChanged()
-                    // Something to play straight away: an empty pattern, in this section.
-                    val p = PatternStore.create(ch, PatternStore.freshName(c.name))
-                    if (p >= 0) NativeAudio.editSequence(section, ch, NativeAudio.SEQ_INSERT, 0, p)
-                    edited()
+                Song.step("New channel") {
+                    val ch = NativeAudio.addChannel(c.name, c.mode.ordinal, c.instrument)
+                    if (ch < 0) {
+                        message = "No room for another channel."
+                    } else {
+                        Song.structureChanged()
+                        InstrumentStore.columnsChanged()
+                        // Something to play straight away: an empty pattern, in this section.
+                        val p = PatternStore.create(ch, PatternStore.freshName(c.name))
+                        if (p >= 0) NativeAudio.editSequence(section, ch, NativeAudio.SEQ_INSERT, 0, p)
+                        edited()
+                    }
                 }
             }
         }
@@ -241,8 +260,11 @@ private fun Lane(
     playingPattern: Int,
     onOpenPattern: (Int) -> Unit,
     onEdit: (op: Int, pos: Int, pattern: Int) -> Unit,
+    onMove: (pos: Int, to: Int, pattern: Int) -> Unit,
     onNewPattern: (pos: Int) -> Unit,
+    onDeletePattern: (pattern: Int) -> Unit,
     onRename: () -> Unit,
+    onDelete: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     val names = PatternStore.names
@@ -261,6 +283,7 @@ private fun Lane(
             )
             DropdownMenu(expanded = headOpen, onDismissRequest = { headOpen = false }) {
                 DropdownMenuItem(text = { Text("Rename channel…") }, onClick = { headOpen = false; onRename() })
+                DropdownMenuItem(text = { Text("Delete channel") }, onClick = { headOpen = false; onDelete() })
             }
         }
         if (entries.isEmpty()) {
@@ -288,16 +311,15 @@ private fun Lane(
                     DropdownMenuItem(text = { Text("Edit pattern") }, onClick = { open = false; onOpenPattern(pattern) })
                     DropdownMenuItem(text = { Text("Move up") }, enabled = pos > 0, onClick = {
                         open = false
-                        onEdit(NativeAudio.SEQ_REMOVE, pos, 0)
-                        onEdit(NativeAudio.SEQ_INSERT, pos - 1, pattern)
+                        onMove(pos, pos - 1, pattern)
                     })
                     DropdownMenuItem(text = { Text("Move down") }, enabled = pos < entries.size - 1, onClick = {
                         open = false
-                        onEdit(NativeAudio.SEQ_REMOVE, pos, 0)
-                        onEdit(NativeAudio.SEQ_INSERT, pos + 1, pattern)
+                        onMove(pos, pos + 1, pattern)
                     })
                     DropdownMenuItem(text = { Text("New pattern below") }, onClick = { open = false; onNewPattern(pos + 1) })
                     DropdownMenuItem(text = { Text("Remove from here") }, onClick = { open = false; onEdit(NativeAudio.SEQ_REMOVE, pos, 0) })
+                    DropdownMenuItem(text = { Text("Delete pattern (everywhere)") }, onClick = { open = false; onDeletePattern(pattern) })
                     if (own.size > 1) {
                         HorizontalDivider()
                         Text("Play instead:", style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(horizontal = 12.dp))

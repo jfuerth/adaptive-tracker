@@ -236,6 +236,52 @@ public:
         reanchor();
     }
 
+    /// What this channel plays from: a sequence (with the patterns its
+    /// entries index) or a single pattern. All nullptr when stopped.
+    const Sequence* playingSequence() const { return sequence_; }
+    const Pattern* patternPool() const { return pool_; }
+    const Pattern* singlePattern() const { return single_; }
+
+    /**
+     * The song was replaced by a changed copy: play the same thing from the
+     * copy (`sequence` with `patterns`, or `single`), at the same place in
+     * time, without restarting. All nullptr stops the channel.
+     */
+    void retarget(const Sequence* sequence, const Pattern* patterns, const Pattern* single, uint64_t tick) {
+        if ((sequence == nullptr || sequence->length == 0) && single == nullptr) {
+            play(nullptr, 0);
+            return;
+        }
+        sequence_ = sequence != nullptr && sequence->length > 0 ? sequence : nullptr;
+        pool_ = patterns;
+        single_ = sequence_ != nullptr ? nullptr : single;
+        updateTotalTicks();
+        const int64_t now = static_cast<int64_t>(tick);
+        if (totalTicks_ == 0) {
+            play(nullptr, 0);
+            return;
+        }
+        if (now <= startTick_ || playingRow_ < 0) {
+            entryIndex_ = 0;
+            entryStartTick_ = startTick_;
+            return;
+        }
+        if (sequence_ != nullptr && entryIndex_ >= sequence_->length) entryIndex_ = 0;
+        locate(tick);
+    }
+
+    /// Back to how a new channel starts: stopped, unity gain, filter open.
+    void reset() {
+        play(nullptr, 0);
+        loop_ = true;
+        setGain(1.0f, 0);
+        setCutoff(20000.0f, 0);
+        for (auto& g : layerGains_) g.reset(1.0f);
+        columnMask_ = ~0u;
+        mutedColumns_ = 0;
+        openColumns_ = ~0u;
+    }
+
     /// True if this channel is playing `s` (as a looping sequence).
     bool playsSequence(const Sequence* s) const { return sequence_ != nullptr && sequence_ == s; }
 
