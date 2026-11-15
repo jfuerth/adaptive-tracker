@@ -150,7 +150,7 @@ const char* const kEntries[] = {"restart", "keepPhase"};
 const char* const kCurves[] = {"linear", "exponential"};
 // Mapping::Target order, without None.
 const char* const kTargets[] = {"channelGain", "layerGain", "channelCutoff", "masterCutoff",
-                                "tempoScale",  "transpose", "threshold"};
+                                "tempoScale",  "transpose", "threshold",     "speed"};
 
 const char* const kNoteNames[] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
 

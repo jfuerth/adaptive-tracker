@@ -905,6 +905,11 @@ bool AudioPlayer::rewind(bool toPattern) {
     return engine_->post(adaptive::Command::rewind(toPattern ? adaptive::RewindTo::Pattern : adaptive::RewindTo::Bar));
 }
 
+bool AudioPlayer::setSpeed(float speed, int rampMs) {
+    if (!(speed > 0.0f) || rampMs < 0 || rampMs > 60000) return false;
+    return engine_->post(adaptive::Command::setSpeed(speed, static_cast<uint16_t>(rampMs)));
+}
+
 std::vector<int32_t> AudioPlayer::mixerState() const {
     std::vector<int32_t> out;
     for (uint32_t c = 0; c < edit_->numChannels; ++c) {

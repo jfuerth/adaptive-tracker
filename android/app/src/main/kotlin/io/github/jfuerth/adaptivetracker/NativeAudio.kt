@@ -196,6 +196,8 @@ object NativeAudio {
     external fun restartChannel(channel: Int): Boolean
     /** Every channel jumps back to the start of the bar playing ([toPattern] false) or of its pattern. */
     external fun rewind(toPattern: Boolean): Boolean
+    /** Tape speed: tempo and pitch together (1 normal, 0.5 half speed and an octave down), gliding over [rampMs]. */
+    external fun setSpeed(speed: Float, rampMs: Int): Boolean
     /** Per channel: flags (STRIP_*), fader x 1000. */
     external fun getMixerState(): IntArray
     const val STRIP_MUTED = 1

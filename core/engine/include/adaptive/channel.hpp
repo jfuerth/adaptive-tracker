@@ -322,6 +322,17 @@ public:
         resumeAt(entryStartTick_);
     }
 
+    /// Pitches are `speed` times the notes' (the engine's tape speed);
+    /// sounding notes bend at once.
+    void setSpeed(float speed) {
+        if (speed == speed_) return;
+        speed_ = speed;
+        for (uint32_t c = 0; c < numColumns_; ++c) {
+            if (voices_[c].isActive()) voices_[c].setFrequency(midiNoteToHz(columns_[c].soundingPitch()) * speed_);
+        }
+    }
+    float speed() const { return speed_; }
+
     /// Back to how a new channel starts: stopped, unity gain, filter open.
     void reset() {
         play(nullptr, 0);
@@ -706,7 +717,7 @@ private:
         default:
             break;
         }
-        v.setFrequency(midiNoteToHz(s.soundingPitch()));
+        v.setFrequency(midiNoteToHz(s.soundingPitch()) * speed_);
     }
 
     /// Arpeggio offsets from the column's last note. In Degree mode x and y are
@@ -762,7 +773,7 @@ private:
         sweepFilter(s, v);
         const bool moving = s.slide != 0.0f || s.glide != 0.0f;
         stepPitch(s);
-        if (moving || s.effect == fx::kArpeggio) v.setFrequency(midiNoteToHz(s.soundingPitch()));
+        if (moving || s.effect == fx::kArpeggio) v.setFrequency(midiNoteToHz(s.soundingPitch()) * speed_);
 
         if (s.effect == fx::kVolumeSlide) {
             const int up = s.volSlideMemory >> 4;
@@ -785,6 +796,7 @@ private:
     int64_t startTick_ = 0;
     int64_t entryStartTick_ = 0;
     int64_t rowStartTick_ = 0;  ///< When playingRow_ started.
+    float speed_ = 1.0f;        ///< Pitch multiplier: the engine's tape speed.
     static constexpr uint64_t kNoTick = ~uint64_t(0);
     uint64_t lastTick_ = kNoTick;
     int32_t playingRow_ = -1;

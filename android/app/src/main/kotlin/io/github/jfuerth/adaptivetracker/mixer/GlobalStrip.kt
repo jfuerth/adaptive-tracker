@@ -1,6 +1,22 @@
 package io.github.jfuerth.adaptivetracker.mixer
 
 import androidx.compose.foundation.background
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import kotlinx.coroutines.launch
+import kotlin.math.abs
+import kotlin.math.log2
+import kotlin.math.pow
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -48,7 +64,7 @@ internal val GLOBAL_WIDTH = 156.dp
 
 /**
  * The console's global section: bumping back to replay the bar or the
- * patterns, where the song goes next (sections, and how it gets there), the
+ * patterns, tape speed, where the song goes next (sections, and how it gets there), the
  * parameters as faders, events, layers and the key.
  * [params] and [layerOn] mirror what was sent to the engine.
  */
@@ -102,6 +118,9 @@ internal fun GlobalStrip(
                 StripChip("Pattern", on = false, enabled = playing, onClick = { NativeAudio.rewind(toPattern = true) })
             }
         }
+
+        Heading("Speed")
+        SpeedSlider(Modifier.fillMaxWidth())
 
         // Sections: go to one (while playing, as the transition says).
         Heading("Go to")
@@ -363,3 +382,77 @@ private fun LayerEditor(layerOn: SnapshotStateList<Boolean>) {
 
 /** Layers a song can have (the engine's kMaxLayers). */
 private const val MAX_LAYERS = 8
+
+/** How long the speed takes to drift back to normal after the slider is let go. */
+private const val SPEED_RETURN_MS = 400
+
+/** Speed for a slider position: -1 is two octaves down (quarter speed), 1 an octave up. */
+private fun speedAt(x: Float): Float = if (x < 0f) 2f.pow(2f * x) else 2f.pow(x)
+
+/**
+ * Tape speed, pulled like a pitch bend: drag left to slow everything down
+ * (tempo and pitch together), right to speed it up. Let go and it drifts back
+ * to normal. Dragging moves it from where it is, so a touch doesn't jump it.
+ */
+@Composable
+private fun SpeedSlider(modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
+    val pos = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    var widthPx by remember { mutableFloatStateOf(1f) }
+    val x = pos.value
+    val speed = speedAt(x)
+    Column(modifier) {
+        Text(
+            if (abs(x) < 0.005f) "Pull: tempo and pitch" else {
+                val semitones = 12f * log2(speed)
+                "×%.2f · %+.1f semitones".format(speed, semitones)
+            },
+            style = MaterialTheme.typography.labelSmall,
+            color = colors.onSurfaceVariant,
+            maxLines = 1,
+        )
+        Canvas(
+            Modifier
+                .fillMaxWidth()
+                .height(36.dp)
+                .onSizeChanged { widthPx = it.width.toFloat().coerceAtLeast(1f) }
+                .pointerInput(Unit) {
+                    var v = 0f
+                    detectHorizontalDragGestures(
+                        onDragStart = {
+                            scope.launch { pos.stop() }
+                            v = pos.value
+                        },
+                        onDragEnd = {
+                            NativeAudio.setSpeed(1f, SPEED_RETURN_MS)
+                            scope.launch { pos.animateTo(0f, tween(SPEED_RETURN_MS, easing = LinearEasing)) }
+                        },
+                        onDragCancel = {
+                            NativeAudio.setSpeed(1f, SPEED_RETURN_MS)
+                            scope.launch { pos.animateTo(0f, tween(SPEED_RETURN_MS, easing = LinearEasing)) }
+                        },
+                        onHorizontalDrag = { change, dx ->
+                            change.consume()
+                            v = (v + dx / (widthPx * 0.45f)).coerceIn(-1f, 1f)
+                            scope.launch { pos.snapTo(v) }
+                            NativeAudio.setSpeed(speedAt(v), 20)
+                        },
+                    )
+                },
+        ) {
+            val knob = 18.dp.toPx()
+            val track = 4.dp.toPx()
+            val y = size.height / 2
+            val left = knob / 2
+            val right = size.width - knob / 2
+            val centre = (left + right) / 2
+            val at = centre + x * (right - left) / 2
+            drawRoundRect(colors.outlineVariant, Offset(left, y - track / 2), Size(right - left, track), CornerRadius(track / 2))
+            drawLine(colors.outline, Offset(centre, y - 8.dp.toPx()), Offset(centre, y + 8.dp.toPx()), 2.dp.toPx())
+            drawRoundRect(colors.primary, Offset(minOf(centre, at), y - track / 2), Size(abs(at - centre), track))
+            drawRoundRect(colors.primary, Offset(at - knob / 2, 0f), Size(knob, size.height), CornerRadius(4.dp.toPx()))
+            drawLine(colors.onPrimary, Offset(at, 4.dp.toPx()), Offset(at, size.height - 4.dp.toPx()), 2.dp.toPx())
+        }
+    }
+}

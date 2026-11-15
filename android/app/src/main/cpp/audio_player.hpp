@@ -127,6 +127,8 @@ public:
     bool restartChannel(int channel);
     /// Every channel jumps back to the start of the bar playing, or of its pattern.
     bool rewind(bool toPattern);
+    /// Tape speed: tempo and pitch together (1 = normal), gliding over `rampMs`.
+    bool setSpeed(float speed, int rampMs);
     /// Per channel (numChannels of them): flags (1 muted, 2 soloed, 4 paused) and fader x 1000.
     std::vector<int32_t> mixerState() const;
 

@@ -270,6 +270,7 @@ JNIEXPORT jboolean JNICALL JNI_FN(setChannelPause)(JNIEnv*, jobject, jint ch, jb
 }
 JNIEXPORT jboolean JNICALL JNI_FN(restartChannel)(JNIEnv*, jobject, jint ch) { return toJ(player().restartChannel(ch)); }
 JNIEXPORT jboolean JNICALL JNI_FN(rewind)(JNIEnv*, jobject, jboolean toPattern) { return toJ(player().rewind(toPattern)); }
+JNIEXPORT jboolean JNICALL JNI_FN(setSpeed)(JNIEnv*, jobject, jfloat speed, jint rampMs) { return toJ(player().setSpeed(speed, rampMs)); }
 JNIEXPORT jboolean JNICALL JNI_FN(deletePattern)(JNIEnv*, jobject, jint i) { return toJ(player().deletePattern(i)); }
 JNIEXPORT jboolean JNICALL JNI_FN(deleteChannel)(JNIEnv*, jobject, jint i) { return toJ(player().deleteChannel(i)); }
 JNIEXPORT jboolean JNICALL JNI_FN(deleteSection)(JNIEnv*, jobject, jint i) { return toJ(player().deleteSection(i)); }

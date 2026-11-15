@@ -197,6 +197,9 @@ public:
             }
             uint32_t chunk = clock_.samplesUntilNextTick();
             if (chunk > numFrames - done) chunk = numFrames - done;
+            // While the speed glides, pitch and tempo follow it in small steps.
+            const bool gliding = speed_.isMoving();
+            if (gliding && chunk > kSpeedStep) chunk = kSpeedStep;
             float* tap = monitor != nullptr ? monitor + done : nullptr;
             for (uint32_t c = 0; c < config::kMaxChannels; ++c) {
                 channels_[c].render(out + done, chunk, tap, tap != nullptr ? monitoredColumns(c) : 0);
@@ -204,6 +207,10 @@ public:
             renderPreviews(out + done, chunk, tap);
             tickPending_ = clock_.advance(chunk);
             done += chunk;
+            if (gliding) {
+                speed_.advance(chunk);
+                applySpeed();
+            }
         }
 
         master_.processBuffer(out, numFrames);
@@ -399,6 +406,9 @@ private:
             break;
         case Command::Kind::RestartChannel:
             if (c.a < config::kMaxChannels) channels_[c.a].restartAt(tick);
+            break;
+        case Command::Kind::SetSpeed:
+            setSpeed(c.value, msToSamples(c.data));
             break;
         case Command::Kind::Rewind:
             if (static_cast<RewindTo>(c.a) == RewindTo::Bar) {
@@ -606,6 +616,9 @@ private:
             tempoScale_.set(out > 0.05f ? out : 0.05f, ramp);
             if (ramp == 0) applyTempo();
             break;
+        case Mapping::Target::Speed:
+            setSpeed(out, ramp);
+            break;
         case Mapping::Target::Transpose:
             pitch_.transpose = static_cast<int8_t>(std::lround(out));
             break;
@@ -682,8 +695,21 @@ private:
     }
 
     void applyTempo() {
-        const float t = static_cast<float>(baseTempoMilliBpm_) * tempoScale_.value();
+        const float t = static_cast<float>(baseTempoMilliBpm_) * tempoScale_.value() * speed_.value();
         clock_.setTempoMilliBpm(static_cast<uint32_t>(t));
+    }
+
+    /// Samples between pitch and tempo updates while the speed glides.
+    static constexpr uint32_t kSpeedStep = 64;
+
+    void setSpeed(float speed, uint32_t rampSamples) {
+        speed_.set(speed < 0.05f ? 0.05f : speed > 4.0f ? 4.0f : speed, rampSamples);
+        if (rampSamples == 0) applySpeed();
+    }
+    /// Tape speed: tempo and every channel's pitch.
+    void applySpeed() {
+        applyTempo();
+        for (auto& ch : channels_) ch.setSpeed(speed_.value());
     }
 
     /// Where a channel was in the old song: a sequence (section, channel) or a single pattern.
@@ -943,6 +969,7 @@ private:
     bool hearAll_ = false;  ///< editor playback: every note, whatever the mix says
     uint32_t baseTempoMilliBpm_ = 120000;
     Ramp tempoScale_{1.0f};
+    Ramp speed_{1.0f};  ///< Tape speed: multiplies tempo and pitch.
     Ramp masterCutoffLog2_;
 
     // Song swaps (see offer()).

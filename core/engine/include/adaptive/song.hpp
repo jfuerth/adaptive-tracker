@@ -101,6 +101,7 @@ struct Command {
         SetColumns,   ///< channel a gets b columns; see Song::setColumns
         RemoveColumn, ///< remove channel a's column b; see Song::removeColumn
         Rewind,       ///< a = RewindTo: every channel jumps back to the start of the bar or of its pattern
+        SetSpeed,     ///< value = speed (1 = normal): tempo and pitch together, like tape; glides over `data` ms
     };
 
     Kind kind = Kind::None;
@@ -233,6 +234,11 @@ struct Command {
     static constexpr Command rewind(RewindTo to, Quantize when = Quantize::Now) {
         return Command{Kind::Rewind, when, Entry::Restart, static_cast<uint8_t>(to), 0};
     }
+    /// Everything plays `speed` times as fast and as high (0.5: half speed, an
+    /// octave down), gliding there over `rampMs`, like tape speeding up or slowing.
+    static constexpr Command setSpeed(float speed, uint16_t rampMs = 30) {
+        return Command{Kind::SetSpeed, Quantize::Now, Entry::Restart, 0, 0, speed, rampMs};
+    }
     static constexpr Command swapSong(uint8_t slot) {
         return Command{Kind::SwapSong, Quantize::Now, Entry::Restart, slot, 0};
     }
@@ -272,6 +278,7 @@ struct Mapping {
         Transpose,      ///< out = semitones, rounded; applies to notes that start afterwards
         Threshold,      ///< fires `index` when the parameter rises past `threshold`,
                         ///< and `indexBelow` when it falls back below
+        Speed,          ///< out = speed: tempo and pitch together, like tape (see Command::setSpeed)
     };
     enum class Curve : uint8_t {
         Linear,       ///< out = outMin + (outMax - outMin) * p

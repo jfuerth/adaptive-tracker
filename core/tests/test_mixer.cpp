@@ -134,3 +134,21 @@ TEST_CASE("Rewind: to the pattern starts each channel's pattern again") {
     f.ticks(kTicksPerRow);
     CHECK(f.ch(0).playingRow() == 1);
 }
+
+TEST_CASE("Speed: tempo and pitch together, like tape; glides back") {
+    Fixture f;
+    f.engine->post(Command::setSpeed(0.5f, 0));
+    f.ticks(1);
+    CHECK(f.ch(0).speed() == doctest::Approx(0.5f));
+    f.ticks(kTicksPerRow * 2);  // as long as two rows at full speed: one at half
+    CHECK(f.ch(0).playingRow() == 1);
+
+    f.engine->post(Command::setSpeed(1.0f, 100));  // 100 ms back to normal
+    std::vector<float> buf(48000 / 20);            // 50 ms
+    f.engine->render(buf.data(), uint32_t(buf.size()));
+    CHECK(f.ch(0).speed() > 0.6f);
+    CHECK(f.ch(0).speed() < 0.9f);
+    f.engine->render(buf.data(), uint32_t(buf.size()));
+    f.engine->render(buf.data(), uint32_t(buf.size()));
+    CHECK(f.ch(0).speed() == doctest::Approx(1.0f));
+}

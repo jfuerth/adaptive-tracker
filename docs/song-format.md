@@ -184,7 +184,7 @@ A mapping turns a parameter (0..1) into a value from `from` (at 0) to `to`
 (at 1), with a `linear` or `exponential` `curve` (exponential for Hz and
 tempo; both ends above 0), gliding over `rampMs` (default 30). Targets:
 `channelGain` and `channelCutoff` (with `channel`), `layerGain` (with
-`layer`), `masterCutoff`, `tempoScale` (multiplies the tempo), `transpose`
+`layer`), `masterCutoff`, `tempoScale` (multiplies the tempo), `speed` (tempo and pitch together, like tape: 0.5 is half speed, an octave down), `transpose`
 (semitones). A `threshold` mapping fires event `above` when the parameter
 rises past `threshold`, and `below` when it falls back.
 
