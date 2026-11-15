@@ -85,6 +85,7 @@ struct Command {
         SetColumnGate,  ///< channel a, column b: gated by parameter `data` (kNoIndex: none) at `value`
         SetLayerColumns,///< layer a: channel b's columns are the bits of `data`
         RemoveLayer,    ///< take out layer a (and what refers to it)
+        HearAll,        ///< a != 0: ignore gates, layer mutes and layer gains (hear every note)
         SetColumns,   ///< channel a gets b columns; see Song::setColumns
         RemoveColumn, ///< remove channel a's column b; see Song::removeColumn
     };
@@ -200,6 +201,9 @@ struct Command {
     }
     static constexpr Command setLayerColumns(uint8_t layer, uint8_t channel, uint16_t columnBits) {
         return Command{Kind::SetLayerColumns, Quantize::Now, Entry::Restart, layer, channel, 0.0f, columnBits};
+    }
+    static constexpr Command hearAll(bool on) {
+        return Command{Kind::HearAll, Quantize::Now, Entry::Restart, static_cast<uint8_t>(on ? 1 : 0), 0};
     }
     static constexpr Command removeLayer(uint8_t layer) {
         return Command{Kind::RemoveLayer, Quantize::Now, Entry::Restart, layer, 0};

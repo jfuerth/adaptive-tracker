@@ -16,12 +16,9 @@
 namespace adaptive::songfile {
 
 inline constexpr const char* kFormat = "adaptive-tracker-song";
-/// Files with a higher version than this are refused; lower ones load.
+/// The one version this app reads and writes; files of any other are refused.
+/// (No compatibility with older files until the format settles.)
 inline constexpr int kVersion = 2;
-/// Files are written with the lowest version that can read them: 2 only when
-/// a channel's columns read notes in different pitch modes, or a layer holds
-/// some of a channel's columns (version 1 apps would misread those).
-inline constexpr int kVersionPlain = 1;
 
 /// A part of the song as people see it. `id` is stable (references in the
 /// file use it); `name` is free to change.

@@ -78,9 +78,9 @@ TEST_CASE("Song file: the demo plays the same from its file as from code") {
 
 TEST_CASE("Song file: missing optional fields take defaults; unknown fields are ignored") {
     const char* json = R"({
-        "format": "adaptive-tracker-song", "version": 1, "someFutureField": {"x": 1},
+        "format": "adaptive-tracker-song", "version": 2, "someFutureField": {"x": 1},
         "instruments": [{"id": "lead", "params": {"cutoff": 500}}],
-        "channels": [{"id": "lead", "pitch": "absolute", "columns": [{"instrument": "lead"}, {}],
+        "channels": [{"id": "lead", "columns": [{"instrument": "lead", "pitch": "absolute"}, {"pitch": "absolute"}],
                       "patterns": [{"id": "a", "rows": 4, "ticksPerRow": 5,
                                     "cells": [{"row": 1, "column": 1, "note": "Bb3", "effect": "F80"}]}]}],
         "sections": [{"id": "main", "channels": {"lead": ["a", "a"]}}]
@@ -106,9 +106,9 @@ TEST_CASE("Song file: missing optional fields take defaults; unknown fields are 
 
 TEST_CASE("Song file: degree cells and custom scales") {
     const char* json = R"({
-        "format": "adaptive-tracker-song", "version": 1,
+        "format": "adaptive-tracker-song", "version": 2,
         "key": {"root": "F#", "scale": [0, 2, 3, 7, 8]},
-        "channels": [{"id": "pad", "pitch": "degree", "columns": [{}],
+        "channels": [{"id": "pad", "columns": [{"pitch": "degree"}],
                       "patterns": [{"id": "p", "rows": 2, "ticksPerRow": 24,
                                     "cells": [{"row": 0, "column": 0, "degree": 3, "octave": 4, "accidental": -1},
                                               {"row": 1, "column": 0, "off": true}]}]}]
@@ -130,15 +130,17 @@ TEST_CASE("Song file: degree cells and custom scales") {
 
 TEST_CASE("Song file: errors say what is wrong and where") {
     CHECK(loadError("{") .find("parse error") != std::string::npos);
-    CHECK(loadError(R"({"format": "something-else", "version": 1})") == "format: expected \"adaptive-tracker-song\"");
-    CHECK(loadError(demoWith(R"("version": 1)", R"("version": 3)")).find("newer version of the app") !=
+    CHECK(loadError(R"({"format": "something-else", "version": 2})") == "format: expected \"adaptive-tracker-song\"");
+    CHECK(loadError(demoWith(R"("version": 2)", R"("version": 3)")).find("newer version of the app") !=
+          std::string::npos);
+    CHECK(loadError(demoWith(R"("version": 2)", R"("version": 1)")).find("older version of the app") !=
           std::string::npos);
     CHECK(loadError(demoWith(R"("lead": ["explore-lead"])", R"("lead": ["explore-bass"])")) ==
           "sections[0].channels.lead[0]: pattern 'explore-bass' belongs to channel 'bass'");
     CHECK(loadError(demoWith(R"("lead": ["explore-lead"])", R"("lead": ["nope"])")) ==
           "sections[0].channels.lead[0]: no pattern 'nope'");
     CHECK(loadError(demoWith(R"("pitch": "degree")", R"("pitch": "sideways")")) ==
-          "channels[0].pitch: 'sideways' is not one of absolute, transpose, degree");
+          "channels[0].columns[0].pitch: 'sideways' is not one of absolute, transpose, degree");
     CHECK(loadError(demoWith(R"("ticksPerRow": 12)", R"("ticksPerRow": 0)")) ==
           "channels[0].patterns[0].ticksPerRow: must be from 1 to 255");
     CHECK(loadError(demoWith(R"("effect": "024")", R"("effect": "0x24")")).find("is not an effect like 024") !=

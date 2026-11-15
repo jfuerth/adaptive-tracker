@@ -46,7 +46,10 @@ public:
     uint64_t editCount() const { return edits_; }
 
     // Control (UI thread only). Each returns false if the command queue was full.
-    bool play();
+    /// `hearAll`: every note, ignoring gates, layer mutes and layer gains (the
+    /// editor's plain Play); otherwise the adaptive mix.
+    bool play(bool hearAll = false);
+    bool setHearAll(bool on);
     bool stop();
     /// viaBridge: play the song's first bridge section (if any) on the way.
     bool gotoSection(int section, int quantize, int entry, bool viaBridge);
@@ -79,7 +82,7 @@ public:
     bool previewOn(int instrument, int slot, int midiNote);
     bool previewOff(int slot);
     /// Loop pattern-table entry `pattern` alone; `columnMask` picks the columns heard.
-    bool soloPattern(uint32_t pattern, int columnMask);
+    bool soloPattern(uint32_t pattern, int columnMask, bool hearAll);
     bool setColumnMask(int channel, int columnMask);
 
     // Growing the song (UI thread only). Each returns the new index, or -1 when full.

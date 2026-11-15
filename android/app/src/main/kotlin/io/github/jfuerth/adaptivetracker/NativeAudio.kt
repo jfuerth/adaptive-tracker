@@ -66,8 +66,15 @@ object NativeAudio {
     /** Effect ticks per beat; a pattern's speed (ticks per row) counts these. */
     external fun getTicksPerBeat(): Int
 
-    /** Starts the song at its start section. */
-    external fun play(): Boolean
+    /**
+     * Starts the song at its start section. [hearAll]: every note plays, ignoring
+     * column gates, layer mutes and layer gains (the editor's plain Play);
+     * otherwise the adaptive mix.
+     */
+    external fun play(hearAll: Boolean = false): Boolean
+
+    /** Switches what is playing between every note ([on]) and the adaptive mix. */
+    external fun setHearAll(on: Boolean): Boolean
 
     /** Stops all channels; sounding notes release. */
     external fun stop(): Boolean
@@ -271,8 +278,8 @@ object NativeAudio {
 
     external fun previewOff(slot: Int): Boolean
 
-    /** Stops everything and loops pattern [pattern] alone; [columnMask] picks the columns heard. */
-    external fun soloPattern(pattern: Int, columnMask: Int): Boolean
+    /** Stops everything and loops pattern [pattern] alone; [columnMask] picks the columns heard; see [play] for [hearAll]. */
+    external fun soloPattern(pattern: Int, columnMask: Int, hearAll: Boolean): Boolean
 
     /** Channel [channel] plays only the columns in [columnMask] (bit 0 = column 0). */
     external fun setColumnMask(channel: Int, columnMask: Int): Boolean

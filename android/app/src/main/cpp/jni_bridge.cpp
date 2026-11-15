@@ -54,7 +54,11 @@ JNIEXPORT void JNICALL JNI_FN(close)(JNIEnv*, jobject) {
     if (gPlayer) gPlayer->close();
 }
 
-JNIEXPORT jboolean JNICALL JNI_FN(play)(JNIEnv*, jobject) { return toJ(player().play()); }
+JNIEXPORT jboolean JNICALL JNI_FN(play)(JNIEnv*, jobject, jboolean hearAll) {
+    return toJ(player().play(hearAll == JNI_TRUE));
+}
+
+JNIEXPORT jboolean JNICALL JNI_FN(setHearAll)(JNIEnv*, jobject, jboolean on) { return toJ(player().setHearAll(on == JNI_TRUE)); }
 
 JNIEXPORT jboolean JNICALL JNI_FN(stop)(JNIEnv*, jobject) { return toJ(player().stop()); }
 
@@ -99,8 +103,8 @@ JNIEXPORT jintArray JNICALL JNI_FN(getStats)(JNIEnv* env, jobject) {
     return result;
 }
 
-JNIEXPORT jboolean JNICALL JNI_FN(soloPattern)(JNIEnv*, jobject, jint pattern, jint columnMask) {
-    return toJ(player().soloPattern(static_cast<uint32_t>(pattern), columnMask));
+JNIEXPORT jboolean JNICALL JNI_FN(soloPattern)(JNIEnv*, jobject, jint pattern, jint columnMask, jboolean hearAll) {
+    return toJ(player().soloPattern(static_cast<uint32_t>(pattern), columnMask, hearAll == JNI_TRUE));
 }
 
 JNIEXPORT jboolean JNICALL JNI_FN(setColumnMask)(JNIEnv*, jobject, jint channel, jint columnMask) {

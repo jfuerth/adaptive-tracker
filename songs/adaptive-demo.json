@@ -1,6 +1,6 @@
 {
   "format": "adaptive-tracker-song",
-  "version": 1,
+  "version": 2,
   "title": "Adaptive demo",
   "tempo": 96,
   "key": {"root": "C", "scale": "major"},
@@ -179,9 +179,12 @@
     {
       "id": "lead",
       "name": "Lead",
-      "pitch": "degree",
       "columns": [
-        {"instrument": "lead"}
+        {
+          "instrument": "lead",
+          "pitch": "degree",
+          "layers": ["melody"]
+        }
       ],
       "patterns": [
         {
@@ -263,9 +266,8 @@
     {
       "id": "bass",
       "name": "Bass",
-      "pitch": "degree",
       "columns": [
-        {"instrument": "bass"}
+        {"instrument": "bass", "pitch": "degree"}
       ],
       "patterns": [
         {
@@ -338,11 +340,22 @@
     {
       "id": "pad",
       "name": "Pad",
-      "pitch": "degree",
       "columns": [
-        {"instrument": "pad"},
-        {"instrument": "pad"},
-        {"instrument": "pad"}
+        {
+          "instrument": "pad",
+          "pitch": "degree",
+          "layers": ["pad"]
+        },
+        {
+          "instrument": "pad",
+          "pitch": "degree",
+          "layers": ["pad"]
+        },
+        {
+          "instrument": "pad",
+          "pitch": "degree",
+          "layers": ["pad"]
+        }
       ],
       "patterns": [
         {
@@ -390,9 +403,12 @@
     {
       "id": "arp",
       "name": "Arp",
-      "pitch": "degree",
       "columns": [
-        {"instrument": "arp"}
+        {
+          "instrument": "arp",
+          "pitch": "degree",
+          "layers": ["rhythm"]
+        }
       ],
       "patterns": [
         {
@@ -536,10 +552,17 @@
     {
       "id": "drums",
       "name": "Drums",
-      "pitch": "absolute",
       "columns": [
-        {"instrument": "kick"},
-        {"instrument": "hat"}
+        {
+          "instrument": "kick",
+          "pitch": "absolute",
+          "layers": ["rhythm"]
+        },
+        {
+          "instrument": "hat",
+          "pitch": "absolute",
+          "layers": ["rhythm"]
+        }
       ],
       "patterns": [
         {
@@ -579,9 +602,8 @@
     {
       "id": "stinger",
       "name": "Stinger",
-      "pitch": "degree",
       "columns": [
-        {"instrument": "stinger"}
+        {"instrument": "stinger", "pitch": "degree"}
       ],
       "patterns": [
         {
@@ -654,21 +676,9 @@
     }
   ],
   "layers": [
-    {
-      "id": "rhythm",
-      "name": "Rhythm",
-      "channels": ["arp", "drums"]
-    },
-    {
-      "id": "melody",
-      "name": "Melody",
-      "channels": ["lead"]
-    },
-    {
-      "id": "pad",
-      "name": "Pad",
-      "channels": ["pad"]
-    }
+    {"id": "rhythm", "name": "Rhythm"},
+    {"id": "melody", "name": "Melody"},
+    {"id": "pad", "name": "Pad"}
   ],
   "events": [
     {

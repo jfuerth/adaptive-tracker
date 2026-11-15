@@ -332,8 +332,14 @@ private:
                 sectionStartTick_ = tick;  // beats and bars count from here
                 channels_[c.a].play(song_->pattern(c.b), tick);
                 channels_[c.a].setColumnMask(c.data);
-                updateGates();  // a pattern played alone ignores gates
+                updateGates();
             }
+            break;
+        case Command::Kind::HearAll:
+            hearAll_ = c.a != 0;
+            updateGates();
+            updateMutes();
+            updateLayerGains(0);
             break;
         case Command::Kind::SetColumnMask:
             if (c.a < config::kMaxChannels) channels_[c.a].setColumnMask(c.data);
@@ -551,7 +557,7 @@ private:
         for (uint32_t ch = 0; ch < config::kMaxChannels; ++ch) {
             for (uint32_t col = 0; col < config::kMaxColumns; ++col) {
                 float g = 1.0f;
-                for (uint8_t l = 0; l < song_->numLayers; ++l) {
+                for (uint8_t l = 0; !hearAll_ && l < song_->numLayers; ++l) {
                     if (song_->layers[l] & layerBit(ch, col)) g *= layerGains_[l];
                 }
                 channels_[ch].setLayerGain(col, g, ramp);
@@ -562,7 +568,7 @@ private:
     /// A column is muted while any layer it is in is muted.
     void updateMutes() {
         uint32_t muted = 0;
-        for (uint8_t l = 0; l < song_->numLayers; ++l) {
+        for (uint8_t l = 0; !hearAll_ && l < song_->numLayers; ++l) {
             if (layerMuted_[l]) muted |= song_->layers[l];
         }
         for (uint32_t ch = 0; ch < config::kMaxChannels; ++ch) {
@@ -570,13 +576,13 @@ private:
         }
     }
 
-    /// Opens or closes column gates from the parameters. Playing a pattern
-    /// alone (no section) hears every column.
+    /// Opens or closes column gates from the parameters (all open while
+    /// hearing everything).
     void updateGates() {
         if (song_ == nullptr) return;
         for (uint32_t ch = 0; ch < config::kMaxChannels; ++ch) {
             uint32_t open = ~0u;
-            if (currentSection_ != kNoIndex && ch < song_->numChannels) {
+            if (!hearAll_ && ch < song_->numChannels) {
                 for (uint32_t col = 0; col < config::kMaxColumns; ++col) {
                     if (!song_->gateOpen(ch, col, params_)) open &= ~(1u << col);
                 }
@@ -690,6 +696,7 @@ private:
     float params_[config::kMaxParams] = {};
     float layerGains_[config::kMaxLayers] = {};  // set to 1 in the constructor
     bool layerMuted_[config::kMaxLayers] = {};
+    bool hearAll_ = false;  ///< editor playback: every note, whatever the mix says
     uint32_t baseTempoMilliBpm_ = 120000;
     Ramp tempoScale_{1.0f};
     Ramp masterCutoffLog2_;

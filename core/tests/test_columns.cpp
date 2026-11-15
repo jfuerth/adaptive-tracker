@@ -132,13 +132,24 @@ TEST_CASE("Columns: a gated column starts no notes below its threshold") {
     CHECK(f.sounding(1));  // a sounding note isn't cut off
 }
 
-TEST_CASE("Columns: a pattern played alone ignores gates") {
+TEST_CASE("Columns: hearing everything ignores gates and layer mutes") {
     Fixture f;
     f.song->setColumnGate(0, 1, 0, 0.9f);
     f.engine->setSong(f.song.get());
+    f.engine->post(Command::setLayerMute(0, true));
+    f.engine->post(Command{Command::Kind::SoloPattern, Quantize::Now, Entry::Restart, 0, 0, 0.0f, 0xFFFF});
+    f.ticks(2);
+    CHECK_FALSE(f.sounding(1));  // a pattern alone still gets the mix by default
+
+    f.engine->post(Command::hearAll(true));
     f.engine->post(Command{Command::Kind::SoloPattern, Quantize::Now, Entry::Restart, 0, 0, 0.0f, 0xFFFF});
     f.ticks(2);
     CHECK(f.sounding(1));
+    CHECK(f.engine->channel(0).mutedColumns() == 0);
+
+    f.engine->post(Command::hearAll(false));
+    f.ticks(1);
+    CHECK(f.engine->channel(0).mutedColumns() != 0);
 }
 
 TEST_CASE("Columns: a layer can hold one column of a channel") {
@@ -179,7 +190,7 @@ TEST_CASE("Columns: removing a layer takes what refers to it") {
     CHECK(f.song->events[0].actions[0].a == 0);
 }
 
-TEST_CASE("Columns: settings survive a song file, which says version 2 only when it must") {
+TEST_CASE("Columns: settings survive a song file") {
     Fixture f;
     songfile::SongInfo info;
     info.channels = {{"ch", "Ch"}};
@@ -191,14 +202,9 @@ TEST_CASE("Columns: settings survive a song file, which says version 2 only when
     f.song->instrumentPitch[0] = uint8_t(PitchMode::Degree);
     f.song->setColumnGate(0, 1, 0, 0.5f);
 
-    f.song->layers[0] = layerChannelBits(0);
-    std::string json = songfile::save(*f.song, info);
-    CHECK(json.find(R"("version": 1)") != std::string::npos);
-
     f.song->layers[0] = layerBit(0, 1);
     f.song->setColumnPitch(0, 1, PitchMode::Degree);
-    json = songfile::save(*f.song, info);
-    CHECK(json.find(R"("version": 2)") != std::string::npos);
+    const std::string json = songfile::save(*f.song, info);
 
     auto back = std::make_unique<Song>();
     songfile::SongInfo backInfo;

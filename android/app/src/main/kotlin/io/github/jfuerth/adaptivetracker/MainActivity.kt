@@ -184,7 +184,11 @@ private fun App(
             SongBar()
             PrimaryTabRow(selectedTabIndex = tab) {
                 TABS.forEachIndexed { i, name ->
-                    Tab(selected = tab == i, onClick = { tab = i }, text = { Text(name, maxLines = 1) })
+                    Tab(selected = tab == i, onClick = {
+                        // The Perform tab always hears the adaptive mix.
+                        if (i == 0 && tab != 0) NativeAudio.setHearAll(false)
+                        tab = i
+                    }, text = { Text(name, maxLines = 1) })
                 }
             }
             // A new song starts every screen afresh.

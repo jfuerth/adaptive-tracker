@@ -1,6 +1,6 @@
 {
   "format": "adaptive-tracker-song",
-  "version": 1,
+  "version": 2,
   "title": "New song",
   "tempo": 120,
   "key": {
@@ -139,10 +139,10 @@
     {
       "id": "melody",
       "name": "Melody",
-      "pitch": "degree",
       "columns": [
         {
-          "instrument": "lead"
+          "instrument": "lead",
+          "pitch": "degree"
         }
       ],
       "patterns": [

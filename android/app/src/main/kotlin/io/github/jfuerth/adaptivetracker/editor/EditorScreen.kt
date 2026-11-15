@@ -170,12 +170,15 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
     }
 
     // ---- Playback: song, this pattern alone, or one column of it ----
+    // Play hears every note; Alt+Play hears the adaptive mix (gates, layer
+    // mutes and layer gains), which restarts and mode changes then keep.
     val isPlaying by rememberUpdatedState(playing)
+    var hearAll by rememberSaveable { mutableStateOf(true) }
     fun startPlayback() {
         when (playMode) {
-            PlayMode.SONG -> NativeAudio.play()
-            PlayMode.PATTERN -> NativeAudio.soloPattern(patternIndex, 0xFFFF)
-            PlayMode.COLUMN -> NativeAudio.soloPattern(patternIndex, 1 shl column)
+            PlayMode.SONG -> NativeAudio.play(hearAll)
+            PlayMode.PATTERN -> NativeAudio.soloPattern(patternIndex, 0xFFFF, hearAll)
+            PlayMode.COLUMN -> NativeAudio.soloPattern(patternIndex, 1 shl column, hearAll)
         }
     }
     // Changing mode or pattern while playing switches what plays; in Column
@@ -300,9 +303,20 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
                 ToolButton(m.label, selected = playMode == m, onClick = { playMode = m })
                 Box(Modifier.width(4.dp))
             }
-            ToolButton(if (playing) "Stop" else "Play", onClick = {
-                if (playing) NativeAudio.stop() else startPlayback()
-            })
+            ToolButton(
+                when {
+                    playing -> "Stop"
+                    alt -> "Play mix"
+                    else -> "Play"
+                },
+                selected = !playing && alt,
+                onClick = {
+                    if (playing) NativeAudio.stop() else {
+                        hearAll = !alt
+                        startPlayback()
+                    }
+                },
+            )
         }
 
         // ---- Column headings: the instrument each column plays ----
@@ -394,7 +408,7 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
         // ---- Description line ----
         val cell = currentCell()
         val description = when {
-            alt -> "Drag the keyboard to move it · Del goes up; hold it to clear to the top"
+            alt -> "Drag the keyboard to move it · Del goes up; hold it to clear to the top · Play the mix"
             field.isVolume -> if (cell.volume == CellData.VOLUME_DEFAULT) "Volume · default (full)"
                 else "Volume · ${cell.volume}/127"
             else -> EffectDescription.describe(cell, info.modeOf(column), Song.events, NativeAudio::effectValue, info.ticksPerBeat)

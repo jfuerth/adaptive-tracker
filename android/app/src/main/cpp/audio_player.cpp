@@ -122,9 +122,11 @@ void AudioPlayer::close() {
     }
 }
 
-bool AudioPlayer::play() {
+bool AudioPlayer::setHearAll(bool on) { return engine_->post(adaptive::Command::hearAll(on)); }
+
+bool AudioPlayer::play(bool hearAll) {
     if (edit_->numSections == 0) return false;
-    return engine_->post(adaptive::Command::gotoSection(edit_->startSection, adaptive::Quantize::Now));
+    return setHearAll(hearAll) && engine_->post(adaptive::Command::gotoSection(edit_->startSection, adaptive::Quantize::Now));
 }
 
 bool AudioPlayer::stop() { return engine_->post(adaptive::Command::stop()); }
@@ -542,9 +544,9 @@ bool AudioPlayer::previewOn(int instrument, int slot, int midiNote) {
                                                      static_cast<uint8_t>(midiNote), 0.8f));
 }
 
-bool AudioPlayer::soloPattern(uint32_t pattern, int columnMask) {
+bool AudioPlayer::soloPattern(uint32_t pattern, int columnMask, bool hearAll) {
     if (edit_->pattern(pattern) == nullptr) return false;
-    return engine_->post(adaptive::Command::soloPattern(edit_->patterns[pattern].channel, static_cast<uint8_t>(pattern),
+    return setHearAll(hearAll) && engine_->post(adaptive::Command::soloPattern(edit_->patterns[pattern].channel, static_cast<uint8_t>(pattern),
                                                        static_cast<uint16_t>(columnMask)));
 }
 
