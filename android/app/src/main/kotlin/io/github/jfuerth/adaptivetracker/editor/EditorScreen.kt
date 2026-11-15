@@ -258,6 +258,16 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
             var renaming by remember { mutableStateOf(false) }
             var full by remember { mutableStateOf(false) }
             var problem by remember { mutableStateOf<String?>(null) }
+            var copying by remember { mutableStateOf(false) }
+            if (copying) CopyPatternDialog(info.channel, onDone = { source ->
+                copying = false
+                if (source != null) {
+                    val i = PatternStore.create(info.channel, PatternStore.names[source].let {
+                        if (it in PatternStore.names) PatternStore.freshName(it) else it
+                    }, source)
+                    if (i >= 0) patternIndex = i else full = true
+                }
+            })
             problem?.let {
                 AlertDialog(
                     onDismissRequest = { problem = null },
@@ -299,8 +309,16 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
                         menuOpen = false
                         problem = Song.delete(NativeAudio.NAMES_PATTERNS, patternIndex)
                     })
+                    if (Song.channels.size > 1) {
+                        DropdownMenuItem(text = { Text("Copy from another channel…") }, onClick = {
+                            menuOpen = false
+                            copying = true
+                        })
+                    }
                     HorizontalDivider()
-                    PatternStore.byName.forEach { i ->
+                    // Only this channel's patterns: a pattern plays on its own channel.
+                    val mine = PatternStore.ofChannel(info.channel).toSet()
+                    PatternStore.byName.filter { it in mine }.forEach { i ->
                         val name = PatternStore.names[i]
                         val shape = PatternStore.get(i)?.info?.let { " · ${it.rows} rows, speed ${it.speedLabel}" } ?: ""
                         DropdownMenuItem(text = { Text(name + shape) }, onClick = {
@@ -859,4 +877,48 @@ private fun HexPad(onDigit: (Int) -> Unit) {
             }
         }
     }
+}
+
+/**
+ * Picks a pattern of another channel to copy into [channel]: the patterns,
+ * under their channels' names. Notes are rewritten if the two channels
+ * write them differently (scale degrees or note names), so the copy sounds
+ * the same. [onDone] gets the pattern chosen, or null.
+ */
+@Composable
+private fun CopyPatternDialog(channel: Int, onDone: (Int?) -> Unit) {
+    val byChannel = remember {
+        val sorted = PatternStore.byName
+        Song.channels.indices.filter { it != channel }.associateWith { c ->
+            val theirs = PatternStore.ofChannel(c).toSet()
+            sorted.filter { it in theirs }
+        }.filterValues { it.isNotEmpty() }
+    }
+    AlertDialog(
+        onDismissRequest = { onDone(null) },
+        title = { Text("Copy a pattern into ${Song.channels.getOrElse(channel) { "this channel" }}") },
+        text = {
+            LazyColumn {
+                byChannel.forEach { (c, patterns) ->
+                    item {
+                        Text(
+                            Song.channels.getOrElse(c) { "?" },
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(top = 8.dp, bottom = 2.dp),
+                        )
+                    }
+                    items(patterns.size) { k ->
+                        val i = patterns[k]
+                        Text(
+                            PatternStore.names.getOrElse(i) { "?" },
+                            modifier = Modifier.fillMaxWidth().clickable { onDone(i) }.padding(vertical = 8.dp, horizontal = 4.dp),
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = { TextButton(onClick = { onDone(null) }) { Text("Cancel") } },
+    )
 }

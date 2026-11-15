@@ -92,7 +92,7 @@ fun ColumnSettingsDialog(channel: Int, column: Int, channelName: String, onDone:
 
                 Text("Layers", style = MaterialTheme.typography.labelLarge)
                 if (Song.layers.isEmpty()) {
-                    Text("No layers yet. Make them on the Perform tab, with Edit by Layers.", style = MaterialTheme.typography.bodySmall)
+                    Text("No layers yet. Make them on the mixer: Edit, under Layers in the global strip.", style = MaterialTheme.typography.bodySmall)
                 }
                 Song.layers.forEachIndexed { i, name ->
                     Row(verticalAlignment = Alignment.CenterVertically) {

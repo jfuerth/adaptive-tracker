@@ -125,6 +125,8 @@ public:
     bool setChannelPause(int channel, bool on);
     /// Starts the channel's sequence over at the next bar.
     bool restartChannel(int channel);
+    /// Every channel jumps back to the start of the bar playing, or of its pattern.
+    bool rewind(bool toPattern);
     /// Per channel (numChannels of them): flags (1 muted, 2 soloed, 4 paused) and fader x 1000.
     std::vector<int32_t> mixerState() const;
 

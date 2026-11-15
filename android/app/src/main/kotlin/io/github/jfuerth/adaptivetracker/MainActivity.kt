@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
@@ -159,6 +160,13 @@ private fun App(
     val stats = rememberStats()
     val playing = stats.getOrElse(6) { 0 } == 1
     var tab by rememberSaveable { mutableIntStateOf(0) }
+    // The pattern editor opens from a channel on the mixer, and goes back there.
+    var editing by rememberSaveable { mutableStateOf(false) }
+    fun backToMixer() {
+        editing = false
+        NativeAudio.setHearAll(false)  // the mixer always hears the adaptive mix
+    }
+    BackHandler(enabled = editing) { backToMixer() }
     // Saves a few seconds after edits, so a crash loses little.
     LaunchedEffect(Unit) {
         while (true) {
@@ -176,14 +184,15 @@ private fun App(
                     TextButton(onClick = onDismissSongError) { Text("OK") }
                 }
             }
-            SongBar(stats)
-            PrimaryTabRow(selectedTabIndex = tab) {
-                TABS.forEachIndexed { i, name ->
-                    Tab(selected = tab == i, onClick = {
-                        // The mixer always hears the adaptive mix.
-                        if (i == 0 && tab != 0) NativeAudio.setHearAll(false)
-                        tab = i
-                    }, text = { Text(name, maxLines = 1) })
+            if (editing) {
+                val channel = NativeAudio.getPatternInfo(Song.pattern)?.getOrNull(0) ?: -1
+                SongBar(stats, editingChannel = Song.channels.getOrElse(channel) { "Pattern" }, onBack = ::backToMixer)
+            } else {
+                SongBar(stats)
+                PrimaryTabRow(selectedTabIndex = tab) {
+                    TABS.forEachIndexed { i, name ->
+                        Tab(selected = tab == i, onClick = { tab = i }, text = { Text(name, maxLines = 1) })
+                    }
                 }
             }
             // A new song starts every screen afresh.
@@ -198,9 +207,14 @@ private fun App(
                 }
                 // Each tab keeps its state (choices, scroll positions) while another is shown.
                 val tabState = rememberSaveableStateHolder()
-                tabState.SaveableStateProvider(tab) {
-                    when (tab) {
-                        0 -> MixerScreen(
+                val screen = when {
+                    editing -> "editor"
+                    tab == 0 -> "mixer"
+                    else -> "instruments"
+                }
+                tabState.SaveableStateProvider(screen) {
+                    when (screen) {
+                        "mixer" -> MixerScreen(
                             audioOk = audioOk,
                             playing = playing,
                             currentSection = stats.getOrElse(5) { -1 },
@@ -208,11 +222,11 @@ private fun App(
                             layerOn = layerOn,
                             onOpenPattern = { p ->
                                 Song.pattern = p
-                                tab = 1
+                                editing = true
                             },
                             modifier = Modifier.weight(1f),
                         )
-                        1 -> EditorScreen(playing = playing, modifier = Modifier.weight(1f))
+                        "editor" -> EditorScreen(playing = playing, modifier = Modifier.weight(1f))
                         else -> InstrumentScreen(Modifier.weight(1f))
                     }
                 }
@@ -221,11 +235,15 @@ private fun App(
     }
 }
 
-private val TABS = listOf("Mixer", "Patterns", "Instruments")
+private val TABS = listOf("Mixer", "Instruments")
 
-/** The song's title, and a menu to rename it, open and export songs. */
+/**
+ * The song's title, undo and redo, and a menu to rename it, open and export
+ * songs. In the pattern editor ([editingChannel] set) it starts with a back
+ * arrow and the channel's name instead of the title.
+ */
 @Composable
-private fun SongBar(stats: IntArray) {
+private fun SongBar(stats: IntArray, editingChannel: String? = null, onBack: () -> Unit = {}) {
     val context = LocalContext.current
     var menuOpen by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
@@ -243,11 +261,18 @@ private fun SongBar(stats: IntArray) {
         if (uri != null) message = Song.export(context, uri) ?: "Exported."
     }
 
-    Row(Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(
+        Modifier.fillMaxWidth().padding(start = if (editingChannel != null) 0.dp else 16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (editingChannel != null) {
+            TextButton(onClick = onBack) { Text("←", style = MaterialTheme.typography.titleLarge) }
+        }
         Text(
-            Song.title.ifEmpty { "Untitled" },
+            editingChannel ?: Song.title.ifEmpty { "Untitled" },
             style = MaterialTheme.typography.titleMedium,
             maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f),
         )
         // Undo and redo: what they would change is read a few times a second,

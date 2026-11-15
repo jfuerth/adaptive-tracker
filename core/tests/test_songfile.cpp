@@ -196,3 +196,30 @@ TEST_CASE("Song file: songs/new-song.json (what New song starts from) loads and 
     // Everything in the file survives a save (key order and spacing aside).
     CHECK(nlohmann::json::parse(songfile::save(*song, info)) == nlohmann::json::parse(file.str()));
 }
+
+TEST_CASE("Song file: the mixer actions and rewind round trip") {
+    const std::string json = demoWith(
+        R"({"type": "playStinger", "pattern": "hit-stinger", "when": "now"})",
+        R"({"type": "setChannelMute", "channel": "bass"}, {"type": "restartChannel", "channel": "pad"},)"
+        R"({"type": "rewind", "to": "pattern", "when": "beat"}, {"type": "rewind"})");
+    auto song = std::make_unique<Song>();
+    songfile::SongInfo info;
+    const auto r = songfile::load(json, *song, info);
+    REQUIRE_MESSAGE(r.ok, r.error);
+    const Event& e = song->events[0];
+    REQUIRE(e.numActions == 4);
+    CHECK(e.actions[0].kind == Command::Kind::SetChannelMute);
+    CHECK(e.actions[0].a == 1);
+    CHECK(e.actions[1].when == Quantize::Bar);
+    CHECK(e.actions[2].kind == Command::Kind::Rewind);
+    CHECK(e.actions[2].a == uint8_t(RewindTo::Pattern));
+    CHECK(e.actions[2].when == Quantize::Beat);
+    CHECK(e.actions[3].a == uint8_t(RewindTo::Bar));
+    CHECK(e.actions[3].when == Quantize::Now);
+
+    const std::string saved = songfile::save(*song, info);
+    auto again = std::make_unique<Song>();
+    songfile::SongInfo info2;
+    REQUIRE(songfile::load(saved, *again, info2).ok);
+    CHECK(songfile::save(*again, info2) == saved);
+}

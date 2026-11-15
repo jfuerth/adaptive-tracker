@@ -304,7 +304,10 @@ int AudioPlayer::addPattern(int channel, const std::string& name, int copyOf) {
         return -1;
     }
     adaptive::Pattern p;
-    if (copyOf >= 0) p = edit_->patterns[copyOf];
+    if (copyOf >= 0) {
+        p = edit_->patterns[copyOf];
+        edit_->adaptPattern(p, p.channel, static_cast<uint32_t>(channel));  // notes written as the channel writes them
+    }
     p.channel = static_cast<uint8_t>(channel);
     checkpoint("New pattern");
     live()->patterns[i] = p;
@@ -896,6 +899,10 @@ bool AudioPlayer::setChannelPause(int channel, bool on) {
 bool AudioPlayer::restartChannel(int channel) {
     if (channel < 0 || channel >= static_cast<int>(adaptive::config::kMaxChannels)) return false;
     return engine_->post(adaptive::Command::restartChannel(static_cast<uint8_t>(channel)));
+}
+
+bool AudioPlayer::rewind(bool toPattern) {
+    return engine_->post(adaptive::Command::rewind(toPattern ? adaptive::RewindTo::Pattern : adaptive::RewindTo::Bar));
 }
 
 std::vector<int32_t> AudioPlayer::mixerState() const {

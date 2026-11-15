@@ -223,3 +223,21 @@ TEST_CASE("Song swap: arpeggios convert with a column's pitch mode") {
     CHECK(p.cells[0][0].effectParam == 0x47);
     CHECK(p.cells[1][0].effectParam == 0x27);
 }
+
+TEST_CASE("Song: a pattern copied to a channel that writes notes as degrees is converted") {
+    auto song = std::make_unique<Song>();
+    song->addChannel(PitchMode::Absolute, 1);
+    song->addChannel(PitchMode::Degree, 1);
+    Pattern p = song->patterns[song->addPattern(0)];
+    p.cells[0][0] = Cell::on(64);  // E4: degree 3 in C major
+    p.cells[0][0].effect = fx::kArpeggio;
+    p.cells[0][0].effectParam = 0x37;
+    const Pattern original = p;
+    song->adaptPattern(p, 0, 1);
+    CHECK(p.channel == 1);
+    CHECK(p.cells[0][0].note != 64);
+    CHECK(p.cells[0][0].effectParam == 0x24);
+    song->adaptPattern(p, 1, 0);
+    CHECK(p.cells[0][0].note == original.cells[0][0].note);
+    CHECK(p.cells[0][0].effectParam == 0x37);
+}

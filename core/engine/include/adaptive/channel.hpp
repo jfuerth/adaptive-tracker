@@ -298,6 +298,30 @@ public:
         if (isPlaying()) restart(tick);
     }
 
+    /**
+     * Jump back `ticks` in time, at `tick`: from now on play what was playing
+     * that long ago, starting with the row there (sounding notes carry on
+     * until the next note). A channel that started more recently starts over.
+     */
+    void rewind(uint64_t ticks, uint64_t tick) {
+        if (!isPlaying() || totalTicks_ == 0) return;
+        const int64_t now = static_cast<int64_t>(tick);
+        if (startTick_ + static_cast<int64_t>(ticks) >= now) {
+            restart(tick);
+            return;
+        }
+        startTick_ += static_cast<int64_t>(ticks);
+        locate(tick);
+        resumeAt(now);
+    }
+    /// Play the current pattern again from its first row, at `tick`.
+    void restartPattern(uint64_t tick) {
+        if (!isPlaying() || totalTicks_ == 0) return;
+        entryStartTick_ = static_cast<int64_t>(tick);
+        reanchor();
+        resumeAt(entryStartTick_);
+    }
+
     /// Back to how a new channel starts: stopped, unity gain, filter open.
     void reset() {
         play(nullptr, 0);
@@ -521,6 +545,19 @@ private:
         int64_t before = 0;
         for (uint32_t i = 0; i < entryIndex_; ++i) before += entryPattern(i).lengthTicks();
         startTick_ = entryStartTick_ - before;
+    }
+
+    /// After a jump in time: the row containing `now` is the playing one,
+    /// and this tick plays (again) if a row starts on it. Slides and sweeps stop.
+    void resumeAt(int64_t now) {
+        const Pattern* p = currentPattern();
+        if (p == nullptr) return;
+        const int64_t tpr = static_cast<int64_t>(p->engineTicksPerRow());
+        const int64_t row = (now - entryStartTick_) / tpr;
+        playingRow_ = static_cast<int32_t>(row);
+        rowStartTick_ = entryStartTick_ + row * tpr;
+        lastTick_ = kNoTick;
+        for (auto& c : columns_) c.filterSweep = c.slide = c.glide = 0.0f;
     }
 
     void restart(uint64_t startTick) {

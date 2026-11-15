@@ -25,6 +25,12 @@ enum class Entry : uint8_t {
     KeepPhase,  ///< Channels continue at the same position; the bar count carries on.
 };
 
+/// Where Command::rewind sends every channel back to.
+enum class RewindTo : uint8_t {
+    Bar,      ///< The start of the bar playing: the music replays it, and the bar count starts over.
+    Pattern,  ///< The first row of the pattern each channel is playing.
+};
+
 inline constexpr uint8_t kNoIndex = 0xFF;
 
 /// What Command::added made available.
@@ -94,6 +100,7 @@ struct Command {
         RestartChannel, ///< channel a starts what it plays over, from its first entry
         SetColumns,   ///< channel a gets b columns; see Song::setColumns
         RemoveColumn, ///< remove channel a's column b; see Song::removeColumn
+        Rewind,       ///< a = RewindTo: every channel jumps back to the start of the bar or of its pattern
     };
 
     Kind kind = Kind::None;
@@ -222,6 +229,9 @@ struct Command {
     }
     static constexpr Command restartChannel(uint8_t channel, Quantize when = Quantize::Bar) {
         return Command{Kind::RestartChannel, when, Entry::Restart, channel, 0};
+    }
+    static constexpr Command rewind(RewindTo to, Quantize when = Quantize::Now) {
+        return Command{Kind::Rewind, when, Entry::Restart, static_cast<uint8_t>(to), 0};
     }
     static constexpr Command swapSong(uint8_t slot) {
         return Command{Kind::SwapSong, Quantize::Now, Entry::Restart, slot, 0};
@@ -521,6 +531,62 @@ struct Song {
     }
 
     /**
+     * Rewrite column `column` of `p` (notes and arpeggios) from MIDI notes to
+     * scale degrees of the home key (`toDegree`), or back. Notes between
+     * scale steps keep an accidental; arpeggio steps go to the nearest one.
+     */
+    void convertColumn(Pattern& p, uint32_t column, bool toDegree) const {
+        const bool fromDegree = !toDegree;
+        PitchContext home;
+        home.home = home.current = homeKey;
+        // MIDI note the arpeggios are measured from: the last note, else the first.
+        int base = 60 + homeKey.root;
+        for (uint32_t r = 0; r < config::kMaxRows; ++r) {
+            const Cell& cell = p.cells[r][column];
+            if (cell.isNote()) {
+                base = fromDegree ? resolvePitch(PitchMode::Degree, cell.note, cell.accidental, home) : cell.note;
+                break;
+            }
+        }
+        for (uint32_t r = 0; r < config::kMaxRows; ++r) {
+            Cell& cell = p.cells[r][column];
+            if (cell.isNote()) {
+                base = fromDegree ? resolvePitch(PitchMode::Degree, cell.note, cell.accidental, home) : cell.note;
+            }
+            if (cell.effect == fx::kArpeggio && cell.effectParam != 0) {
+                cell.effectParam = convertArpeggio(cell.effectParam, base, toDegree, home);
+            }
+            if (!cell.isNote()) continue;
+            if (toDegree) {
+                uint8_t note = 0;
+                int8_t accidental = 0;
+                if (encodeDegree(cell.note, homeKey, note, accidental)) {
+                    cell.note = note;
+                    cell.accidental = accidental;
+                }
+            } else {
+                cell.note = static_cast<uint8_t>(resolvePitch(PitchMode::Degree, cell.note, cell.accidental, home));
+                cell.accidental = 0;
+            }
+        }
+    }
+
+    /**
+     * `p` was written for channel `from` and is to play on channel `to`:
+     * convert each column whose notes are written differently there (scale
+     * degrees on one, MIDI notes on the other), so it sounds the same.
+     */
+    void adaptPattern(Pattern& p, uint32_t from, uint32_t to) const {
+        if (from >= numChannels || to >= numChannels) return;
+        for (uint32_t c = 0; c < config::kMaxColumns; ++c) {
+            const bool fromDegree = channels[from].pitchModes[c] == PitchMode::Degree;
+            const bool toDegree = channels[to].pitchModes[c] == PitchMode::Degree;
+            if (fromDegree != toDegree) convertColumn(p, c, toDegree);
+        }
+        p.channel = static_cast<uint8_t>(to);
+    }
+
+    /**
      * `channel`'s `column` reads its notes in `mode` from now on. Notes
      * already written in it, in all the channel's patterns, are rewritten so
      * they sound the same in the home key (fixed and key-following notes are
@@ -536,40 +602,8 @@ struct Song {
         const bool fromDegree = current == PitchMode::Degree;
         const bool toDegree = mode == PitchMode::Degree;
         if (fromDegree != toDegree) {
-            PitchContext home;
-            home.home = home.current = homeKey;
             for (uint32_t p = 0; p < numPatterns; ++p) {
-                if (patterns[p].channel != channel) continue;
-                // MIDI note the arpeggios are measured from: the last note, else the first.
-                int base = 60 + homeKey.root;
-                for (uint32_t r = 0; r < config::kMaxRows; ++r) {
-                    const Cell& cell = patterns[p].cells[r][column];
-                    if (cell.isNote()) {
-                        base = fromDegree ? resolvePitch(PitchMode::Degree, cell.note, cell.accidental, home) : cell.note;
-                        break;
-                    }
-                }
-                for (uint32_t r = 0; r < config::kMaxRows; ++r) {
-                    Cell& cell = patterns[p].cells[r][column];
-                    if (cell.isNote()) {
-                        base = fromDegree ? resolvePitch(PitchMode::Degree, cell.note, cell.accidental, home) : cell.note;
-                    }
-                    if (cell.effect == fx::kArpeggio && cell.effectParam != 0) {
-                        cell.effectParam = convertArpeggio(cell.effectParam, base, toDegree, home);
-                    }
-                    if (!cell.isNote()) continue;
-                    if (toDegree) {
-                        uint8_t note = 0;
-                        int8_t accidental = 0;
-                        if (encodeDegree(cell.note, homeKey, note, accidental)) {
-                            cell.note = note;
-                            cell.accidental = accidental;
-                        }
-                    } else {
-                        cell.note = static_cast<uint8_t>(resolvePitch(PitchMode::Degree, cell.note, cell.accidental, home));
-                        cell.accidental = 0;
-                    }
-                }
+                if (patterns[p].channel == channel) convertColumn(patterns[p], column, toDegree);
             }
         }
         current = mode;

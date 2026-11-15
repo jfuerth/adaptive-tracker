@@ -400,6 +400,13 @@ private:
         case Command::Kind::RestartChannel:
             if (c.a < config::kMaxChannels) channels_[c.a].restartAt(tick);
             break;
+        case Command::Kind::Rewind:
+            if (static_cast<RewindTo>(c.a) == RewindTo::Bar) {
+                rewindToBar(tick);
+            } else {
+                for (auto& ch : channels_) ch.restartPattern(tick);
+            }
+            break;
         case Command::Kind::HearAll:
             hearAll_ = c.a != 0;
             updateGates();
@@ -816,6 +823,20 @@ private:
         updateGates();
         updateLayerGains(0);
         updateMix();
+    }
+
+    /// Replay the bar playing: every channel, the bar count and anything
+    /// waiting for a later beat or bar move back to where the bar began.
+    void rewindToBar(uint64_t tick) {
+        if (tick < sectionStartTick_) return;
+        const uint64_t bar = uint64_t(config::kTicksPerBeat) * currentBeatsPerBar();
+        const uint64_t back = (tick - sectionStartTick_) % bar;
+        if (back == 0) return;
+        for (auto& ch : channels_) ch.rewind(back, tick);
+        sectionStartTick_ += back;
+        for (uint32_t i = 0; i < numPending_; ++i) {
+            if (pending_[i].dueTick > tick) pending_[i].dueTick += back;
+        }
     }
 
     /// A silent channel with something to play in the current section joins in time.

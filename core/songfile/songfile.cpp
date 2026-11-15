@@ -483,7 +483,8 @@ void readSections(const Json& root, Song& song, SongInfo& info, Ids& ids) {
 
 const char* const kActions[] = {"gotoSection",    "playStinger",    "setLayerMute",    "setParam",
                                 "setKey",         "setTempo",       "stop",            "setChannelMute",
-                                "setChannelSolo", "setChannelPause", "restartChannel"};
+                                "setChannelSolo", "setChannelPause", "restartChannel", "rewind"};
+const char* const kRewindTo[] = {"bar", "pattern"};
 
 Command parseAction(const Json& j, const Song& song, const Ids& ids, const std::string& where) {
     object(j, where);
@@ -522,6 +523,8 @@ Command parseAction(const Json& j, const Song& song, const Ids& ids, const std::
         return Command::setChannelPause(ids.channels.ref(j, "channel", where), boolean(j, "paused", where, true), when(2));
     case 10:
         return Command::restartChannel(ids.channels.ref(j, "channel", where), when(2));
+    case 11:
+        return Command::rewind(static_cast<RewindTo>(choice(j, "to", where, kRewindTo, 0)), when(0));
     default:
         return Command::stop();
     }
@@ -633,6 +636,8 @@ Json actionJson(const Command& c, const Song& song, const SongInfo& info) {
                     {"when", when(c.when)}};
     case Command::Kind::RestartChannel:
         return Json{{"type", "restartChannel"}, {"channel", idOf(info.channels, c.a, "channel")}, {"when", when(c.when)}};
+    case Command::Kind::Rewind:
+        return Json{{"type", "rewind"}, {"to", kRewindTo[c.a <= 1 ? c.a : 0]}, {"when", when(c.when)}};
     default:
         (void)song;
         return Json();  // not something an event can do

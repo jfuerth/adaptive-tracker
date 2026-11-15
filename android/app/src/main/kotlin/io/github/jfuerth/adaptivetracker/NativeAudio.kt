@@ -194,6 +194,8 @@ object NativeAudio {
     external fun setChannelPause(channel: Int, on: Boolean): Boolean
     /** Starts the channel's sequence over at the next bar. */
     external fun restartChannel(channel: Int): Boolean
+    /** Every channel jumps back to the start of the bar playing ([toPattern] false) or of its pattern. */
+    external fun rewind(toPattern: Boolean): Boolean
     /** Per channel: flags (STRIP_*), fader x 1000. */
     external fun getMixerState(): IntArray
     const val STRIP_MUTED = 1

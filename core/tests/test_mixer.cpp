@@ -108,3 +108,29 @@ TEST_CASE("Mixer: mute and solo move with their channel when one is deleted") {
     CHECK(f.ch(0).mixGain() == doctest::Approx(0.0f));
     CHECK_FALSE(f.ch(1).stripMuted());
 }
+
+TEST_CASE("Rewind: to the bar replays it from its first row, and the bar count starts over") {
+    Fixture f;
+    f.ticks(384 + kTicksPerRow * 2 + 3);  // bar 2, row 2 of the second pass
+    REQUIRE(f.ch(0).playingRow() == 2);
+    f.engine->post(Command::rewind(RewindTo::Bar));
+    f.ticks(1);
+    CHECK(f.ch(0).playingRow() == 0);
+    CHECK(f.ch(1).playingRow() == 0);
+    CHECK(f.engine->sectionStartTick() == kTicksPerRow * 2 + 3);
+    f.ticks(kTicksPerRow);
+    CHECK(f.ch(0).playingRow() == 1);
+}
+
+TEST_CASE("Rewind: to the pattern starts each channel's pattern again") {
+    Fixture f;
+    f.ticks(kTicksPerRow * 2 + 3);
+    f.engine->post(Command::rewind(RewindTo::Pattern));
+    f.ticks(1);
+    CHECK(f.ch(0).playingRow() == 0);
+    CHECK(f.ch(0).voice(0).isActive());
+    f.ticks(kTicksPerRow * 4);  // round the 4-row pattern once more
+    CHECK(f.ch(0).playingRow() == 0);
+    f.ticks(kTicksPerRow);
+    CHECK(f.ch(0).playingRow() == 1);
+}
