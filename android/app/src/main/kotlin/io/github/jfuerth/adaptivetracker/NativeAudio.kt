@@ -147,6 +147,13 @@ object NativeAudio {
      */
     external fun scaleRows(pattern: Int, num: Int, den: Int): Boolean
 
+    /**
+     * Moves rows [row] to the end of the columns in [columnMask] one row:
+     * [down] inserts an empty row (the last drops off); otherwise row [row]
+     * drops out and the rows below pull up (the last becomes empty).
+     */
+    external fun shiftRows(pattern: Int, columnMask: Int, row: Int, down: Boolean): Boolean
+
     // ---- Growing the song: each returns the new index, or -1 when the song is full ----
 
     /** A pattern for [channel], empty or a copy of pattern [copyOf] (-1: empty). */

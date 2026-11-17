@@ -252,6 +252,20 @@ bool AudioPlayer::clearCells(uint32_t pattern, int column, int first, int last, 
     return true;
 }
 
+bool AudioPlayer::shiftRows(uint32_t pattern, int columnMask, int row, bool down) {
+    if (columnMask <= 0 || columnMask > 255 || row < 0 || row > 255) return false;
+    // Taps at one place merge into one step, inserts and pulls alike.
+    checkpoint(down ? "Insert row" : "Pull up rows", Merge::Shift, pattern, static_cast<uint32_t>(columnMask),
+               static_cast<uint32_t>(row));
+    const auto mask = static_cast<uint8_t>(columnMask);
+    if (!engine_->post(adaptive::Command::shiftRows(static_cast<uint8_t>(pattern), mask, static_cast<uint32_t>(row), down))) {
+        return false;
+    }
+    if (!edit_->shiftRows(pattern, mask, static_cast<uint32_t>(row), down)) return false;
+    ++edits_;
+    return true;
+}
+
 bool AudioPlayer::scaleRows(uint32_t pattern, int num, int den) {
     if (num < 1 || num > 255 || den < 1 || den > 255) return false;
     checkpoint("Stretch or squash");

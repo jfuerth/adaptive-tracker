@@ -407,6 +407,10 @@ JNIEXPORT jboolean JNICALL JNI_FN(clearCells)(JNIEnv*, jobject, jint pattern, ji
     return toJ(pattern >= 0 && player().clearCells(static_cast<uint32_t>(pattern), column, first, last, parts));
 }
 
+JNIEXPORT jboolean JNICALL JNI_FN(shiftRows)(JNIEnv*, jobject, jint pattern, jint columnMask, jint row, jboolean down) {
+    return toJ(pattern >= 0 && player().shiftRows(static_cast<uint32_t>(pattern), columnMask, row, down == JNI_TRUE));
+}
+
 JNIEXPORT jboolean JNICALL JNI_FN(scaleRows)(JNIEnv*, jobject, jint pattern, jint num, jint den) {
     return toJ(pattern >= 0 && player().scaleRows(static_cast<uint32_t>(pattern), num, den));
 }

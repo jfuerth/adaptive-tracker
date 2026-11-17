@@ -533,6 +533,9 @@ private:
                 setTempoMilliBpm(song_->sections[c.a].tempoMilliBpm);
             }
             break;
+        case Command::Kind::ShiftRows:
+            if (song_ != nullptr) song_->shiftRows(c.b, c.a, c.data, c.parts != 0);
+            break;
         case Command::Kind::ScaleRows:
             if (song_ != nullptr && song_->scaleRows(c.b, c.a, c.data)) {
                 for (auto& ch : channels_) ch.rowsScaled(&song_->patterns[c.b], c.a, c.data, tick);

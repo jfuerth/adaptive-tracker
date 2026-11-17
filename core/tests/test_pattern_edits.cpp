@@ -220,6 +220,40 @@ TEST_CASE("Pattern edits: clear part of a column") {
     CHECK_FALSE(f.song->clearCells(0, 0, 3, 2, kCellAll));
 }
 
+TEST_CASE("Pattern edits: insert and pull up rows") {
+    Fixture f;
+    Pattern& p = f.song->patterns[0];
+    for (uint32_t r = 0; r < 4; ++r) p.cells[r][1] = Cell::on(uint8_t(70 + r));
+    p.cells[4][0] = Cell::on(99);  // past the end: stays put
+
+    // Insert at row 1 in column 0, through the engine.
+    f.engine->post(Command::shiftRows(0, 0b01, 1, true));
+    f.ticks(1);
+    CHECK(p.cells[0][0].note == 60);
+    CHECK(p.cells[1][0].note == Cell::kNoteEmpty);
+    CHECK(p.cells[2][0].note == 61);
+    CHECK(p.cells[3][0].note == 62);  // 63 dropped off the end
+    CHECK(p.cells[4][0].note == 99);
+    for (uint32_t r = 0; r < 4; ++r) CHECK(p.cells[r][1].note == 70 + r);  // other column untouched
+
+    // Pull up at row 0 in both columns.
+    CHECK(f.song->shiftRows(0, 0b11, 0, false));
+    CHECK(p.cells[0][0].note == Cell::kNoteEmpty);
+    CHECK(p.cells[1][0].note == 61);
+    CHECK(p.cells[2][0].note == 62);
+    CHECK(p.cells[3][0].note == Cell::kNoteEmpty);
+    CHECK(p.cells[0][1].note == 71);
+    CHECK(p.cells[2][1].note == 73);
+    CHECK(p.cells[3][1].note == Cell::kNoteEmpty);
+    CHECK(p.cells[4][0].note == 99);
+
+    // The last row: insert and pull just empty it.
+    CHECK(f.song->shiftRows(0, 0b10, 3, false));
+    CHECK(f.song->shiftRows(0, 0b01, 3, true));
+    CHECK_FALSE(f.song->shiftRows(0, 0b01, 4, true));  // past the end
+    CHECK_FALSE(f.song->shiftRows(9, 0b01, 0, true));  // no such pattern
+}
+
 TEST_CASE("Pattern edits: stretch and squash rows") {
     Song song;
     song.addChannel(PitchMode::Absolute, 2);

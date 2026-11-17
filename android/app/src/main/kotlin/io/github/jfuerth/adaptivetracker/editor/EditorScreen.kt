@@ -340,10 +340,13 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
                 }
             }
             Box(Modifier.weight(1f))
-            PlayMode.entries.forEach { m ->
-                ToolButton(m.label, selected = playMode == m, onClick = { playMode = m })
-                Box(Modifier.width(4.dp))
-            }
+            // One button for what Play plays: tapping it goes to the next choice.
+            ToolButton(playMode.label, onClick = {
+                playMode = PlayMode.entries[(playMode.ordinal + 1) % PlayMode.entries.size]
+            })
+            Box(Modifier.width(4.dp))
+            ToolButton("Follow", selected = follow, onClick = { follow = !follow })
+            Box(Modifier.width(4.dp))
             ToolButton(
                 when {
                     playing -> "Stop"
@@ -472,7 +475,7 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
         // ---- Description line ----
         val cell = currentCell()
         val description = when {
-            alt -> "Drag the keyboard to move it · Del goes up; hold it to clear to the top · Play the mix"
+            alt -> "Drag the keyboard to move it · Del goes up; hold it to clear to the top · Pull moves rows up · Play the mix"
             field.isVolume -> if (cell.volume == CellData.VOLUME_DEFAULT) "Volume · default (full)"
                 else "Volume · ${cell.volume}/127"
             else -> EffectDescription.describe(cell, info.modeOf(column), Song.events, NativeAudio::effectValue, info.ticksPerBeat)
@@ -579,7 +582,21 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
                     PatternStore.clearCells(patternIndex, column, first, last, Editing.parts(field))
                 },
             )
-            ToolButton("Follow", selected = follow, onClick = { follow = !follow })
+            // Ins pushes the edit row and those below it down one row, in this
+            // column; with Alt it pulls them up instead. Held: every column.
+            // The edit row stays put, so repeated taps keep moving the same notes.
+            ToolButton(
+                if (alt) "Pull" else "Ins",
+                selected = alt,
+                onClick = {
+                    anchor = null
+                    PatternStore.shiftRows(patternIndex, 1 shl column, editRow, down = !alt)
+                },
+                onLongClick = {
+                    anchor = null
+                    PatternStore.shiftRows(patternIndex, (1 shl info.columns) - 1, editRow, down = !alt)
+                },
+            )
         }
     }
 }

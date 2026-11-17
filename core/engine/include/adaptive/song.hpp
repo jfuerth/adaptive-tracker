@@ -84,6 +84,7 @@ struct Command {
         SetPatternShape, ///< song pattern b gets `data` rows at speed a (ticks per row); see Song::setPatternShape
         ClearCells,   ///< in song pattern b, column a, rows data&0xFF..data>>8: empty the parts in `parts`
         ScaleRows,    ///< song pattern b: row r moves to r * a / data; see Song::scaleRows
+        ShiftRows,    ///< song pattern b, columns in mask a, from row `data`: down if parts != 0, else up; see Song::shiftRows
         Added,        ///< item b of kind a (an Addition), already written past the end, now counts
         EditSequence, ///< section a, channel b: SeqEdit `parts` at entry data&0xFF, pattern data>>8
         SetSection,   ///< section a: beats per bar b, tempo `value` BPM (0: keep), bridge beats `data`
@@ -112,7 +113,7 @@ struct Command {
     float value = 0.0f;
     uint16_t data = 0;
     Cell cell = {};  ///< SetCell only.
-    uint8_t parts = 0;  ///< ClearCells only: CellPart bits.
+    uint8_t parts = 0;  ///< ClearCells: CellPart bits. ShiftRows: 1 = down.
 
     static constexpr Command gotoSection(uint8_t section, Quantize when = Quantize::Bar,
                                          Entry entry = Entry::Restart, uint8_t bridge = kNoIndex) {
@@ -250,6 +251,12 @@ struct Command {
     }
     static constexpr Command scaleRows(uint8_t pattern, uint8_t num, uint16_t den) {
         return Command{Kind::ScaleRows, Quantize::Now, Entry::Restart, num, pattern, 0.0f, den};
+    }
+    static constexpr Command shiftRows(uint8_t pattern, uint8_t columnMask, uint32_t row, bool down) {
+        Command c{Kind::ShiftRows, Quantize::Now, Entry::Restart, columnMask, pattern, 0.0f,
+                  static_cast<uint16_t>(row)};
+        c.parts = down ? 1 : 0;
+        return c;
     }
     static constexpr Command setColumns(uint8_t channel, uint8_t count) {
         return Command{Kind::SetColumns, Quantize::Now, Entry::Restart, channel, count};
@@ -900,6 +907,30 @@ struct Song {
             if (parts & kCellEffect) {
                 c.effect = fx::kNone;
                 c.effectParam = 0;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Move rows `row` to the end of the columns in `columnMask` (bit c:
+     * column c) one row. Down inserts: `row` becomes empty and the last row
+     * drops off. Up pulls: `row` drops out and the last row becomes empty.
+     * Only rows inside the pattern move; rows past the end stay as they are.
+     */
+    bool shiftRows(uint32_t index, uint32_t columnMask, uint32_t row, bool down) {
+        if (index >= numPatterns) return false;
+        Pattern& p = patterns[index];
+        if (row >= p.numRows) return false;
+        const uint32_t last = p.numRows - 1u;
+        for (uint32_t c = 0; c < config::kMaxColumns; ++c) {
+            if ((columnMask & (1u << c)) == 0) continue;
+            if (down) {
+                for (uint32_t r = last; r > row; --r) p.cells[r][c] = p.cells[r - 1][c];
+                p.cells[row][c] = Cell{};
+            } else {
+                for (uint32_t r = row; r < last; ++r) p.cells[r][c] = p.cells[r + 1][c];
+                p.cells[last][c] = Cell{};
             }
         }
         return true;

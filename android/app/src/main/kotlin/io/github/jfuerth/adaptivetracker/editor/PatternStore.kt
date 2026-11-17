@@ -114,6 +114,10 @@ object PatternStore {
     fun scaleRows(index: Int, num: Int, den: Int): Boolean =
         changed(NativeAudio.scaleRows(index, num, den)) { cache.remove(index) }
 
+    /** Inserts a row at [row] ([down]) or pulls the rows below it up, in [columnMask]'s columns; see NativeAudio.shiftRows. */
+    fun shiftRows(index: Int, columnMask: Int, row: Int, down: Boolean): Boolean =
+        changed(NativeAudio.shiftRows(index, columnMask, row, down)) { cache.remove(index) }
+
     /** Every pattern of [channel] gets [count] columns. */
     fun setColumns(channel: Int, count: Int): Boolean =
         changed(NativeAudio.setColumns(channel, count)) { forgetChannel(channel) }

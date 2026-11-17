@@ -81,6 +81,7 @@ public:
     bool setPatternShape(uint32_t pattern, int rows, int ticksPerRow);
     bool clearCells(uint32_t pattern, int column, int first, int last, int parts);
     bool scaleRows(uint32_t pattern, int num, int den);
+    bool shiftRows(uint32_t pattern, int columnMask, int row, bool down);
     bool setColumns(int channel, int count);
     bool removeColumn(int channel, int column);
     /// Sound `midiNote` with song instrument `instrument` on preview voice `slot`.
@@ -204,7 +205,7 @@ public:
 private:
     /// Consecutive edits of the same kind and target merge into one undo step
     /// (typing a cell's digits, dragging a slider).
-    enum class Merge { None, Cell, Section, Gate, Instrument, Volume };
+    enum class Merge { None, Cell, Section, Gate, Instrument, Volume, Shift };
     /// The song as it was: Song's bytes outside its pattern table, and its
     /// patterns, shared with the step before where unchanged.
     struct Snapshot {
