@@ -149,10 +149,11 @@ object Song {
     val exportName: String get() =
         title.replace(Regex("""[\\/:*?"<>|\p{Cntrl}]"""), "").trim().ifEmpty { "song" } + ".json"
 
-    fun rename(newTitle: String) {
+    /** [undoable] false: naming a song that just loaded. */
+    fun rename(newTitle: String, undoable: Boolean = true) {
         val t = newTitle.trim()
         if (t.isEmpty() || t == title) return
-        NativeAudio.setSongTitle(t)
+        NativeAudio.setSongTitle(t, undoable)
         title = t
     }
 

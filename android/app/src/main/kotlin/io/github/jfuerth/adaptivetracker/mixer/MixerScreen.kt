@@ -210,13 +210,7 @@ fun MixerScreen(
                                 seq(ch, NativeAudio.SEQ_INSERT, to, pattern)
                             }
                         },
-                        onNewPattern = { p ->
-                            Song.step("New pattern") {
-                                val i = PatternStore.create(ch, PatternStore.freshName(name))
-                                if (i < 0) message = "No room for another pattern (a song holds up to 64)."
-                                else seq(ch, NativeAudio.SEQ_INSERT, p, i)
-                            }
-                        },
+                        onNewPattern = { p -> dialog = Dialog.NewPattern(ch, p, PatternStore.freshName(name)) },
                         onDeletePattern = { pattern -> delete(NativeAudio.NAMES_PATTERNS, pattern) },
                         onRename = { dialog = Dialog.RenameChannel(ch) },
                         onDelete = { delete(NativeAudio.NAMES_CHANNELS, ch) },
@@ -281,6 +275,16 @@ fun MixerScreen(
             dialog = null
             if (t != null && NativeAudio.setSection(section, t.bpm, t.beatsPerBar, t.bridgeBeats)) edited()
         }
+        is Dialog.NewPattern -> NameDialog("New ${channels.getOrElse(d.channel) { "" }} pattern", d.suggested, "Add") { name ->
+            dialog = null
+            if (name != null) {
+                Song.step("New pattern") {
+                    val i = PatternStore.create(d.channel, name)
+                    if (i < 0) message = "No room for another pattern (a song holds up to 64)."
+                    else seq(d.channel, NativeAudio.SEQ_INSERT, d.pos, i)
+                }
+            }
+        }
         Dialog.NewChannel -> NewChannelDialog("Channel ${channels.size + 1}") { c ->
             dialog = null
             if (c != null) {
@@ -307,6 +311,8 @@ private sealed interface Dialog {
     data object RenameSection : Dialog
     data object Timing : Dialog
     data object NewChannel : Dialog
+    /** A new pattern for [channel], put in its sequence at entry [pos]. */
+    data class NewPattern(val channel: Int, val pos: Int, val suggested: String) : Dialog
     data class RenameChannel(val channel: Int) : Dialog
 }
 

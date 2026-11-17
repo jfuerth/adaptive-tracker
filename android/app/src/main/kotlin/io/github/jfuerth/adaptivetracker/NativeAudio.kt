@@ -52,8 +52,9 @@ object NativeAudio {
     external fun getEditCount(): Long
 
     external fun getSongTitle(): String
-    private external fun setSongTitle(title: ByteArray)
-    fun setSongTitle(title: String) = setSongTitle(title.encodeToByteArray())
+    private external fun setSongTitle(title: ByteArray, undoable: Boolean)
+    /** [undoable] false: naming a song that just loaded (no undo step). */
+    fun setSongTitle(title: String, undoable: Boolean = true) = setSongTitle(title.encodeToByteArray(), undoable)
 
     /** Names in the song: [kind] 0 sections, 1 layers, 2 parameters, 3 events. */
     external fun getSongNames(kind: Int): Array<String>

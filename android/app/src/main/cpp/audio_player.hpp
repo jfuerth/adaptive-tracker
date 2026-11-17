@@ -42,8 +42,9 @@ public:
     const adaptive::songfile::SongInfo& songInfo() const { return info_; }
     /// The UI thread's copy of the song (see edit_).
     const adaptive::Song& song() const { return *edit_; }
-    void setTitle(std::string title) {
-        checkpoint("Rename song");
+    /// `undoable` false: naming a song that just loaded, which isn't an edit to undo.
+    void setTitle(std::string title, bool undoable = true) {
+        if (undoable) checkpoint("Rename song");
         info_.title = std::move(title);
         ++edits_;
     }

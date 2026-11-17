@@ -308,7 +308,7 @@ private fun SongBar(stats: IntArray, editingChannel: String? = null, onBack: () 
                     menuOpen = false
                     exportFile.launch(Song.exportName)
                 })
-                DropdownMenuItem(text = { Text("New song") }, onClick = {
+                DropdownMenuItem(text = { Text("New song…") }, onClick = {
                     menuOpen = false
                     confirmReplace = Replace.NEW
                 })
@@ -342,23 +342,25 @@ private fun SongBar(stats: IntArray, editingChannel: String? = null, onBack: () 
         )
     }
 
-    if (renaming) {
-        var text by remember { mutableStateOf(Song.title) }
-        AlertDialog(
-            onDismissRequest = { renaming = false },
-            title = { Text("Rename song") },
-            text = { OutlinedTextField(text, onValueChange = { text = it }, singleLine = true) },
-            confirmButton = {
-                TextButton(onClick = {
-                    Song.rename(text)
-                    renaming = false
-                }, enabled = text.isNotBlank()) { Text("Rename") }
-            },
-            dismissButton = { TextButton(onClick = { renaming = false }) { Text("Cancel") } },
-        )
+    if (renaming) NameDialog("Rename song", Song.title, "Rename") { name ->
+        renaming = false
+        if (name != null) Song.rename(name)
     }
 
-    confirmReplace?.let { what ->
+    // A new song is named as it starts; the same dialog warns that it replaces this one.
+    if (confirmReplace == Replace.NEW) NameDialog(
+        "New song",
+        NEW_SONG_TITLE,
+        "Replace",
+        message = "Replaces “${Song.title.ifEmpty { "Untitled" }}”: the app keeps one song at a time. " +
+            "Export this one first if you want to keep a copy.",
+    ) { name ->
+        confirmReplace = null
+        if (name != null) {
+            message = Song.loadBundled(context, Song.NEW_SONG)?.let { "Couldn't start a new song: $it" }
+                ?: run { Song.rename(name, undoable = false); null }
+        }
+    } else confirmReplace?.let { what ->
         AlertDialog(
             onDismissRequest = { confirmReplace = null },
             title = { Text("Replace “${Song.title.ifEmpty { "Untitled" }}”?") },
@@ -371,7 +373,7 @@ private fun SongBar(stats: IntArray, editingChannel: String? = null, onBack: () 
                 TextButton(onClick = {
                     confirmReplace = null
                     when (what) {
-                        Replace.NEW -> message = Song.loadBundled(context, Song.NEW_SONG)?.let { "Couldn't start a new song: $it" }
+                        Replace.NEW -> {}  // asked above, with a name
                         Replace.DEMO -> message = Song.loadBundled(context)?.let { "Couldn't load the demo song: $it" }
                         // Song files are JSON, but file managers label .json files inconsistently.
                         Replace.FILE -> openFile.launch(arrayOf("application/json", "text/*", "application/octet-stream"))
@@ -384,6 +386,9 @@ private fun SongBar(stats: IntArray, editingChannel: String? = null, onBack: () 
 }
 
 private enum class Replace { NEW, FILE, DEMO }
+
+/** The title new-song.json carries, suggested for a new song. */
+private const val NEW_SONG_TITLE = "New song"
 
 
 @Composable

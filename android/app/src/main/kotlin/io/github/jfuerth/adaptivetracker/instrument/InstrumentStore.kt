@@ -59,13 +59,16 @@ object InstrumentStore {
 
     val isFull: Boolean get() = names.size >= capacity
 
+    /** What a new instrument is called unless named: "<name> copy" for a copy of [copyOf]. */
+    fun defaultName(copyOf: Int? = null): String =
+        if (copyOf != null) uniqueName("${names[copyOf]} copy") else uniqueName("Instrument ${names.size + 1}")
+
     /**
-     * Adds an instrument: a copy of [copyOf] (named "<name> copy"), or the
-     * synth's defaults. Returns its index, or null if the song is full.
+     * Adds an instrument called [name]: a copy of [copyOf], or the synth's
+     * defaults. Returns its index, or null if the song is full.
      */
-    fun create(copyOf: Int? = null): Int? {
+    fun create(copyOf: Int? = null, name: String = defaultName(copyOf)): Int? {
         val source = copyOf?.let { values(it) }?.toFloatArray()
-        val name = if (copyOf != null) uniqueName("${names[copyOf]} copy") else uniqueName("Instrument ${names.size + 1}")
         val index = NativeAudio.addInstrument(source, name)
         if (index < 0) return null
         names += name

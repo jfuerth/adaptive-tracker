@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.sp
 import io.github.jfuerth.adaptivetracker.NativeAudio
 import io.github.jfuerth.adaptivetracker.Song
 import io.github.jfuerth.adaptivetracker.instrument.InstrumentParam as P
+import io.github.jfuerth.adaptivetracker.ui.NameDialog
 import io.github.jfuerth.adaptivetracker.ui.NoteKeyboard
 import io.github.jfuerth.adaptivetracker.ui.ToolButton
 
@@ -97,6 +98,7 @@ fun InstrumentScreen(modifier: Modifier = Modifier) {
     }
     val usedBy = remember(index, InstrumentStore.assignments) { InstrumentStore.usedBy(index) }
     var renaming by remember { mutableStateOf(false) }
+    var creating by remember { mutableStateOf<NewInstrument?>(null) }
     var assigning by remember { mutableStateOf(false) }
     val specs = InstrumentStore.specs
     fun v(p: P) = specs[p]?.let { values.getOrNull(it.index) } ?: 0f
@@ -154,12 +156,12 @@ fun InstrumentScreen(modifier: Modifier = Modifier) {
                     }
                     HorizontalDivider()
                     val full = InstrumentStore.isFull
-                    DropdownMenuItem(text = { Text("New instrument") }, enabled = !full, onClick = {
-                        InstrumentStore.create()?.let { index = it }
+                    DropdownMenuItem(text = { Text("New instrument…") }, enabled = !full, onClick = {
+                        creating = NewInstrument(null)
                         menuOpen = false
                     })
-                    DropdownMenuItem(text = { Text("Duplicate ${names[index]}") }, enabled = !full, onClick = {
-                        InstrumentStore.create(copyOf = index)?.let { index = it }
+                    DropdownMenuItem(text = { Text("Duplicate ${names[index]}…") }, enabled = !full, onClick = {
+                        creating = NewInstrument(index)
                         menuOpen = false
                     })
                     DropdownMenuItem(text = { Text("Rename ${names[index]}…") }, onClick = {
@@ -198,6 +200,16 @@ fun InstrumentScreen(modifier: Modifier = Modifier) {
                         label = { Text(label, style = MaterialTheme.typography.labelSmall) },
                     )
                 }
+            }
+        }
+        creating?.let { c ->
+            NameDialog(
+                if (c.copyOf == null) "New instrument" else "Duplicate ${names.getOrElse(c.copyOf) { "instrument" }}",
+                InstrumentStore.defaultName(c.copyOf),
+                "Add",
+            ) { name ->
+                creating = null
+                if (name != null) InstrumentStore.create(c.copyOf, name)?.let { index = it }
             }
         }
         if (renaming) RenameDialog(names[index], onDone = { name ->
@@ -462,16 +474,11 @@ private fun EnvelopeGraph(attack: Float, decay: Float, sustain: Float, release: 
 }
 
 @Composable
-private fun RenameDialog(current: String, onDone: (String?) -> Unit) {
-    var text by remember { mutableStateOf(current) }
-    AlertDialog(
-        onDismissRequest = { onDone(null) },
-        title = { Text("Rename instrument") },
-        text = { OutlinedTextField(text, onValueChange = { text = it }, singleLine = true) },
-        confirmButton = { TextButton(onClick = { onDone(text) }, enabled = text.isNotBlank()) { Text("Rename") } },
-        dismissButton = { TextButton(onClick = { onDone(null) }) { Text("Cancel") } },
-    )
-}
+private fun RenameDialog(current: String, onDone: (String?) -> Unit) =
+    NameDialog("Rename instrument", current, "Rename", onDone = onDone)
+
+/** An instrument about to be made: a copy of [copyOf], or the synth's defaults. */
+private data class NewInstrument(val copyOf: Int?)
 
 /**
  * Which columns play instrument [index]. Ticking a column gives it this

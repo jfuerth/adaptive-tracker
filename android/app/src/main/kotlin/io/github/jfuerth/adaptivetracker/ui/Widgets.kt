@@ -6,6 +6,15 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
@@ -206,16 +215,41 @@ fun HoldButton(text: String, held: Boolean, onHeld: (Boolean) -> Unit, modifier:
     }
 }
 
-/** Asks for a name; [onDone] gets it (trimmed, not blank), or null if cancelled. */
+/**
+ * Asks for a name, starting from [initial] (all selected, so typing replaces
+ * it); [onDone] gets it (trimmed, not blank), or null if cancelled. [message]
+ * goes over the field.
+ */
 @Composable
-fun NameDialog(title: String, initial: String, confirm: String = "OK", onDone: (String?) -> Unit) {
-    var text by remember { mutableStateOf(initial) }
+fun NameDialog(
+    title: String,
+    initial: String,
+    confirm: String = "OK",
+    message: String? = null,
+    onDone: (String?) -> Unit,
+) {
+    var text by remember { mutableStateOf(TextFieldValue(initial, selection = TextRange(0, initial.length))) }
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    val done = { if (text.text.isNotBlank()) onDone(text.text.trim()) }
     AlertDialog(
         onDismissRequest = { onDone(null) },
         title = { Text(title) },
-        text = { OutlinedTextField(text, onValueChange = { text = it }, singleLine = true) },
+        text = {
+            Column {
+                message?.let { Text(it, Modifier.padding(bottom = 12.dp)) }
+                OutlinedTextField(
+                    text,
+                    onValueChange = { text = it },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                    keyboardActions = KeyboardActions(onDone = { done() }),
+                    modifier = Modifier.focusRequester(focus),
+                )
+            }
+        },
         confirmButton = {
-            TextButton(onClick = { onDone(text.trim()) }, enabled = text.isNotBlank()) { Text(confirm) }
+            TextButton(onClick = done, enabled = text.text.isNotBlank()) { Text(confirm) }
         },
         dismissButton = { TextButton(onClick = { onDone(null) }) { Text("Cancel") } },
     )

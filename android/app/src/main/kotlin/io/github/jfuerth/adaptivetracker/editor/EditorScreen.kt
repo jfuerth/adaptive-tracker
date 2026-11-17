@@ -270,15 +270,22 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
             var full by remember { mutableStateOf(false) }
             var problem by remember { mutableStateOf<String?>(null) }
             var copying by remember { mutableStateOf(false) }
+            // A pattern about to be made: its suggested name, and what it copies (-1: empty).
+            var creating by remember { mutableStateOf<Pair<String, Int>?>(null) }
+            fun unique(name: String) = if (name in PatternStore.names) PatternStore.freshName(name) else name
             if (copying) CopyPatternDialog(info.channel, onDone = { source ->
                 copying = false
-                if (source != null) {
-                    val i = PatternStore.create(info.channel, PatternStore.names[source].let {
-                        if (it in PatternStore.names) PatternStore.freshName(it) else it
-                    }, source)
-                    if (i >= 0) patternIndex = i else full = true
-                }
+                if (source != null) creating = unique(PatternStore.names[source]) to source
             })
+            creating?.let { (suggested, source) ->
+                NameDialog(if (source < 0) "New $channelName pattern" else "Copy of a pattern", suggested, "Add") { name ->
+                    creating = null
+                    if (name != null) {
+                        val i = PatternStore.create(info.channel, name, source)
+                        if (i >= 0) patternIndex = i else full = true
+                    }
+                }
+            }
             problem?.let {
                 AlertDialog(
                     onDismissRequest = { problem = null },
@@ -301,16 +308,14 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
                     Text("${PatternStore.names.getOrElse(patternIndex) { "?" }} ▾")
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
-                    DropdownMenuItem(text = { Text("New $channelName pattern") }, onClick = {
+                    DropdownMenuItem(text = { Text("New $channelName pattern…") }, onClick = {
                         menuOpen = false
-                        val i = PatternStore.create(info.channel, PatternStore.freshName(channelName))
-                        if (i >= 0) patternIndex = i else full = true
+                        creating = PatternStore.freshName(channelName) to -1
                     })
-                    DropdownMenuItem(text = { Text("Duplicate this pattern") }, onClick = {
+                    DropdownMenuItem(text = { Text("Duplicate this pattern…") }, onClick = {
                         menuOpen = false
                         val base = PatternStore.names.getOrElse(patternIndex) { channelName }
-                        val i = PatternStore.create(info.channel, "$base copy".let { if (it in PatternStore.names) PatternStore.freshName(it) else it }, patternIndex)
-                        if (i >= 0) patternIndex = i else full = true
+                        creating = unique("$base copy") to patternIndex
                     })
                     DropdownMenuItem(text = { Text("Rename this pattern…") }, onClick = {
                         menuOpen = false

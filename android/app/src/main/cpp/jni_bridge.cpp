@@ -145,8 +145,8 @@ JNIEXPORT jstring JNICALL JNI_FN(getSongTitle)(JNIEnv* env, jobject) {
     return toJ(env, player().songInfo().title);
 }
 
-JNIEXPORT void JNICALL JNI_FN(setSongTitle)(JNIEnv* env, jobject, jbyteArray title) {
-    player().setTitle(fromJ(env, title));
+JNIEXPORT void JNICALL JNI_FN(setSongTitle)(JNIEnv* env, jobject, jbyteArray title, jboolean undoable) {
+    player().setTitle(fromJ(env, title), undoable == JNI_TRUE);
 }
 
 /// Names of one kind of thing in the song: 0 sections, 1 layers, 2 params, 3 events.
