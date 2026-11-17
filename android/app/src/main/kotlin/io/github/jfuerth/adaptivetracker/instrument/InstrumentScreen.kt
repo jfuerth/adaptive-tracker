@@ -66,8 +66,8 @@ private val CONNECTOR_WIDTH = 64.dp
 private const val FINE_STEP = 0.005f
 
 /**
- * Instrument editor. The synth is drawn as its signal flow: oscillator →
- * filter → amp down the right, with the modulators on the left, each feeding
+ * Instrument editor. The synth is drawn as its signal flow: oscillator and
+ * noise → filter → amp down the right, with the modulators on the left, each feeding
  * the stage it modulates. Modulation amounts sit on the arrows. Tapping any
  * value opens its slider; the keyboard plays the instrument while you adjust it.
  */
@@ -213,11 +213,32 @@ fun InstrumentScreen(modifier: Modifier = Modifier) {
             Stage(
                 modulators = listOf(
                     Modulator("Vibrato", { Chip(P.VIBRATO_RATE) }, "pitch") { Chip(P.VIBRATO_DEPTH) },
+                    // The filter envelope (shown with the filter below) can also
+                    // sweep the pitch: a falling sweep is what makes a kick or a tom.
+                    Modulator(
+                        "Filter envelope",
+                        {
+                            Text(
+                                "The one below",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(start = 2.dp),
+                            )
+                        },
+                        "pitch",
+                    ) { Chip(P.PITCH_ENV, label = "Amount") },
                 ),
                 main = {
-                    Block("Oscillator") {
-                        WaveformGraph(v(P.SHAPE))
-                        Chip(P.SHAPE, Modifier.fillMaxWidth())
+                    // Oscillator and noise are mixed ahead of the filter.
+                    Column {
+                        Block("Oscillator") {
+                            WaveformGraph(v(P.SHAPE))
+                            Chip(P.SHAPE, Modifier.fillMaxWidth())
+                        }
+                        Block("Noise") {
+                            Chip(P.NOISE_MIX, Modifier.fillMaxWidth())
+                            Chip(P.NOISE_DECAY, Modifier.fillMaxWidth())
+                        }
                     }
                 },
             )
@@ -229,7 +250,8 @@ fun InstrumentScreen(modifier: Modifier = Modifier) {
                     },
                 ),
                 main = {
-                    Block("Low-pass filter") {
+                    Block("Filter") {
+                        Chip(P.FILTER_MODE, Modifier.fillMaxWidth())
                         Chip(P.CUTOFF, Modifier.fillMaxWidth())
                         Chip(P.RESONANCE, Modifier.fillMaxWidth())
                     }
@@ -260,11 +282,13 @@ fun InstrumentScreen(modifier: Modifier = Modifier) {
             val spec = specs[selected]
             if (spec != null) Row(verticalAlignment = Alignment.CenterVertically) {
                 val p = selected
-                fun nudge(dir: Int) = InstrumentStore.set(index, p, spec.fromPosition(spec.toPosition(v(p)) + dir * FINE_STEP))
+                fun nudge(dir: Int) =
+                    InstrumentStore.set(index, p, spec.fromPosition(spec.toPosition(v(p)) + dir * spec.nudgeStep(FINE_STEP)))
                 ToolButton("◀", onClick = { nudge(-1) })
                 Slider(
                     value = spec.toPosition(v(p)),
                     onValueChange = { InstrumentStore.set(index, p, spec.fromPosition(it)) },
+                    steps = spec.sliderSteps,
                     modifier = Modifier.weight(1f).padding(horizontal = 6.dp),
                 )
                 ToolButton("▶", onClick = { nudge(1) })

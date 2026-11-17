@@ -162,6 +162,53 @@ TEST_CASE("Song file: an instrument without a voice is subtractive") {
     CHECK(songfile::save(*song, info) == demoJson());
 }
 
+TEST_CASE("Song file: percussion parameters load, and songs from before them stay tonal") {
+    const char* json = R"({
+        "format": "adaptive-tracker-song", "version": 2,
+        "instruments": [
+            {"id": "old", "params": {"cutoff": 500}},
+            {"id": "snare", "params": {"filterMode": 2, "noiseMix": 0.6, "noiseDecay": 0.18, "pitchEnv": -7}}],
+        "channels": [], "sections": [{"id": "main", "channels": {}}]
+    })";
+    auto song = std::make_unique<Song>();
+    songfile::SongInfo info;
+    const auto r = songfile::load(json, *song, info);
+    REQUIRE_MESSAGE(r.ok, r.error);
+    using P = Instrument::Param;
+    const Instrument& old = song->instruments[0];
+    CHECK(old.get(P::FilterMode) == 0.0f);
+    CHECK(old.get(P::NoiseMix) == 0.0f);
+    CHECK(old.get(P::NoiseDecay) == synth::WavetableSynth::NOISE_DECAY_MAX);
+    CHECK(old.get(P::PitchEnv) == 0.0f);
+    const Instrument& snare = song->instruments[1];
+    CHECK(snare.get(P::FilterMode) == 2.0f);
+    CHECK(snare.get(P::NoiseMix) == doctest::Approx(0.6f));
+    CHECK(snare.get(P::NoiseDecay) == doctest::Approx(0.18f));
+    CHECK(snare.get(P::PitchEnv) == -7.0f);
+
+    // And they reach the voice.
+    synth::WavetableSynth v;
+    snare.applyTo(v);
+    CHECK(v.getFilter().getMode() == synth::BiquadFilter::Mode::BANDPASS);
+    CHECK(v.getNoiseMix() == doctest::Approx(0.6f));
+    CHECK(v.getNoiseDecay() == doctest::Approx(0.18f));
+    CHECK(v.getPitchEnvAmount() == -7.0f);
+
+    // A filter mode the instrument doesn't offer is an error, like any other out-of-range value.
+    CHECK(loadError(R"({"format": "adaptive-tracker-song", "version": 2,
+        "instruments": [{"id": "x", "params": {"filterMode": 4}}],
+        "channels": [], "sections": [{"id": "main", "channels": {}}]})").find("filterMode") != std::string::npos);
+}
+
+TEST_CASE("Instrument: the filter mode is a whole number") {
+    using P = Instrument::Param;
+    Instrument i;
+    CHECK(i.set(P::FilterMode, 1.4f).get(P::FilterMode) == 1.0f);
+    CHECK(i.set(P::FilterMode, 1.6f).get(P::FilterMode) == 2.0f);
+    CHECK(i.set(P::FilterMode, 9.0f).get(P::FilterMode) == 2.0f);
+    CHECK(i.set(P::FilterMode, -1.0f).get(P::FilterMode) == 0.0f);
+}
+
 TEST_CASE("Song file: ids from names") {
     std::vector<songfile::Label> taken = {{"explore-lead", "x"}};
     CHECK(songfile::makeId("Explore lead", {}) == "explore-lead");

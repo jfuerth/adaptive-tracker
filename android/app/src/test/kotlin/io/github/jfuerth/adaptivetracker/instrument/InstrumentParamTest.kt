@@ -53,5 +53,27 @@ class InstrumentParamTest {
         assertEquals("1.50 s", InstrumentParam.AMP_RELEASE.format(1.5f))
         assertEquals("Triangle", InstrumentParam.SHAPE.format(0.5f))
         assertEquals("Saw–tri 0.30", InstrumentParam.SHAPE.format(0.3f))
+        assertEquals("High-pass", InstrumentParam.FILTER_MODE.format(1f))
+        assertEquals("Off", InstrumentParam.NOISE_MIX.format(0f))
+        assertEquals("60% noise", InstrumentParam.NOISE_MIX.format(0.6f))
+        assertEquals("Noise only", InstrumentParam.NOISE_MIX.format(1f))
+        assertEquals("180 ms", InstrumentParam.NOISE_DECAY.format(0.18f))
+        assertEquals("Hold", InstrumentParam.NOISE_DECAY.format(10f))
+        assertEquals("+24 st", InstrumentParam.PITCH_ENV.format(24f))
+        assertEquals("-7 st", InstrumentParam.PITCH_ENV.format(-7f))
+        assertEquals("0 st", InstrumentParam.PITCH_ENV.format(0.2f))
+    }
+
+    @Test fun discreteParametersLandOnWholeNumbers() {
+        val mode = ParamSpec(InstrumentParam.FILTER_MODE, 17, 0f, 2f)
+        assertEquals(1, mode.sliderSteps)  // three positions: two ends and one between
+        assertEquals(0f, mode.fromPosition(0.2f))
+        assertEquals(1f, mode.fromPosition(0.45f))
+        assertEquals(2f, mode.fromPosition(0.8f))
+        assertEquals(0.5f, mode.toPosition(1f))
+        // The fine-adjust buttons step a whole mode, not a sliver that rounds back.
+        assertEquals(1f, mode.fromPosition(mode.toPosition(0f) + mode.nudgeStep(0.005f)))
+        assertEquals(0, cutoff.sliderSteps)
+        assertEquals(0.005f, cutoff.nudgeStep(0.005f))
     }
 }

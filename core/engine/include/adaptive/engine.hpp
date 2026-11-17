@@ -55,6 +55,14 @@ public:
           previews_(detail::makeVoices(static_cast<float>(sampleRate),
                                        std::make_index_sequence<config::kPreviewVoices>{})) {
         for (float& g : layerGains_) g = 1.0f;
+        // Seed every voice's noise from its position rather than leaving it to
+        // the order voices happen to be built in, so a song renders the same
+        // every time, in any engine.
+        uint32_t seed = 0;
+        for (Channel& ch : channels_) {
+            for (uint32_t col = 0; col < config::kMaxColumns; ++col) ch.voice(col).setNoiseSeed(++seed);
+        }
+        for (synth::WavetableSynth& v : previews_) v.setNoiseSeed(++seed);
     }
 
     uint32_t sampleRate() const { return sampleRate_; }

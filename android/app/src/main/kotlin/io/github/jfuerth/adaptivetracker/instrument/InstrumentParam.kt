@@ -4,6 +4,7 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.ln
 import kotlin.math.exp
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 /** How a slider's position (0..1) maps to a parameter's value. */
@@ -13,6 +14,8 @@ enum class Curve {
     LOG,
     /** Finer steps near the minimum (same as the 5xx resonance effect). */
     SQUARE,
+    /** Whole numbers only, one slider step each: for choices such as the filter mode. */
+    DISCRETE,
 }
 
 /**
@@ -37,14 +40,19 @@ enum class InstrumentParam(val key: String, val label: String, val curve: Curve)
     VIBRATO_RATE("vibratoRate", "Rate", Curve.LOG),
     VIBRATO_DEPTH("vibratoDepth", "Depth", Curve.SQUARE),
     TREMOLO_RATE("tremoloRate", "Rate", Curve.LOG),
-    TREMOLO_DEPTH("tremoloDepth", "Depth", Curve.LINEAR);
+    TREMOLO_DEPTH("tremoloDepth", "Depth", Curve.LINEAR),
+    FILTER_MODE("filterMode", "Mode", Curve.DISCRETE),
+    NOISE_MIX("noiseMix", "Mix", Curve.LINEAR),
+    NOISE_DECAY("noiseDecay", "Decay", Curve.LOG),
+    PITCH_ENV("pitchEnv", "Pitch amount", Curve.LINEAR);
 
     /** Where in the signal flow it lives, for the slider's title. */
     val group: String
         get() = when (this) {
             SHAPE -> "Oscillator"
-            CUTOFF, RESONANCE -> "Filter"
-            FILTER_ENV_AMOUNT, FILTER_ATTACK, FILTER_DECAY, FILTER_SUSTAIN, FILTER_RELEASE -> "Filter envelope"
+            NOISE_MIX, NOISE_DECAY -> "Noise"
+            CUTOFF, RESONANCE, FILTER_MODE -> "Filter"
+            FILTER_ENV_AMOUNT, FILTER_ATTACK, FILTER_DECAY, FILTER_SUSTAIN, FILTER_RELEASE, PITCH_ENV -> "Filter envelope"
             AMP_ATTACK, AMP_DECAY, AMP_SUSTAIN, AMP_RELEASE -> "Amp envelope"
             LEVEL -> "Amp"
             VIBRATO_RATE, VIBRATO_DEPTH -> "Vibrato"
@@ -65,10 +73,28 @@ enum class InstrumentParam(val key: String, val label: String, val curve: Curve)
         FILTER_ATTACK, FILTER_DECAY, FILTER_RELEASE, AMP_ATTACK, AMP_DECAY, AMP_RELEASE -> seconds(value)
         VIBRATO_RATE, TREMOLO_RATE -> hz(value)
         VIBRATO_DEPTH -> "%.2f st".format(Locale.US, value)
+        FILTER_MODE -> FILTER_MODES.getOrElse(value.roundToInt()) { "Mode ${value.roundToInt()}" }
+        NOISE_MIX -> when {
+            value <= 0f -> "Off"
+            value >= 1f -> "Noise only"
+            else -> "${(value * 100).roundToInt()}% noise"
+        }
+        NOISE_DECAY -> if (value >= NOISE_HOLD) "Hold" else seconds(value)
+        PITCH_ENV -> value.roundToInt().let { if (it == 0) "0 st" else "%+d st".format(Locale.US, it) }
         else -> "%.2f".format(Locale.US, value)
     }
 
     companion object {
+        /** The engine's filter modes, by number. */
+        val FILTER_MODES = listOf("Low-pass", "High-pass", "Band-pass")
+
+        /**
+         * Noise decay at or above this holds instead of decaying: the top of
+         * the engine's range (pressense's NOISE_DECAY_MAX, 10 s), less a hair
+         * for float round trips.
+         */
+        const val NOISE_HOLD = 9.99f
+
         fun hz(v: Float): String = when {
             v >= 1000f -> "%.1f kHz".format(Locale.US, v / 1000f)
             v >= 10f -> "${v.toInt()} Hz"
@@ -90,6 +116,13 @@ enum class InstrumentParam(val key: String, val label: String, val curve: Curve)
 data class ParamSpec(val param: InstrumentParam, val index: Int, val min: Float, val max: Float) {
     fun clamp(value: Float) = value.coerceIn(min, max)
 
+    /** Slider steps between the ends (as Slider's `steps`): one per whole number for a discrete parameter. */
+    val sliderSteps: Int get() = if (param.curve == Curve.DISCRETE) (max - min).roundToInt() - 1 else 0
+
+    /** How far one tap of the fine-adjust buttons moves the slider: a whole step for a discrete parameter. */
+    fun nudgeStep(fine: Float): Float =
+        if (param.curve == Curve.DISCRETE && max > min) 1f / (max - min) else fine
+
     /** Slider position 0..1 for [value]. */
     fun toPosition(value: Float): Float {
         val v = clamp(value)
@@ -98,6 +131,7 @@ data class ParamSpec(val param: InstrumentParam, val index: Int, val min: Float,
             Curve.LINEAR -> (v - min) / (max - min)
             Curve.LOG -> ln(v / min) / ln(max / min)
             Curve.SQUARE -> sqrt((v - min) / (max - min))
+            Curve.DISCRETE -> (v - min) / (max - min)
         }.coerceIn(0f, 1f)
     }
 
@@ -109,6 +143,7 @@ data class ParamSpec(val param: InstrumentParam, val index: Int, val min: Float,
                 Curve.LINEAR -> min + (max - min) * p
                 Curve.LOG -> min * exp(ln(max / min) * p)
                 Curve.SQUARE -> min + (max - min) * p * p
+                Curve.DISCRETE -> (min + (max - min) * p).roundToInt().toFloat()
             },
         )
     }

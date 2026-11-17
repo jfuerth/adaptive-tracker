@@ -70,8 +70,24 @@ Voices:
 **`subtractive`**: pressense's oscillator, filter and envelopes. `params` uses the engine's parameter keys (`shape`, `cutoff`, `resonance`,
 `filterEnvAmount`, `filterAttack`, `filterDecay`, `filterSustain`,
 `filterRelease`, `ampAttack`, `ampDecay`, `ampSustain`, `ampRelease`, `level`,
-`vibratoRate`, `vibratoDepth`, `tremoloRate`, `tremoloDepth`) in natural units:
-Hz, seconds, 0..1. Values outside the synth's range are errors.
+`vibratoRate`, `vibratoDepth`, `tremoloRate`, `tremoloDepth`, `filterMode`,
+`noiseMix`, `noiseDecay`, `pitchEnv`) in natural units:
+Hz, seconds, 0..1. Values outside the synth's range are errors. Parameters
+left out take the synth's defaults, so a song from before one existed plays
+as it did.
+
+The last four are for percussion:
+
+- `filterMode`: 0 low-pass (the default), 1 high-pass, 2 band-pass.
+- `noiseMix`: 0 is the oscillator alone (the default), 1 is white noise
+  alone. The noise joins ahead of the filter, so `filterMode` and `cutoff`
+  shape it: high-pass for hats, band-pass for shakers.
+- `noiseDecay`: seconds for the noise to fall 60 dB after each note starts,
+  on top of the amp envelope. The maximum, 10, is "hold": no decay of its own
+  (the default).
+- `pitchEnv`: semitones the filter envelope sweeps the pitch at its peak,
+  -48..48 (default 0). With the filter envelope's sustain at 0 the sweep
+  settles on the played note, as a kick or a tom does.
 
 ## Channels and patterns
 

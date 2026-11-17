@@ -33,9 +33,18 @@ struct Instrument {
         VibratoDepth,     ///< semitones
         TremoloRate,      ///< Hz
         TremoloDepth,     ///< 0..1
+        FilterMode,       ///< 0 = low-pass, 1 = high-pass, 2 = band-pass (whole numbers only)
+        NoiseMix,         ///< 0 = oscillator only, 1 = noise only
+        NoiseDecay,       ///< s for the noise to fall 60 dB; the maximum holds
+        PitchEnv,         ///< semitones the filter envelope sweeps the pitch
         Count,
     };
     static constexpr uint8_t kNumParams = static_cast<uint8_t>(Param::Count);
+
+    /// Filter modes an instrument can pick: pressense's first three (low-pass,
+    /// high-pass, band-pass). Its notch and all-pass have no use on a single
+    /// voice's source, so they are left out of the editor and the song format.
+    static constexpr uint8_t kFilterModes = 3;
 
     /// Valid range of each parameter: the editor's slider span. Where
     /// pressense defines a range it is used; the rest are editor choices.
@@ -63,6 +72,10 @@ struct Instrument {
         case Param::TremoloRate: return {S::LFO_RATE_MIN, S::LFO_RATE_MAX};
         case Param::VibratoDepth: return {0.0f, 2.0f};
         case Param::TremoloDepth: return {0.0f, 1.0f};
+        case Param::FilterMode: return {0.0f, static_cast<float>(kFilterModes - 1)};
+        case Param::NoiseMix: return {0.0f, 1.0f};
+        case Param::NoiseDecay: return {S::NOISE_DECAY_MIN, S::NOISE_DECAY_MAX};
+        case Param::PitchEnv: return {S::PITCH_ENV_MIN, S::PITCH_ENV_MAX};
         case Param::Count: break;
         }
         return {0.0f, 0.0f};
@@ -89,6 +102,10 @@ struct Instrument {
         case Param::VibratoDepth: return "vibratoDepth";
         case Param::TremoloRate: return "tremoloRate";
         case Param::TremoloDepth: return "tremoloDepth";
+        case Param::FilterMode: return "filterMode";
+        case Param::NoiseMix: return "noiseMix";
+        case Param::NoiseDecay: return "noiseDecay";
+        case Param::PitchEnv: return "pitchEnv";
         case Param::Count: break;
         }
         return "";
@@ -118,7 +135,11 @@ struct Instrument {
             .set(Param::VibratoRate, v.getVibratoRate())
             .set(Param::VibratoDepth, v.getVibratoDepth())
             .set(Param::TremoloRate, v.getTremoloRate())
-            .set(Param::TremoloDepth, v.getTremoloDepth());
+            .set(Param::TremoloDepth, v.getTremoloDepth())
+            .set(Param::FilterMode, static_cast<float>(v.getFilter().getMode()))
+            .set(Param::NoiseMix, v.getNoiseMix())
+            .set(Param::NoiseDecay, v.getNoiseDecay())
+            .set(Param::PitchEnv, v.getPitchEnvAmount());
         return i;
     }
 
@@ -132,10 +153,13 @@ struct Instrument {
     }
 
     float get(Param p) const { return values[static_cast<uint8_t>(p)]; }
-    /// Set a parameter, clamped to its range. Returns *this for chaining.
+    /// Set a parameter, clamped to its range (and rounded, for the filter
+    /// mode). Returns *this for chaining.
     Instrument& set(Param p, float v) {
         const Range r = range(p);
-        values[static_cast<uint8_t>(p)] = v < r.min ? r.min : (v > r.max ? r.max : v);
+        v = v < r.min ? r.min : (v > r.max ? r.max : v);
+        if (p == Param::FilterMode) v = static_cast<float>(static_cast<int>(v + 0.5f));
+        values[static_cast<uint8_t>(p)] = v;
         return *this;
     }
 
@@ -165,6 +189,12 @@ struct Instrument {
         case Param::VibratoDepth: v.setVibratoDepth(x); break;
         case Param::TremoloRate: v.setTremoloRate(x); break;
         case Param::TremoloDepth: v.setTremoloDepth(x); break;
+        case Param::FilterMode:
+            v.getFilter().setMode(static_cast<synth::BiquadFilter::Mode>(static_cast<int>(x)));
+            break;
+        case Param::NoiseMix: v.setNoiseMix(x); break;
+        case Param::NoiseDecay: v.setNoiseDecay(x); break;
+        case Param::PitchEnv: v.setPitchEnvAmount(x); break;
         case Param::Count: break;
         }
     }

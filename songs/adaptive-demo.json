@@ -27,7 +27,11 @@
         "vibratoRate": 5,
         "vibratoDepth": 0.05,
         "tremoloRate": 5,
-        "tremoloDepth": 0
+        "tremoloDepth": 0,
+        "filterMode": 0,
+        "noiseMix": 0,
+        "noiseDecay": 10,
+        "pitchEnv": 0
       }
     },
     {
@@ -51,7 +55,11 @@
         "vibratoRate": 5,
         "vibratoDepth": 0,
         "tremoloRate": 5,
-        "tremoloDepth": 0
+        "tremoloDepth": 0,
+        "filterMode": 0,
+        "noiseMix": 0,
+        "noiseDecay": 10,
+        "pitchEnv": 0
       }
     },
     {
@@ -75,7 +83,11 @@
         "vibratoRate": 5,
         "vibratoDepth": 0.06,
         "tremoloRate": 5,
-        "tremoloDepth": 0
+        "tremoloDepth": 0,
+        "filterMode": 0,
+        "noiseMix": 0,
+        "noiseDecay": 10,
+        "pitchEnv": 0
       }
     },
     {
@@ -99,7 +111,11 @@
         "vibratoRate": 5,
         "vibratoDepth": 0,
         "tremoloRate": 5,
-        "tremoloDepth": 0
+        "tremoloDepth": 0,
+        "filterMode": 0,
+        "noiseMix": 0,
+        "noiseDecay": 10,
+        "pitchEnv": 0
       }
     },
     {
@@ -110,20 +126,24 @@
         "shape": 0.5,
         "cutoff": 900,
         "resonance": 0.707,
-        "filterEnvAmount": 0.5,
-        "filterAttack": 0.005,
-        "filterDecay": 0.2,
-        "filterSustain": 0.3,
+        "filterEnvAmount": 0,
+        "filterAttack": 0.0005,
+        "filterDecay": 0.06,
+        "filterSustain": 0,
         "filterRelease": 0.1,
         "ampAttack": 0.001,
-        "ampDecay": 0.18,
+        "ampDecay": 0.25,
         "ampSustain": 0,
         "ampRelease": 0.05,
         "level": 0.85,
         "vibratoRate": 5,
         "vibratoDepth": 0,
         "tremoloRate": 5,
-        "tremoloDepth": 0
+        "tremoloDepth": 0,
+        "filterMode": 0,
+        "noiseMix": 0,
+        "noiseDecay": 10,
+        "pitchEnv": 24
       }
     },
     {
@@ -131,8 +151,8 @@
       "name": "Hat",
       "voice": "subtractive",
       "params": {
-        "shape": 1,
-        "cutoff": 12000,
+        "shape": 0,
+        "cutoff": 7000,
         "resonance": 0.707,
         "filterEnvAmount": 0.5,
         "filterAttack": 0.005,
@@ -140,14 +160,18 @@
         "filterSustain": 0.3,
         "filterRelease": 0.1,
         "ampAttack": 0.0005,
-        "ampDecay": 0.03,
+        "ampDecay": 0.04,
         "ampSustain": 0,
         "ampRelease": 0.02,
-        "level": 0.12,
+        "level": 0.4,
         "vibratoRate": 5,
         "vibratoDepth": 0,
         "tremoloRate": 5,
-        "tremoloDepth": 0
+        "tremoloDepth": 0,
+        "filterMode": 1,
+        "noiseMix": 1,
+        "noiseDecay": 10,
+        "pitchEnv": 0
       }
     },
     {
@@ -171,7 +195,11 @@
         "vibratoRate": 5,
         "vibratoDepth": 0,
         "tremoloRate": 5,
-        "tremoloDepth": 0
+        "tremoloDepth": 0,
+        "filterMode": 0,
+        "noiseMix": 0,
+        "noiseDecay": 10,
+        "pitchEnv": 0
       }
     }
   ],

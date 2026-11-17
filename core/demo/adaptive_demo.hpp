@@ -279,10 +279,15 @@ private:
         env(pad, 0.25f, 0.5f, 0.7f, 0.6f);
         arp.set(P::Shape, 1.0f).set(P::Cutoff, 4000.0f).set(P::Level, 0.1f);
         env(arp, 0.001f, 0.09f, 0.15f, 0.05f);
-        kick.set(P::Shape, 0.5f).set(P::Cutoff, 900.0f).set(P::Level, 0.85f);
-        env(kick, 0.001f, 0.18f, 0.0f, 0.05f);
-        hat.set(P::Shape, 1.0f).set(P::Cutoff, 12000.0f).set(P::Level, 0.12f);
-        env(hat, 0.0005f, 0.03f, 0.0f, 0.02f);
+        // Kick: a triangle the filter envelope sweeps down two octaves onto the
+        // note. The envelope doesn't touch the cutoff (amount 0), only the pitch.
+        kick.set(P::Shape, 0.5f).set(P::Cutoff, 900.0f).set(P::Level, 0.85f).set(P::PitchEnv, 24.0f)
+            .set(P::FilterEnvAmount, 0.0f).set(P::FilterAttack, 0.0005f).set(P::FilterDecay, 0.06f)
+            .set(P::FilterSustain, 0.0f);
+        env(kick, 0.001f, 0.25f, 0.0f, 0.05f);
+        // Hat: high-passed noise.
+        hat.set(P::NoiseMix, 1.0f).set(P::FilterMode, 1.0f).set(P::Cutoff, 7000.0f).set(P::Level, 0.4f);
+        env(hat, 0.0005f, 0.04f, 0.0f, 0.02f);
         stinger.set(P::Shape, 0.9f).set(P::Cutoff, 5000.0f).set(P::Resonance, 2.0f).set(P::Level, 0.3f);
         env(stinger, 0.001f, 0.15f, 0.4f, 0.15f);
         for (const Instrument* i : {&lead, &bass, &pad, &arp, &kick, &hat, &stinger}) song_.addInstrument(*i);
