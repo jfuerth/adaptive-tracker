@@ -78,7 +78,8 @@ fun MixerScreen(
     currentSection: Int,
     params: SnapshotStateList<Float>,
     layerOn: SnapshotStateList<Boolean>,
-    onOpenPattern: (Int) -> Unit,
+    /** Opens a pattern in the editor, with the section shown (the editor's Play plays it). */
+    onOpenPattern: (pattern: Int, section: Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var section by rememberSaveable { mutableIntStateOf(0) }
@@ -201,7 +202,7 @@ fun MixerScreen(
                         highlight = hereNow,
                         flags = flags,
                         volume = mixer.getOrElse(ch * 2 + 1) { 1000 } / 1000f,
-                        onOpenPattern = onOpenPattern,
+                        onOpenPattern = { p -> onOpenPattern(p, section) },
                         onEdit = { op, p, pattern -> seq(ch, op, p, pattern) },
                         onMove = { p, to, pattern ->
                             Song.step("Move pattern") {

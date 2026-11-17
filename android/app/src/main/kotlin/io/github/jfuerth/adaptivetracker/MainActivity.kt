@@ -220,8 +220,9 @@ private fun App(
                             currentSection = stats.getOrElse(5) { -1 },
                             params = params,
                             layerOn = layerOn,
-                            onOpenPattern = { p ->
+                            onOpenPattern = { p, section ->
                                 Song.pattern = p
+                                Song.section = section
                                 editing = true
                             },
                             modifier = Modifier.weight(1f),

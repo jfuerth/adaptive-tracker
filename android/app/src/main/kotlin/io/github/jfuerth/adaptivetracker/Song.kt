@@ -45,6 +45,8 @@ object Song {
 
     /** The pattern being edited, shared so other screens can open one in the editor. */
     var pattern by mutableIntStateOf(0)
+    /** The section the mixer showed when the pattern editor opened; the editor's Play plays it. */
+    var section by mutableIntStateOf(0)
     var layers: List<String> by mutableStateOf(emptyList())
         private set
     /** Each layer's columns: bit (channel × 4 + column). */

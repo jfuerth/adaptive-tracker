@@ -78,7 +78,7 @@ private val ROW_HEIGHT = 26.dp
 private val MONO = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 15.sp)
 
 /** What the editor's Play button plays. */
-private enum class PlayMode(val label: String) { SONG("Song"), PATTERN("Pattern"), COLUMN("Column") }
+private enum class PlayMode(val label: String) { SECTION("Section"), PATTERN("Pattern"), COLUMN("Column") }
 
 /** Horizontal drag distance that moves the cursor by one field. */
 private val SWIPE_STEP = 32.dp
@@ -125,7 +125,7 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
     val alt = altLeft || altRight
     var step by rememberSaveable { mutableIntStateOf(1) }
     var follow by rememberSaveable { mutableStateOf(true) }
-    var playMode by rememberSaveable { mutableStateOf(PlayMode.SONG) }
+    var playMode by rememberSaveable { mutableStateOf(PlayMode.SECTION) }
 
     // Engine state, polled: the key in effect and where this channel is playing.
     val home = remember { NativeAudio.getHomeKey().let { Key(it[0], it[1]) } }
@@ -172,14 +172,19 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
         anchor = null
     }
 
-    // ---- Playback: song, this pattern alone, or one column of it ----
+    // ---- Playback: the mixer's section, this pattern alone, or one column of it ----
     // Play hears every note; Alt+Play hears the adaptive mix (gates, layer
     // mutes and layer gains), which restarts and mode changes then keep.
     val isPlaying by rememberUpdatedState(playing)
     var hearAll by rememberSaveable { mutableStateOf(true) }
     fun startPlayback() {
         when (playMode) {
-            PlayMode.SONG -> NativeAudio.play(hearAll)
+            // The section the mixer showed when the editor opened, from its start.
+            PlayMode.SECTION -> {
+                NativeAudio.setHearAll(hearAll)
+                val section = Song.section.takeIf { it in Song.sections.indices } ?: 0
+                NativeAudio.gotoSection(section, NativeAudio.Quantize.NOW.ordinal, NativeAudio.Entry.RESTART.ordinal, false)
+            }
             PlayMode.PATTERN -> NativeAudio.soloPattern(patternIndex, 0xFFFF, hearAll)
             PlayMode.COLUMN -> NativeAudio.soloPattern(patternIndex, 1 shl column, hearAll)
         }
@@ -191,10 +196,10 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
     var lastPattern by remember { mutableIntStateOf(patternIndex) }
     LaunchedEffect(playMode, patternIndex) {
         if (playMode != lastMode || patternIndex != lastPattern) {
-            val wasSolo = lastMode != PlayMode.SONG
+            val wasSolo = lastMode != PlayMode.SECTION
             lastMode = playMode
             lastPattern = patternIndex
-            if (isPlaying && (playMode != PlayMode.SONG || wasSolo)) startPlayback()
+            if (isPlaying && (playMode != PlayMode.SECTION || wasSolo)) startPlayback()
         }
     }
     LaunchedEffect(column) {
