@@ -33,6 +33,12 @@ public:
     /// Index of the current tick (the tick that the next sample belongs to).
     uint64_t tick() const { return tick_; }
 
+    /// How far into the current tick the next sample is, 0 to 1.
+    double phase() const { return static_cast<double>(accumulator_) / static_cast<double>(threshold_); }
+
+    /// Ticks per sample at the current tempo.
+    double ticksPerSample() const { return static_cast<double>(increment_) / static_cast<double>(threshold_); }
+
     /// Samples until the next tick boundary. Always >= 1.
     uint32_t samplesUntilNextTick() const {
         uint64_t remaining = threshold_ - accumulator_;

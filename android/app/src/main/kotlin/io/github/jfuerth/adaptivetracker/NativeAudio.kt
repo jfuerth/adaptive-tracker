@@ -335,11 +335,15 @@ object NativeAudio {
     external fun getPlayPosition(channel: Int): IntArray
 
     /**
-     * Every channel's play position, [PLAYHEAD_VALUES] values each: the four
-     * of [getPlayPosition], then engine ticks since its sequence started
-     * (first entry, first time round), which only says which time round it's in.
+     * A snapshot from one audio callback. First the engine clock
+     * (PlaybackClock.CLOCK_VALUES: tick, thousandths into the next tick,
+     * System.nanoTime then, ticks per second × 1000); then every channel's
+     * play position, [PLAYHEAD_VALUES] values each: the four of
+     * [getPlayPosition], then engine ticks since its sequence started (first
+     * entry, first time round), which only says which time round it's in.
+     * Channel values are measured at the snapshot's tick.
      */
-    external fun getPlayheads(): IntArray
+    external fun getPlayheads(): LongArray
 
     const val PLAYHEAD_VALUES = 5
 

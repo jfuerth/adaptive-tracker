@@ -177,15 +177,31 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
     // playing row passing through the edit bar.
     val playingNow by rememberUpdatedState(playing)
     val engineTicksPerRow by rememberUpdatedState(info.ticksPerRow * 4)  // 96 engine ticks a beat, 24 effect ticks
+    // Positions come from a smooth clock (PlaybackClock), not straight from
+    // each audio callback, so the scroll rate stays even.
+    val playClock = remember { PlaybackClock() }
+    val rows by rememberUpdatedState(info.rows)
     LaunchedEffect(follow, patternIndex, listState) {
         if (!follow) return@LaunchedEffect
         while (true) {
-            withFrameNanos { }
-            if (!playingNow || listState.isScrollInProgress) continue
-            val p = NativeAudio.getPlayPosition(channel)
-            if (p[0] != patternIndex || p[1] < 0) continue
-            val frac = (p.getOrElse(3) { 0 }.toFloat() / engineTicksPerRow.coerceAtLeast(1)).coerceIn(0f, 0.999f)
-            listState.scrollToItem(p[1], (frac * rowPx).toInt())
+            // Where to scroll, worked out in the frame, before it's drawn.
+            val target = withFrameNanos { frame ->
+                if (!playingNow) {
+                    playClock.reset()
+                    return@withFrameNanos null
+                }
+                val snapshot = NativeAudio.getPlayheads()
+                val since = playClock.since(frame, snapshot)
+                val at = PlaybackClock.CLOCK_VALUES + channel * NativeAudio.PLAYHEAD_VALUES
+                if (at + NativeAudio.PLAYHEAD_VALUES > snapshot.size) return@withFrameNanos null
+                if (snapshot[at].toInt() != patternIndex || snapshot[at + 1] < 0) return@withFrameNanos null
+                // Rows from the top, the playing one moving through the edit bar.
+                val position = snapshot[at + 1] + (snapshot[at + 3] + since) / engineTicksPerRow.coerceAtLeast(1)
+                position.coerceIn(0.0, rows - 0.001)
+            } ?: continue
+            if (listState.isScrollInProgress) continue
+            val row = target.toInt()
+            listState.scrollToItem(row, ((target - row) * rowPx).toInt())
         }
     }
     // Moving to another row ends a digit group the way typing its last digit

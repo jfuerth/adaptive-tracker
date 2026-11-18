@@ -196,10 +196,16 @@ public:
     /// Where `channel` plays: [pattern-table index or -1, row or -1, sequence
     /// entry or -1, engine ticks into the row]. Any thread.
     void playPosition(int channel, int32_t out[4]) const;
+    /// The engine clock when the playheads were taken: [tick, thousandths of
+    /// the way into the next tick, CLOCK_MONOTONIC ns then, ticks per second
+    /// × 1000]. Lets the UI run a smooth clock between audio callbacks.
+    static constexpr int kClockValues = 4;
     static constexpr int kPlayheadValues = 5;
-    /// Every channel's playPosition, then engine ticks since its sequence
-    /// started (first entry, first time round): kPlayheadValues per channel. Any thread.
-    void playheads(int32_t out[adaptive::config::kMaxChannels * kPlayheadValues]) const;
+    static constexpr int kPlayheadsSize = kClockValues + adaptive::config::kMaxChannels * kPlayheadValues;
+    /// One consistent snapshot, from a single audio callback: the clock, then
+    /// per channel its playPosition and engine ticks since its sequence
+    /// started (first entry, first time round). Any thread.
+    void playheads(int64_t out[kPlayheadsSize]) const;
     /// The key in effect now: [root, scale mask]. Any thread.
     void currentKey(int32_t out[2]) const;
     void resetStats() { resetStatsRequested_.store(true); }
@@ -284,6 +290,9 @@ private:
     std::atomic<int32_t> playingRow_[adaptive::config::kMaxChannels];
     std::atomic<int32_t> playingEntry_[adaptive::config::kMaxChannels];
     std::atomic<int32_t> playingRowTicks_[adaptive::config::kMaxChannels];
+    /// Odd while the audio thread writes the playheads (a seqlock).
+    std::atomic<uint32_t> headsVersion_{0};
+    std::atomic<int64_t> headsClock_[kClockValues] = {};
     std::atomic<int32_t> playingTicks_[adaptive::config::kMaxChannels];
     std::atomic<int32_t> stripFlags_[adaptive::config::kMaxChannels];
     std::atomic<int32_t> keyRoot_{0};

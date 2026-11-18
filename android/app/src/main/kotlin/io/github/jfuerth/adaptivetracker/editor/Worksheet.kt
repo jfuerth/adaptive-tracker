@@ -105,10 +105,17 @@ fun Worksheet(
     // way down. Panning here, in the same frame, keeps the scroll even.
     val playingNow by rememberUpdatedState(playing)
     val followNow by rememberUpdatedState(follow)
+    val clock = remember { PlaybackClock() }
     LaunchedEffect(arrangement, geometry) {
         while (true) {
             withFrameNanos {
-                val now = if (playingNow) playheads(arrangement, NativeAudio.getPlayheads()) else emptyList()
+                val now = if (!playingNow) {
+                    clock.reset()
+                    emptyList()
+                } else {
+                    val snapshot = NativeAudio.getPlayheads()
+                    playheads(arrangement, snapshot, clock.since(it, snapshot))
+                }
                 if (now != heads) heads = now
                 val latest = now.maxOfOrNull { it?.tick ?: -1f } ?: -1f
                 if (followNow && latest >= 0 && viewport.height > 0) {
@@ -427,23 +434,25 @@ private fun DrawScope.drawInstance(
 }
 
 /**
- * Each lane's playhead from what the engine reports ([reported]:
- * NativeAudio.getPlayheads), or null where its channel isn't playing this
- * lane's sequence.
+ * Each lane's playhead from a NativeAudio.getPlayheads [snapshot], moved on
+ * by [since] engine ticks (PlaybackClock: from the snapshot to this frame),
+ * or null where its channel isn't playing this lane's sequence. The row is
+ * the one reported; the line runs on smoothly.
  */
-private fun playheads(arrangement: Arrangement, reported: IntArray): List<Arrangement.Playhead?> {
+private fun playheads(arrangement: Arrangement, snapshot: LongArray, since: Double): List<Arrangement.Playhead?> {
     val engineTicksPerTick = ENGINE_TICKS_PER_BEAT.toFloat() / arrangement.ticksPerBeat
+    val ahead = (since / engineTicksPerTick).toFloat()
     return arrangement.lanes.map { lane ->
-        val at = lane.channel * NativeAudio.PLAYHEAD_VALUES
-        if (at + NativeAudio.PLAYHEAD_VALUES > reported.size) return@map null
-        val pattern = reported[at]
-        val row = reported[at + 1]
-        val entry = reported[at + 2]
+        val at = PlaybackClock.CLOCK_VALUES + lane.channel * NativeAudio.PLAYHEAD_VALUES
+        if (at + NativeAudio.PLAYHEAD_VALUES > snapshot.size) return@map null
+        val pattern = snapshot[at].toInt()
+        val row = snapshot[at + 1].toInt()
+        val entry = snapshot[at + 2].toInt()
         if (pattern < 0 || row < 0 || entry < 0) return@map null
         lane.playhead(
             pattern, entry, row,
-            intoRow = reported[at + 3] / engineTicksPerTick,
-            sinceStart = reported[at + 4] / engineTicksPerTick,
-        )
+            intoRow = snapshot[at + 3] / engineTicksPerTick,
+            sinceStart = snapshot[at + 4] / engineTicksPerTick,
+        )?.let { it.copy(tick = it.tick + ahead) }
     }
 }

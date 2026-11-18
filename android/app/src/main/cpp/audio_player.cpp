@@ -629,11 +629,21 @@ void AudioPlayer::playPosition(int channel, int32_t out[4]) const {
     out[3] = playingRowTicks_[channel].load(std::memory_order_relaxed);
 }
 
-void AudioPlayer::playheads(int32_t out[adaptive::config::kMaxChannels * kPlayheadValues]) const {
-    for (uint32_t c = 0; c < adaptive::config::kMaxChannels; ++c) {
-        int32_t* head = out + c * kPlayheadValues;
-        playPosition(static_cast<int>(c), head);
-        head[4] = playingTicks_[c].load(std::memory_order_relaxed);
+void AudioPlayer::playheads(int64_t out[kPlayheadsSize]) const {
+    // Retry until the read didn't overlap a write: all from one callback.
+    for (;;) {
+        const uint32_t before = headsVersion_.load(std::memory_order_acquire);
+        if (before & 1u) continue;
+        for (int i = 0; i < kClockValues; ++i) out[i] = headsClock_[i].load(std::memory_order_relaxed);
+        for (uint32_t c = 0; c < adaptive::config::kMaxChannels; ++c) {
+            int32_t pos[4];
+            playPosition(static_cast<int>(c), pos);
+            int64_t* head = out + kClockValues + c * kPlayheadValues;
+            for (int i = 0; i < 4; ++i) head[i] = pos[i];
+            head[4] = playingTicks_[c].load(std::memory_order_relaxed);
+        }
+        std::atomic_thread_fence(std::memory_order_acquire);
+        if (headsVersion_.load(std::memory_order_relaxed) == before) return;
     }
 }
 
@@ -682,6 +692,15 @@ void AudioPlayer::updateStats(oboe::AudioStream* stream, int64_t callbackNs, int
     currentSection_.store(section == adaptive::kNoIndex ? -1 : section, std::memory_order_relaxed);
     playing_.store(engine_->isPlaying() ? 1 : 0, std::memory_order_relaxed);
 
+    headsVersion_.fetch_add(1, std::memory_order_relaxed);  // odd: writing
+    std::atomic_thread_fence(std::memory_order_release);
+    const adaptive::TempoClock& clock = engine_->clock();
+    headsClock_[0].store(static_cast<int64_t>(clock.tick()), std::memory_order_relaxed);
+    headsClock_[1].store(static_cast<int64_t>(clock.phase() * 1000.0), std::memory_order_relaxed);
+    headsClock_[2].store(std::chrono::duration_cast<std::chrono::nanoseconds>(
+                             std::chrono::steady_clock::now().time_since_epoch()).count(),
+                         std::memory_order_relaxed);
+    headsClock_[3].store(static_cast<int64_t>(clock.ticksPerSample() * kSampleRate * 1000.0), std::memory_order_relaxed);
     for (uint32_t c = 0; c < adaptive::config::kMaxChannels; ++c) {
         const adaptive::Channel& ch = engine_->channel(c);
         const adaptive::Pattern* p = ch.playingPattern();
@@ -700,6 +719,7 @@ void AudioPlayer::updateStats(oboe::AudioStream* stream, int64_t callbackNs, int
         stripFlags_[c].store((ch.stripMuted() ? 1 : 0) | (ch.soloed() ? 2 : 0) | (ch.paused() ? 4 : 0),
                              std::memory_order_relaxed);
     }
+    headsVersion_.fetch_add(1, std::memory_order_release);  // even: done
     keyRoot_.store(engine_->pitch().current.root, std::memory_order_relaxed);
     keyScale_.store(engine_->pitch().current.scale, std::memory_order_relaxed);
 }
