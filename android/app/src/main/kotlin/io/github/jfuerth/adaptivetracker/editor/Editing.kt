@@ -160,7 +160,7 @@ object EffectDescription {
         effectValue: (effect: Int, param: Int) -> Float = { _, _ -> Float.NaN },
         ticksPerBeat: Int = 0,
     ): String {
-        if (cell.effect == CellData.EFFECT_NONE) return "No effect · type a command digit"
+        if (cell.effect == CellData.EFFECT_NONE) return "No effect · type a command digit, or tap the cursor for the list"
         val p = cell.param
         val x = p shr 4
         val y = p and 0xF
@@ -184,11 +184,23 @@ object EffectDescription {
             }
             'B' -> "Fire event $p" + (eventNames.getOrNull(p)?.let { " · $it" } ?: " · no such event")
             'C' -> "Set volume · ${p.coerceAtMost(0x7F)}/127"
+            'D' -> when {
+                y == 0 -> "Repeat · D00 stops repeating"
+                x == 0 -> "Repeat · every ${ticks(y)}, until the next note"
+                else -> "Echo · every ${ticks(y)}, each $x/16 quieter, until the next note"
+            }
+            'E' -> when (x) {
+                0xC -> "Staccato · release after ${ticks(y)}"
+                0xD -> if (y == 0) "Delay · ED0 doesn't wait" else "Delay · the note waits ${ticks(y)}"
+                else -> "Reserved · no effect (EC staccato, ED delay)"
+            }
             'F' -> "Filter cutoff · " + value(effectValue, cell) { InstrumentParam.hz(it) }
             else -> "Reserved · no effect"
         }
         return "$code · $text"
     }
+
+    private fun ticks(n: Int) = if (n == 1) "1 tick" else "$n ticks"
 
     /**
      * 8xx/9xx move the cutoff by xx/16 Fxx steps per effect tick. Octaves per

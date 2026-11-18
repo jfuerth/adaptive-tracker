@@ -230,6 +230,8 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
     val slots = remember { arrayOfNulls<Int>(4) }
 
     var editingShape by remember { mutableStateOf(false) }
+    // The effect reference, open on (row, column).
+    var effectAt by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var confirmClear by remember { mutableStateOf<Int?>(null) }
     var settingsFor by remember { mutableStateOf<Int?>(null) }
     val channelName = Song.channels.getOrElse(info.channel) { NativeAudio.getChannelName(info.channel) }
@@ -241,6 +243,19 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
             PatternStore.setShape(patternIndex, change.rows, change.ticksPerRow)
         }
     })
+    effectAt?.let { (r, c) ->
+        if (r < info.rows && c < info.columns) {
+            EffectDialog(
+                pattern.cell(r, c), info.modeOf(c), Song.events, NativeAudio::effectValue, info.ticksPerBeat,
+                onDone = { changed ->
+                    effectAt = null
+                    if (changed != null) PatternStore.write(patternIndex, r, c, changed)
+                },
+            )
+        } else {
+            effectAt = null
+        }
+    }
     settingsFor?.let { c ->
         ColumnSettingsDialog(info.channel, c, channelName, onDone = { settingsFor = null })
     }
@@ -467,10 +482,15 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
                         selectedField = field,
                         columnWidth = columnWidth,
                         onTap = { c, f ->
-                            column = c
-                            field = f
+                            // Tapping the cursor itself, on an effect digit, opens the effect reference.
+                            if (row == editRow && c == column && f == field && f.isEffect) {
+                                effectAt = row to c
+                            } else {
+                                column = c
+                                field = f
+                                if (row != editRow) scope.launch { listState.scrollToItem(row) }
+                            }
                             anchor = null
-                            if (row != editRow) scope.launch { listState.scrollToItem(row) }
                         },
                     )
                 }

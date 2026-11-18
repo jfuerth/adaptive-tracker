@@ -85,6 +85,18 @@ public:
         uint8_t lastNote = Cell::kNoteEmpty;
         int8_t lastAccidental = 0;
         uint16_t effectTickInRow = 0;
+        /// ECy: the effect tick of the row that releases the note (kNever: none).
+        uint16_t releaseTick = kNever;
+        /// EDy: the effect tick of the row that starts `delayed` (kNever: none).
+        uint16_t delayTick = kNever;
+        Cell delayed = {};
+        /// Dxy: replay the note every `repeatEvery` effect ticks (0: off), each
+        /// time `repeatFade`/16 quieter. Persists across rows until a new note
+        /// without Dxy, a note-off, D00, or the volume fading out.
+        uint8_t repeatEvery = 0;
+        uint8_t repeatFade = 0;
+        uint8_t repeatCountdown = 0;
+        static constexpr uint16_t kNever = 0xFFFF;
 
         /// Pitch the voice is sounding now, including the arpeggio step.
         float soundingPitch() const {
@@ -430,7 +442,7 @@ public:
             rowStartTick_ = now;
             for (uint32_t c = 0; c < numColumns_; ++c) startRow(c, pattern->cells[row][c], pitch);
         } else if (tick % config::kTicksPerEffectTick == 0) {
-            for (uint32_t c = 0; c < numColumns_; ++c) effectTick(c);
+            for (uint32_t c = 0; c < numColumns_; ++c) effectTick(c, pitch);
         }
     }
 
@@ -568,7 +580,16 @@ private:
         playingRow_ = static_cast<int32_t>(row);
         rowStartTick_ = entryStartTick_ + row * tpr;
         lastTick_ = kNoTick;
-        for (auto& c : columns_) c.filterSweep = c.slide = c.glide = 0.0f;
+        stopMotion();
+    }
+
+    /// Slides, sweeps, repeats and row timing stop: after a jump or a restart.
+    void stopMotion() {
+        for (auto& c : columns_) {
+            c.filterSweep = c.slide = c.glide = 0.0f;
+            c.repeatEvery = 0;
+            c.releaseTick = c.delayTick = ColumnState::kNever;
+        }
     }
 
     void restart(uint64_t startTick) {
@@ -578,7 +599,7 @@ private:
         entryStartTick_ = startTick_;
         entryIndex_ = 0;
         totalTicks_ = 0;
-        for (auto& c : columns_) c.filterSweep = c.slide = c.glide = 0.0f;
+        stopMotion();
         if (sequence_ != nullptr) {
             for (uint32_t i = 0; i < sequence_->length; ++i) totalTicks_ += pool_[sequence_->entries[i]].lengthTicks();
         } else if (single_ != nullptr) {
@@ -661,27 +682,28 @@ private:
             break;
         }
 
-        if (cell.isNote() && plays(c)) {
-            const float p = static_cast<float>(resolvePitch(pitchModes_[c], cell.note, cell.accidental, ctx));
-            s.lastNote = cell.note;
-            s.lastAccidental = cell.accidental;
-            if (cell.effect == fx::kTonePorta && v.isActive()) {
-                s.target = p;
-            } else {
-                s.pitch = s.target = p;
-                s.volume = cell.volume == Cell::kVolumeDefault ? 1.0f : cell.volume / 127.0f;
-                v.trigger(midiNoteToHz(p), s.volume);
-            }
-        } else if (cell.isOff() || cell.isNote()) {
-            // A note-off, or a note this column may not play (gate closed or
-            // muted): what was sounding ends here, on the note's boundary.
-            v.release();
+        // Timing within the row: staccato, delay and repeats.
+        s.releaseTick = s.delayTick = ColumnState::kNever;
+        const bool extended = cell.effect == fx::kExtended;
+        const uint8_t sub = cell.effectParam >> 4;
+        const uint8_t value = cell.effectParam & 0x0F;
+        if (extended && sub == fx::kExtStaccato) s.releaseTick = value;
+        const bool delay = extended && sub == fx::kExtDelay && value > 0;
+        // Repeats from earlier rows count row starts too, unless a note or
+        // a new Dxy starts the count again now.
+        if (cell.effect != fx::kRepeat && (delay || !(cell.isNote() || cell.isOff()))) stepRepeat(c);
+        if (cell.effect == fx::kRepeat) {
+            s.repeatEvery = cell.effectParam & 0x0F;
+            s.repeatFade = cell.effectParam >> 4;
+            s.repeatCountdown = s.repeatEvery;
         }
-
-        if (cell.volume != Cell::kVolumeDefault) {
-            s.volume = cell.volume / 127.0f;
-            v.setVolume(s.volume);
+        if (delay) {
+            s.delayTick = value;
+            s.delayed = cell;
+        } else {
+            startNote(c, cell, ctx);
         }
+        if (s.releaseTick == 0) v.release();
 
         switch (cell.effect) {
         case fx::kArpeggio:
@@ -718,6 +740,54 @@ private:
             break;
         }
         v.setFrequency(midiNoteToHz(s.soundingPitch()) * speed_);
+    }
+
+    /**
+     * The note part of a cell: its note (or glide target), note-off, and
+     * volume. At the row's start, or EDy ticks in.
+     */
+    void startNote(uint32_t c, const Cell& cell, const PitchContext& ctx) {
+        ColumnState& s = columns_[c];
+        synth::WavetableSynth& v = voices_[c];
+        if (cell.isNote() && plays(c)) {
+            const float p = static_cast<float>(resolvePitch(pitchModes_[c], cell.note, cell.accidental, ctx));
+            s.lastNote = cell.note;
+            s.lastAccidental = cell.accidental;
+            if (cell.effect == fx::kTonePorta && v.isActive()) {
+                s.target = p;
+            } else {
+                s.pitch = s.target = p;
+                s.volume = cell.volume == Cell::kVolumeDefault ? 1.0f : cell.volume / 127.0f;
+                v.trigger(midiNoteToHz(s.soundingPitch()) * speed_, s.volume);
+                // A new note ends repeats unless it starts its own.
+                if (cell.effect != fx::kRepeat) s.repeatEvery = 0;
+                s.repeatCountdown = s.repeatEvery;
+            }
+        } else if (cell.isOff() || cell.isNote()) {
+            // A note-off, or a note this column may not play (gate closed or
+            // muted): what was sounding ends here, on the note's boundary.
+            v.release();
+            s.repeatEvery = 0;
+        }
+
+        if (cell.volume != Cell::kVolumeDefault) {
+            s.volume = cell.volume / 127.0f;
+            v.setVolume(s.volume);
+        }
+    }
+
+    /// One effect tick of a Dxy repeat: on the beat, the note plays again, quieter.
+    void stepRepeat(uint32_t c) {
+        ColumnState& s = columns_[c];
+        if (s.repeatEvery == 0 || --s.repeatCountdown > 0) return;
+        s.repeatCountdown = s.repeatEvery;
+        const float next = s.volume * (1.0f - s.repeatFade / 16.0f);
+        if (next < 1.0f / 127.0f) {
+            s.repeatEvery = 0;  // faded out
+            return;
+        }
+        s.volume = next;
+        if (plays(c)) voices_[c].trigger(midiNoteToHz(s.soundingPitch()) * speed_, s.volume);
     }
 
     /// Arpeggio offsets from the column's last note. In Degree mode x and y are
@@ -765,10 +835,21 @@ private:
         }
     }
 
-    void effectTick(uint32_t c) {
+    void effectTick(uint32_t c, const PitchContext& ctx) {
         ColumnState& s = columns_[c];
         synth::WavetableSynth& v = voices_[c];
         ++s.effectTickInRow;
+
+        if (s.effectTickInRow == s.delayTick) {
+            s.delayTick = ColumnState::kNever;
+            const bool starts = s.delayed.isNote() || s.delayed.isOff();
+            if (!starts) stepRepeat(c);  // a delayed volume alone doesn't restart the count
+            startNote(c, s.delayed, ctx);
+            v.setFrequency(midiNoteToHz(s.soundingPitch()) * speed_);
+        } else {
+            stepRepeat(c);
+        }
+        if (s.effectTickInRow == s.releaseTick) v.release();
 
         sweepFilter(s, v);
         const bool moving = s.slide != 0.0f || s.glide != 0.0f;

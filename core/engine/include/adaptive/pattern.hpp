@@ -25,6 +25,10 @@ inline constexpr uint8_t kFilterSweepDown = '9';  ///< 9xx: cutoff falls xx/16 F
 inline constexpr uint8_t kVolumeSlide = 'A';      ///< Axy: volume up x or down y, 1/64 per effect tick
 inline constexpr uint8_t kFireEvent = 'B';        ///< Bxx: fire event xx
 inline constexpr uint8_t kSetVolume = 'C';        ///< Cxx: volume 00..7F
+inline constexpr uint8_t kRepeat = 'D';           ///< Dxy: replay the note every y effect ticks, each x/16 quieter (persists; D00 stops)
+inline constexpr uint8_t kExtended = 'E';         ///< Exy: x picks the command (below), y its value
+inline constexpr uint8_t kExtStaccato = 0xC;      ///< ECy: release the note y effect ticks into the row
+inline constexpr uint8_t kExtDelay = 0xD;         ///< EDy: the row's note, note-off and volume wait y effect ticks
 inline constexpr uint8_t kFilterCutoff = 'F';     ///< Fxx: base cutoff, 20 Hz..20 kHz exponential
 
 /// The command character for a hex digit 0-15.

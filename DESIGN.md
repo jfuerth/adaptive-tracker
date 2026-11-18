@@ -178,7 +178,9 @@ so it moves evenly. For `3` and `A`, a parameter of `00` reuses the last
 nonzero one.
 
 Every effect command is a single hex digit, so the editor's hex pad enters the
-command and its two parameter digits.
+command and its two parameter digits. Tapping the cursor on the edit row's
+effect opens a reference: pick an effect from the list, then set its values
+with sliders described in natural units.
 
 | Code | Effect | Parameter |
 |---|---|---|
@@ -194,9 +196,12 @@ command and its two parameter digits.
 | `Axy` | Volume slide: up x, else down y | 1/64 of full volume per effect tick |
 | `Bxx` | Fire event xx | Event index. Fires on the row's first tick; the event's own actions set their timing |
 | `Cxx` | Set volume | 00 … 7F |
+| `Dxy` | Repeat: the note plays again every y effect ticks, each time x/16 quieter (persists across rows until a note without `D`, a note-off, `D00`, or it fades below 1/127). `D0y` is a plain retrigger (double-tonguing); x > 0 an echo | x = fade, y = effect ticks |
+| `ECy` | Staccato: release the note y effect ticks into the row | Effect ticks |
+| `EDy` | Delay: the row's note, note-off and volume wait y effect ticks (y ≥ the row's speed: never) | Effect ticks |
 | `Fxx` | Filter cutoff (voice baseline, persists) | 00 = 20 Hz … FF = 20 kHz, exponential |
 
-`7` (tremolo), `D` and `E` are reserved. A sweep continuing from an earlier row also steps on row starts, so it moves evenly across rows. Pan, once output is stereo, will be a channel-strip control.
+`E` is ProTracker's extended command: x picks the command, y is its value; `EC` and `ED` are the ones so far. `7` (tremolo) is reserved. A sweep continuing from an earlier row also steps on row starts, so it moves evenly across rows. Pan, once output is stereo, will be a channel-strip control.
 
 The volume column (0–127) sets the column's volume. A note without a volume
 starts at full volume. Patterns cannot change tempo (see Decisions).

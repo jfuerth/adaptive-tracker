@@ -171,12 +171,36 @@ class DescriptionTest {
             EffectDescription.describe(CellData(effect = '5'.code, param = 0x80), PitchMode.ABSOLUTE, effectValue = engineValues))
         // Without the engine, the raw parameter is shown.
         assertEquals("F80 · Filter cutoff · 80", EffectDescription.describe(CellData(effect = 'F'.code, param = 0x80), PitchMode.ABSOLUTE))
-        assertEquals("No effect · type a command digit", EffectDescription.describe(CellData(), PitchMode.ABSOLUTE))
+        assertEquals("No effect · type a command digit, or tap the cursor for the list", EffectDescription.describe(CellData(), PitchMode.ABSOLUTE))
         assertEquals("810 · Filter sweep up · 0.94 octave per beat, until stopped",
             EffectDescription.describe(CellData(effect = '8'.code, param = 0x10), PitchMode.ABSOLUTE, effectValue = engineValues,
                 ticksPerBeat = 24))
         assertEquals("900 · Filter sweep · 900 stops the sweep",
             EffectDescription.describe(CellData(effect = '9'.code, param = 0), PitchMode.ABSOLUTE))
+        fun d(effect: Char, param: Int) = EffectDescription.describe(CellData(effect = effect.code, param = param), PitchMode.ABSOLUTE)
+        assertEquals("EC3 · Staccato · release after 3 ticks", d('E', 0xC3))
+        assertEquals("ED1 · Delay · the note waits 1 tick", d('E', 0xD1))
+        assertEquals("D02 · Repeat · every 2 ticks, until the next note", d('D', 0x02))
+        assertEquals("D83 · Echo · every 3 ticks, each 8/16 quieter, until the next note", d('D', 0x83))
+        assertEquals("D00 · Repeat · D00 stops repeating", d('D', 0))
+    }
+
+    @Test fun effectReferenceRoundTrips() {
+        for (kind in EffectKind.all) {
+            val values = kind.values.map { it.max / 3 + 1 }
+            val cell = kind.apply(CellData(note = 60), values)
+            assertEquals(kind.name, kind, EffectKind.of(cell))
+            assertEquals(kind.name, values, kind.valuesOf(cell.param))
+            assertEquals(60, cell.note)  // the note stays
+        }
+        val staccato = EffectKind.all.first { it.name == "Staccato" }
+        assertEquals("EC", staccato.code)
+        assertEquals(0xC4, staccato.apply(CellData(), listOf(4)).param)
+        assertEquals(0x7F, EffectKind.all.first { it.command == 'C' }.apply(CellData(), listOf(300)).param)  // clamped
+        assertEquals("Volume slide down", EffectKind.of(CellData(effect = 'A'.code, param = 0x03))?.name)
+        assertEquals("Volume slide up", EffectKind.of(CellData(effect = 'A'.code, param = 0x30))?.name)
+        assertNull(EffectKind.of(CellData(effect = 'E'.code, param = 0x50)))  // no such E command yet
+        assertNull(EffectKind.of(CellData()))
     }
 
     @Test fun formatsCells() {

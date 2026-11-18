@@ -262,6 +262,112 @@ TEST_CASE("Effects: tone portamento holds the level while the pitch moves") {
     CHECK(20.0f * std::log10(highest / lowest) < 0.5f);
 }
 
+namespace {
+using Phase = synth::AdsrEnvelope::Phase;
+/// Quick envelope (in sustain one tick after a trigger), so each trigger shows as Attack.
+void snappy(Fixture& f) {
+    Instrument quick;
+    quick.set(Instrument::Param::AmpAttack, 0.001f);
+    quick.set(Instrument::Param::AmpDecay, 0.001f);
+    quick.set(Instrument::Param::AmpSustain, 0.5f);
+    quick.set(Instrument::Param::AmpRelease, 0.5f);
+    quick.applyTo(f.ch().voice(0));
+}
+Phase phase(Fixture& f) { return f.ch().voice(0).getAmpEnvelope().getPhase(); }
+/// Engine tick of effect tick `t` (speed 6 rows: 4 engine ticks each).
+constexpr uint64_t effectTick(uint32_t t) { return t * 4; }
+}  // namespace
+
+TEST_CASE("Effects: ECy releases the note y effect ticks into the row") {
+    Fixture f;
+    snappy(f);
+    auto p = makePattern(2, 6);
+    p->cells[0][0] = Cell::on(60).with(fx::kExtended, 0xC3);
+    p->cells[1][0] = Cell::on(62).with(fx::kExtended, 0xC1);
+    f.ch().play(p.get(), 0);
+    f.reachTick(effectTick(2));
+    CHECK(phase(f) == Phase::SUSTAIN);
+    f.reachTick(effectTick(3));
+    CHECK(phase(f) == Phase::RELEASE);
+    f.reachTick(effectTick(6));
+    CHECK(phase(f) == Phase::ATTACK);
+    CHECK(f.ch().column(0).pitch == 62.0f);
+    f.reachTick(effectTick(7));
+    CHECK(phase(f) == Phase::RELEASE);
+}
+
+TEST_CASE("Effects: EDy delays the row's note, or its note-off") {
+    Fixture f;
+    snappy(f);
+    auto p = makePattern(4, 6);
+    p->cells[0][0] = Cell::on(60, 64).with(fx::kExtended, 0xD2);
+    p->cells[1][0] = Cell::off().with(fx::kExtended, 0xD3);
+    p->cells[2][0] = Cell::on(67).with(fx::kExtended, 0xD6);  // a whole row late: never plays
+    f.ch().play(p.get(), 0);
+    f.reachTick(effectTick(1));
+    CHECK_FALSE(f.ch().voice(0).isActive());
+    f.reachTick(effectTick(2));
+    CHECK(phase(f) == Phase::ATTACK);
+    CHECK(f.ch().column(0).pitch == 60.0f);
+    CHECK(f.ch().column(0).volume == doctest::Approx(64 / 127.0f));  // the volume waited with it
+    f.reachTick(effectTick(6 + 2));
+    CHECK(phase(f) == Phase::SUSTAIN);
+    f.reachTick(effectTick(6 + 3));
+    CHECK(phase(f) == Phase::RELEASE);
+    f.reachTick(effectTick(17));
+    CHECK(f.ch().column(0).pitch == 60.0f);
+    CHECK(phase(f) == Phase::RELEASE);
+}
+
+TEST_CASE("Effects: Dxy repeats the note across rows until the next note") {
+    Fixture f;
+    snappy(f);
+    auto p = makePattern(4, 6);
+    p->cells[0][0] = Cell::on(60).with(fx::kRepeat, 0x02);  // every 2 effect ticks, no fade
+    p->cells[3][0] = Cell::on(62);                           // a plain note ends it
+    f.ch().play(p.get(), 0);
+    for (uint32_t t = 1; t < 18; ++t) {
+        f.reachTick(effectTick(t));
+        CAPTURE(t);
+        CHECK(phase(f) == (t % 2 == 0 ? Phase::ATTACK : Phase::SUSTAIN));
+    }
+    CHECK(f.ch().column(0).volume == 1.0f);
+    f.reachTick(effectTick(18));
+    CHECK(phase(f) == Phase::ATTACK);  // the new note
+    for (uint32_t t = 19; t < 24; ++t) {
+        f.reachTick(effectTick(t));
+        CHECK(phase(f) == Phase::SUSTAIN);
+    }
+}
+
+TEST_CASE("Effects: Dxy with a fade is an echo, and a note-off ends it") {
+    Fixture f;
+    snappy(f);
+    auto p = makePattern(8, 6);
+    p->cells[0][0] = Cell::on(60).with(fx::kRepeat, 0x83);  // every 3 effect ticks, half as loud each time
+    p->cells[2][0] = Cell::effectOnly(fx::kRepeat, 0x00);   // D00 stops it
+    p->cells[3][0] = Cell::on(64).with(fx::kRepeat, 0x81);  // every tick
+    p->cells[6][0] = Cell::off();
+    f.ch().play(p.get(), 0);
+    f.reachTick(effectTick(3));
+    CHECK(f.ch().column(0).volume == doctest::Approx(0.5f));
+    f.reachTick(effectTick(9));
+    CHECK(f.ch().column(0).volume == doctest::Approx(0.125f));
+    f.reachTick(effectTick(17));
+    CHECK(f.ch().column(0).volume == doctest::Approx(0.125f));  // stopped on row 2
+    CHECK(phase(f) == Phase::SUSTAIN);
+    // From effect tick 18, halving every tick: the 7th would be 1/128, under
+    // 1/127, so it stops after the 6th, at 1/64.
+    f.reachTick(effectTick(24));
+    CHECK(f.ch().column(0).volume == doctest::Approx(1.0f / 64.0f));
+    CHECK(f.ch().column(0).repeatEvery == 1);
+    f.reachTick(effectTick(25));
+    CHECK(f.ch().column(0).repeatEvery == 0);
+    CHECK(f.ch().column(0).volume == doctest::Approx(1.0f / 64.0f));
+    f.reachTick(effectTick(37));
+    CHECK(phase(f) == Phase::RELEASE);  // row 6's Off
+}
+
 TEST_CASE("Effects: volume column and volume slide") {
     Fixture f;
     auto p = makePattern(4, 24);
