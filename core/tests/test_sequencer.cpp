@@ -2,6 +2,8 @@
 
 #include <adaptive/engine.hpp>
 
+#include <algorithm>
+#include <cmath>
 #include <memory>
 #include <vector>
 
@@ -188,6 +190,76 @@ TEST_CASE("Effects: tone portamento slides to the note without retriggering or o
     f.reachTick(300);
     CHECK(f.ch().column(0).pitch == 55.0f);
     CHECK(f.ch().column(0).glide == 0.0f);
+}
+
+TEST_CASE("Effects: a tone portamento note carries on the envelope instead of starting it again") {
+    // The New song's Lead: decays from full to half in 250 ms. Four rows per
+    // beat, 125 ms (6000 samples) each.
+    auto rowLevels = [](bool glide) {
+        Fixture f;
+        Instrument lead;
+        lead.set(Instrument::Param::Shape, 0.5f);
+        lead.set(Instrument::Param::Cutoff, 2200.0f);
+        lead.set(Instrument::Param::AmpAttack, 0.005f);
+        lead.set(Instrument::Param::AmpDecay, 0.25f);
+        lead.set(Instrument::Param::AmpSustain, 0.5f);
+        lead.set(Instrument::Param::AmpRelease, 0.12f);
+        lead.applyTo(f.ch().voice(0));
+        auto p = makePattern(4, 6);
+        p->cells[0][0] = Cell::on(60);
+        p->cells[2][0] = glide ? Cell::on(64).with(fx::kTonePorta, 0x40) : Cell::on(64);
+        f.ch().play(p.get(), 0);
+        std::vector<float> levels;
+        std::vector<float> buf(6000);
+        for (int r = 0; r < 4; ++r) {
+            f.engine->render(buf.data(), static_cast<uint32_t>(buf.size()));
+            double sum = 0.0;
+            for (float x : buf) sum += double(x) * x;
+            levels.push_back(static_cast<float>(std::sqrt(sum / buf.size())));
+        }
+        return levels;
+    };
+    const auto played = rowLevels(false);
+    const auto glided = rowLevels(true);
+    // The same up to the glide.
+    CHECK(glided[0] == doctest::Approx(played[0]));
+    CHECK(glided[1] == doctest::Approx(played[1]));
+    // A played note attacks again; the glided one stays at the level the
+    // first note had decayed to (no new attack, and no release either), so
+    // it is quieter than its neighbours when the instrument decays.
+    CHECK(played[2] == doctest::Approx(played[0]).epsilon(0.02));
+    CHECK(glided[2] < 0.7f * played[2]);
+    CHECK(glided[2] == doctest::Approx(glided[3]).epsilon(0.02));  // held at sustain, not dipping further
+}
+
+TEST_CASE("Effects: tone portamento holds the level while the pitch moves") {
+    Fixture f;
+    Instrument flat;  // full sustain, open filter: only the glide could change the level
+    flat.set(Instrument::Param::Shape, 0.0f);
+    flat.set(Instrument::Param::Cutoff, 20000.0f);
+    flat.set(Instrument::Param::AmpSustain, 1.0f);
+    flat.set(Instrument::Param::FilterEnvAmount, 0.0f);
+    flat.set(Instrument::Param::VibratoDepth, 0.0f);
+    flat.applyTo(f.ch().voice(0));
+    auto p = makePattern(16, 24);
+    p->cells[0][0] = Cell::on(48);
+    p->cells[1][0] = Cell::on(84).with(fx::kTonePorta, 0x02);  // three octaves over about six seconds
+    f.ch().play(p.get(), 0);
+    // 100 ms windows: whole cycles enough that the waveform doesn't show.
+    std::vector<float> buf(4800);
+    float lowest = 1.0f, highest = 0.0f;
+    for (int w = 0; w < 64; ++w) {
+        f.engine->render(buf.data(), static_cast<uint32_t>(buf.size()));
+        double sum = 0.0;
+        for (float x : buf) sum += double(x) * x;
+        const float rms = static_cast<float>(std::sqrt(sum / buf.size()));
+        if (w >= 6) {  // the glide starts at 500 ms
+            lowest = std::min(lowest, rms);
+            highest = std::max(highest, rms);
+        }
+    }
+    CHECK(f.ch().column(0).pitch > 80.0f);  // most of the way there
+    CHECK(20.0f * std::log10(highest / lowest) < 0.5f);
 }
 
 TEST_CASE("Effects: volume column and volume slide") {
