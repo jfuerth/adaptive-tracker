@@ -331,8 +331,14 @@ object NativeAudio {
     /** Channel [channel] plays only the columns in [columnMask] (bit 0 = column 0). */
     external fun setColumnMask(channel: Int, columnMask: Int): Boolean
 
-    /** [patternIndex or -1, row or -1] playing on [channel]. */
+    /** [patternIndex or -1, row or -1, sequence entry or -1, engine ticks (96/beat) into the row] playing on [channel]. */
     external fun getPlayPosition(channel: Int): IntArray
+
+    /**
+     * Per channel, engine ticks (96 per beat) since what it plays started:
+     * its sequence's first entry, first time round. -1: nothing playing.
+     */
+    external fun getPlayTicks(): IntArray
 
     /** [root, scaleMask] of the key in effect now. */
     external fun getCurrentKey(): IntArray

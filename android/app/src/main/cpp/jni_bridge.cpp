@@ -538,12 +538,21 @@ JNIEXPORT jboolean JNICALL JNI_FN(previewOff)(JNIEnv*, jobject, jint slot) {
     return toJ(player().previewOff(slot));
 }
 
-/// [patternIndex or -1, row or -1]
+/// [patternIndex or -1, row or -1, sequence entry or -1, engine ticks into the row]
 JNIEXPORT jintArray JNICALL JNI_FN(getPlayPosition)(JNIEnv* env, jobject, jint channel) {
-    int32_t pos[2];
+    int32_t pos[4];
     player().playPosition(channel, pos);
-    jintArray result = env->NewIntArray(2);
-    if (result != nullptr) env->SetIntArrayRegion(result, 0, 2, pos);
+    jintArray result = env->NewIntArray(4);
+    if (result != nullptr) env->SetIntArrayRegion(result, 0, 4, pos);
+    return result;
+}
+
+JNIEXPORT jintArray JNICALL JNI_FN(getPlayTicks)(JNIEnv* env, jobject) {
+    constexpr jsize n = adaptive::config::kMaxChannels;
+    int32_t ticks[n];
+    player().playTicks(ticks);
+    jintArray result = env->NewIntArray(n);
+    if (result != nullptr) env->SetIntArrayRegion(result, 0, n, ticks);
     return result;
 }
 

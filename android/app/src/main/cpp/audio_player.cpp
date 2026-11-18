@@ -36,6 +36,9 @@ AudioPlayer::AudioPlayer()
 void AudioPlayer::resetPositions() {
     for (auto& a : playingPattern_) a.store(-1);
     for (auto& a : playingRow_) a.store(-1);
+    for (auto& a : playingEntry_) a.store(-1);
+    for (auto& a : playingRowTicks_) a.store(0);
+    for (auto& a : playingTicks_) a.store(-1);
     for (auto& a : stripFlags_) a.store(0);
 }
 
@@ -614,13 +617,20 @@ void AudioPlayer::homeKey(int32_t out[2]) const {
     out[1] = engine_->pitch().home.scale;
 }
 
-void AudioPlayer::playPosition(int channel, int32_t out[2]) const {
+void AudioPlayer::playPosition(int channel, int32_t out[4]) const {
     if (channel < 0 || channel >= static_cast<int>(adaptive::config::kMaxChannels)) {
-        out[0] = out[1] = -1;
+        out[0] = out[1] = out[2] = -1;
+        out[3] = 0;
         return;
     }
     out[0] = playingPattern_[channel].load(std::memory_order_relaxed);
     out[1] = playingRow_[channel].load(std::memory_order_relaxed);
+    out[2] = playingEntry_[channel].load(std::memory_order_relaxed);
+    out[3] = playingRowTicks_[channel].load(std::memory_order_relaxed);
+}
+
+void AudioPlayer::playTicks(int32_t out[adaptive::config::kMaxChannels]) const {
+    for (uint32_t c = 0; c < adaptive::config::kMaxChannels; ++c) out[c] = playingTicks_[c].load(std::memory_order_relaxed);
 }
 
 void AudioPlayer::currentKey(int32_t out[2]) const {
@@ -678,6 +688,11 @@ void AudioPlayer::updateStats(oboe::AudioStream* stream, int64_t callbackNs, int
         }
         playingPattern_[c].store(index, std::memory_order_relaxed);
         playingRow_[c].store(ch.playingRow(), std::memory_order_relaxed);
+        playingRowTicks_[c].store(index < 0 ? 0 : static_cast<int32_t>(ch.ticksIntoRow(engine_->clock().tick())),
+                                  std::memory_order_relaxed);
+        playingEntry_[c].store(index < 0 ? -1 : static_cast<int32_t>(ch.sequencePosition()), std::memory_order_relaxed);
+        playingTicks_[c].store(index < 0 ? -1 : static_cast<int32_t>(ch.ticksSinceStart(engine_->clock().tick())),
+                               std::memory_order_relaxed);
         stripFlags_[c].store((ch.stripMuted() ? 1 : 0) | (ch.soloed() ? 2 : 0) | (ch.paused() ? 4 : 0),
                              std::memory_order_relaxed);
     }

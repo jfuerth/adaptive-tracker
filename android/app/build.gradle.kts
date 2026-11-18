@@ -12,8 +12,8 @@ android {
         applicationId = "io.github.jfuerth.adaptivetracker"
         minSdk = 26
         targetSdk = 37
-        versionCode = 29
-        versionName = "0.22.0"
+        versionCode = 34
+        versionName = "0.26.0"
 
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")

@@ -186,7 +186,10 @@ private fun App(
             }
             if (editing) {
                 val channel = NativeAudio.getPatternInfo(Song.pattern)?.getOrNull(0) ?: -1
-                SongBar(stats, editingChannel = Song.channels.getOrElse(channel) { "Pattern" }, onBack = ::backToMixer)
+                val channelName = Song.channels.getOrElse(channel) { "Pattern" }
+                // Arranging, the cursor can be in any channel: say which, after the section.
+                val title = if (Song.arrange) "${Song.sections.getOrElse(Song.section) { "Section" }} · $channelName" else channelName
+                SongBar(stats, editingChannel = title, onBack = ::backToMixer)
             } else {
                 SongBar(stats)
                 PrimaryTabRow(selectedTabIndex = tab) {
@@ -223,6 +226,17 @@ private fun App(
                             onOpenPattern = { p, section ->
                                 Song.pattern = p
                                 Song.section = section
+                                Song.arrange = false
+                                editing = true
+                            },
+                            onArrange = { section ->
+                                // The cursor starts in the first pattern the section plays.
+                                val first = Song.channels.indices.firstNotNullOfOrNull { ch ->
+                                    NativeAudio.getSequence(section, ch)?.firstOrNull()
+                                }
+                                if (first != null) Song.pattern = first
+                                Song.section = section
+                                Song.arrange = true
                                 editing = true
                             },
                             modifier = Modifier.weight(1f),

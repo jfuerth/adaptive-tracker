@@ -194,7 +194,9 @@ public:
     Stats stats() const;
 
     /// Pattern-table index playing on `channel` (-1 if none) and its row. Any thread.
-    void playPosition(int channel, int32_t out[2]) const;
+    void playPosition(int channel, int32_t out[4]) const;
+    /// Per channel, engine ticks since what it plays started (-1: nothing playing).
+    void playTicks(int32_t out[adaptive::config::kMaxChannels]) const;
     /// The key in effect now: [root, scale mask]. Any thread.
     void currentKey(int32_t out[2]) const;
     void resetStats() { resetStatsRequested_.store(true); }
@@ -277,6 +279,9 @@ private:
     std::atomic<int32_t> playing_{0};
     std::atomic<int32_t> playingPattern_[adaptive::config::kMaxChannels];
     std::atomic<int32_t> playingRow_[adaptive::config::kMaxChannels];
+    std::atomic<int32_t> playingEntry_[adaptive::config::kMaxChannels];
+    std::atomic<int32_t> playingRowTicks_[adaptive::config::kMaxChannels];
+    std::atomic<int32_t> playingTicks_[adaptive::config::kMaxChannels];
     std::atomic<int32_t> stripFlags_[adaptive::config::kMaxChannels];
     std::atomic<int32_t> keyRoot_{0};
     std::atomic<int32_t> keyScale_{adaptive::scales::kMajor};

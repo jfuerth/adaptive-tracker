@@ -58,6 +58,17 @@ import io.github.jfuerth.adaptivetracker.instrument.InstrumentStore
 import io.github.jfuerth.adaptivetracker.ui.NameDialog
 import io.github.jfuerth.adaptivetracker.ui.ToolButton
 import kotlinx.coroutines.delay
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
+import androidx.compose.foundation.gestures.drag
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.changedToUp
+import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.zIndex
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 private val STRIP_WIDTH = 100.dp
 
@@ -80,6 +91,8 @@ fun MixerScreen(
     layerOn: SnapshotStateList<Boolean>,
     /** Opens a pattern in the editor, with the section shown (the editor's Play plays it). */
     onOpenPattern: (pattern: Int, section: Int) -> Unit,
+    /** Opens the section shown as an arrangement worksheet. */
+    onArrange: (section: Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var section by rememberSaveable { mutableIntStateOf(0) }
@@ -155,6 +168,8 @@ fun MixerScreen(
                     })
                 }
             }
+            ToolButton("Arrange", onClick = { onArrange(section) })
+            Box(Modifier.width(4.dp))
             ToolButton(if (playing) "Stop" else "Play", onClick = {
                 if (playing) NativeAudio.stop()
                 else {
@@ -199,6 +214,7 @@ fun MixerScreen(
                         entries = entries,
                         playingPattern = if (playing) pos[0] else -1,
                         playingRow = if (playing) pos[1] else -1,
+                        playingEntry = if (playing) pos.getOrElse(2) { -1 } else -1,
                         highlight = hereNow,
                         flags = flags,
                         volume = mixer.getOrElse(ch * 2 + 1) { 1000 } / 1000f,
@@ -324,6 +340,7 @@ private fun ChannelStrip(
     entries: List<Int>,
     playingPattern: Int,
     playingRow: Int,
+    playingEntry: Int,
     highlight: Boolean,
     flags: Int,
     volume: Float,
@@ -387,10 +404,33 @@ private fun ChannelStrip(
             if (entries.isEmpty()) {
                 Text("Silent here", style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)
             }
+            // Dragging a chip (after a long press): where it came from, how far it's gone.
+            var dragFrom by remember { mutableIntStateOf(-1) }
+            var dragDy by remember { mutableFloatStateOf(0f) }
+            var chipH by remember { mutableIntStateOf(0) }
+            val slot = chipH + with(LocalDensity.current) { 3.dp.toPx() }
+            val dropAt = if (dragFrom < 0 || slot <= 0f) -1
+                else (dragFrom + (dragDy / slot).roundToInt()).coerceIn(0, entries.size - 1)
+            val haptics = LocalHapticFeedback.current
             entries.forEachIndexed { pos, pattern ->
                 var open by remember { mutableStateOf(false) }
-                val isPlaying = highlight && pattern == playingPattern
-                Box {
+                val isPlaying = highlight && pos == playingEntry && pattern == playingPattern
+                // The chips between the dragged one and its drop point make room for it.
+                val shift = when {
+                    dragFrom < 0 || pos == dragFrom -> 0f
+                    dragFrom < dropAt && pos in dragFrom + 1..dropAt -> -slot
+                    dragFrom > dropAt && pos in dropAt until dragFrom -> slot
+                    else -> 0f
+                }
+                val dragged = pos == dragFrom
+                Box(
+                    Modifier
+                        .zIndex(if (dragged) 1f else 0f)
+                        .graphicsLayer {
+                            translationY = if (dragged) dragDy else shift
+                            if (dragged) { scaleX = 1.04f; scaleY = 1.04f; shadowElevation = 6.dp.toPx() }
+                        },
+                ) {
                     Text(
                         names.getOrElse(pattern) { "?" },
                         style = MaterialTheme.typography.bodySmall,
@@ -399,9 +439,40 @@ private fun ChannelStrip(
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier
                             .fillMaxWidth()
+                            .onSizeChanged { chipH = it.height }
                             .clip(RoundedCornerShape(6.dp))
                             .background(if (isPlaying) colors.primary else colors.secondaryContainer)
-                            .clickable { open = true }
+                            .pointerInput(pos, pattern, entries.size) {
+                                // Tap: the menu. Long press: lift the chip; let go
+                                // where it is to edit the pattern, or drag it to move it.
+                                awaitEachGesture {
+                                    val down = awaitFirstDown()
+                                    val long = awaitLongPressOrCancellation(down.id)
+                                    if (long == null) {
+                                        val up = currentEvent.changes.firstOrNull { it.id == down.id }
+                                        if (up != null && up.changedToUp() && !up.isConsumed) {
+                                            up.consume()
+                                            open = true
+                                        }
+                                        return@awaitEachGesture
+                                    }
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                    dragFrom = pos
+                                    dragDy = 0f
+                                    var moved = false
+                                    val ended = drag(long.id) { c ->
+                                        dragDy += c.positionChange().y
+                                        if (abs(dragDy) > viewConfiguration.touchSlop) moved = true
+                                        c.consume()
+                                    }
+                                    val to = (pos + (dragDy / (chipH + 3.dp.toPx())).roundToInt()).coerceIn(0, entries.size - 1)
+                                    dragFrom = -1
+                                    dragDy = 0f
+                                    if (!ended) return@awaitEachGesture
+                                    if (!moved) onOpenPattern(pattern)
+                                    else if (to != pos) onMove(pos, to, pattern)
+                                }
+                            }
                             .padding(horizontal = 6.dp, vertical = 6.dp),
                     )
                     DropdownMenu(expanded = open, onDismissRequest = { open = false }) {

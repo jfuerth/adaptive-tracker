@@ -454,6 +454,11 @@ public:
     /// The pattern playing now (nullptr if none) and the last row that started in it.
     const Pattern* playingPattern() const { return currentPattern(); }
     int32_t playingRow() const { return currentPattern() != nullptr ? playingRow_ : -1; }
+    /// Engine ticks from the start of what this channel plays (its sequence's
+    /// first entry, first time round) to `now`; negative before it starts.
+    int64_t ticksSinceStart(uint64_t now) const { return static_cast<int64_t>(now) - startTick_; }
+    /// Engine ticks since the playing row started.
+    int64_t ticksIntoRow(uint64_t now) const { return static_cast<int64_t>(now) - rowStartTick_; }
 
     /// Add `numFrames` samples of this channel into `mix`. If `tap` is set,
     /// the voices of the columns in `tapColumns` that are heard are also

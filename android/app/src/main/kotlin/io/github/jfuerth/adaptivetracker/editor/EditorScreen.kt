@@ -37,16 +37,19 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
@@ -64,6 +67,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import io.github.jfuerth.adaptivetracker.NativeAudio
+import io.github.jfuerth.adaptivetracker.editor.Arrangement as SectionArrangement
 import io.github.jfuerth.adaptivetracker.Song
 import io.github.jfuerth.adaptivetracker.instrument.InstrumentStore
 import io.github.jfuerth.adaptivetracker.ui.HoldButton
@@ -111,7 +115,13 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
     }
     val info = pattern.info
 
-    var column by rememberSaveable(patternIndex) { mutableIntStateOf(0) }
+    // Kept across patterns (the worksheet moves between them); clamped to this one's columns.
+    var column by rememberSaveable { mutableIntStateOf(0) }
+    if (column >= info.columns) column = info.columns - 1
+    // Arrangement view: the whole section as a worksheet, the cursor in any of its patterns.
+    val arranging = Song.arrange
+    var sheetRow by rememberSaveable { mutableIntStateOf(0) }
+    var sheetInstance by rememberSaveable { mutableLongStateOf(-1L) }
     var field by rememberSaveable { mutableStateOf(Field.NOTE) }
     // Where typing started in the current digit group; the cursor returns
     // here after the group's last digit, ready for the next row.
@@ -151,9 +161,10 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     val rowPx = with(LocalDensity.current) { ROW_HEIGHT.toPx() }
     // Clamped as well, since the layout can briefly lag the pattern's length.
-    val editRow by remember(listState, info.rows) {
+    val listRow by remember(listState, info.rows) {
         derivedStateOf { centeredRow(listState).coerceIn(0, (info.rows - 1).coerceAtLeast(0)) }
     }
+    val editRow = if (arranging) sheetRow.coerceIn(0, (info.rows - 1).coerceAtLeast(0)) else listRow
     // Drags and flings come to rest with a row exactly on the edit bar.
     val snapFling = rememberSnapFlingBehavior(listState, SnapPosition.Center)
 
@@ -162,8 +173,20 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
     LaunchedEffect(listState) {
         listState.interactionSource.interactions.collect { if (it is DragInteraction.Start) follow = false }
     }
-    LaunchedEffect(playingRow, follow) {
-        if (follow && playingRow >= 0 && !listState.isScrollInProgress) listState.scrollToItem(playingRow)
+    // Following: the list scrolls smoothly with playback, every frame, the
+    // playing row passing through the edit bar.
+    val playingNow by rememberUpdatedState(playing)
+    val engineTicksPerRow by rememberUpdatedState(info.ticksPerRow * 4)  // 96 engine ticks a beat, 24 effect ticks
+    LaunchedEffect(follow, patternIndex, listState) {
+        if (!follow) return@LaunchedEffect
+        while (true) {
+            withFrameNanos { }
+            if (!playingNow || listState.isScrollInProgress) continue
+            val p = NativeAudio.getPlayPosition(channel)
+            if (p[0] != patternIndex || p[1] < 0) continue
+            val frac = (p.getOrElse(3) { 0 }.toFloat() / engineTicksPerRow.coerceAtLeast(1)).coerceIn(0f, 0.999f)
+            listState.scrollToItem(p[1], (frac * rowPx).toInt())
+        }
     }
     // Moving to another row ends a digit group the way typing its last digit
     // does: the cursor goes back to where typing started.
@@ -223,7 +246,7 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
     fun write(cell: CellData) = PatternStore.write(patternIndex, editRow, column, cell)
     fun advance(direction: Int = 1) {
         val target = (editRow + direction * step).coerceIn(0, info.rows - 1)
-        scope.launch { listState.scrollToItem(target) }
+        if (arranging) sheetRow = target else scope.launch { listState.scrollToItem(target) }
     }
 
     // Preview voices: which key (MIDI note) each of the four slots is sounding.
@@ -332,6 +355,19 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
                         val base = PatternStore.names.getOrElse(patternIndex) { channelName }
                         creating = unique("$base copy") to patternIndex
                     })
+                    DropdownMenuItem(
+                        text = { Text(if (arranging) "Back to the pattern view" else "Arrangement view: the whole section") },
+                        onClick = {
+                            menuOpen = false
+                            if (!arranging) {
+                                sheetRow = editRow
+                                sheetInstance = -1L
+                            } else {
+                                scope.launch { listState.scrollToItem(sheetRow.coerceIn(0, info.rows - 1)) }
+                            }
+                            Song.arrange = !arranging
+                        },
+                    )
                     DropdownMenuItem(text = { Text("Rename this pattern…") }, onClick = {
                         menuOpen = false
                         renaming = true
@@ -383,6 +419,45 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
             )
         }
 
+        if (arranging) {
+            // ---- The section as a worksheet ----
+            val section = Song.section.takeIf { it in Song.sections.indices } ?: 0
+            val arrangement = remember(section, Song.revision, PatternStore.shapes, Song.channels) {
+                val timing = NativeAudio.getSectionTiming(section)
+                SectionArrangement.build(
+                    sequences = Song.channels.indices.map { NativeAudio.getSequence(section, it)?.toList() ?: emptyList() },
+                    columns = Song.channels.indices.map { ch ->
+                        PatternStore.ofChannel(ch).firstNotNullOfOrNull { PatternStore.get(it)?.info?.columns } ?: 1
+                    },
+                    info = { PatternStore.get(it)?.info },
+                    ticksPerBeat = info.ticksPerBeat,
+                    beatsPerBar = timing?.getOrNull(1) ?: 4,
+                )
+            }
+            // Where the cursor's pattern plays: the instance last tapped, else its first.
+            val lane = arrangement.lanes.indexOfFirst { it.channel == info.channel }
+            val instance = arrangement.lanes.getOrNull(lane)?.let { l ->
+                l.firstOf(patternIndex, sheetInstance.coerceAtLeast(0))?.start
+            } ?: -1L
+            val cursor = if (lane >= 0 && instance >= 0) SheetCursor(lane, instance, patternIndex, editRow, column, field) else null
+            Worksheet(
+                arrangement, ctx, Song.channels, cursor, playing, follow,
+                onUserMove = { follow = false },
+                onTap = { t ->
+                    if (cursor != null && t == cursor && t.field.isEffect) {
+                        effectAt = t.row to t.column  // tapping the cursor itself: the effect reference
+                    } else {
+                        patternIndex = t.pattern
+                        sheetInstance = t.instance
+                        sheetRow = t.row
+                        column = t.column
+                        field = t.field
+                    }
+                    anchor = null
+                },
+                modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds(),
+            )
+        } else {
         // ---- Column headings: the instrument each column plays ----
         val measurer = rememberTextMeasurer()
         val density = LocalDensity.current
@@ -495,6 +570,7 @@ fun EditorScreen(playing: Boolean, modifier: Modifier = Modifier) {
                     )
                 }
             }
+        }
         }
 
         // ---- Description line ----
@@ -891,11 +967,12 @@ private fun PatternRow(
     val colors = MaterialTheme.colorScheme
     val info = pattern.info
     // The edit bar is drawn behind the list (fixed in the viewport), so rows
-    // are transparent except for the playing row, which tints over it.
-    val background = if (isPlaying) colors.tertiary.copy(alpha = 0.35f) else Color.Transparent
+    // are transparent. The playing row is bold (a tint would smear as the list
+    // scrolls smoothly with playback).
+    val cellStyle = if (isPlaying) MONO.copy(fontWeight = FontWeight.Bold) else MONO
     val onBeat = info.isBeat(row)
     Row(
-        Modifier.fillMaxWidth().height(ROW_HEIGHT).background(background).padding(horizontal = 6.dp),
+        Modifier.fillMaxWidth().height(ROW_HEIGHT).padding(horizontal = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
@@ -911,7 +988,7 @@ private fun PatternRow(
                 val selected = isEdit && c == selectedColumn && f == selectedField
                 Text(
                     text,
-                    style = MONO,
+                    style = cellStyle,
                     color = if (selected) colors.onSecondary else colors.onSurface,
                     modifier = Modifier
                         .background(if (selected) colors.secondary else Color.Transparent)
