@@ -52,6 +52,24 @@ class ArrangementTest {
         assertEquals(96L + 9 * 24, bass.firstOf(1, 100)?.rowStart(9))
     }
 
+    @Test fun placesThePlayheadWhereTheEngineSaysItIs() {
+        val bass = arrangement.lanes[1]
+        // Second time round, pattern 2 (entry 1) row 3, 1.5 ticks in.
+        val head = bass.playhead(pattern = 2, entry = 1, row = 3, intoRow = 1.5f, sinceStart = 96f + 72 + 9 + 1.5f)!!
+        assertEquals(96L + 72, head.placed.start)
+        assertEquals(3, head.row)
+        assertEquals(96f + 72 + 9 + 1.5f, head.tick, 0.001f)
+        // The channel drifted 20 ticks from this layout (a pattern played
+        // longer before an edit): still drawn in the row the engine is on.
+        val drifted = bass.playhead(pattern = 2, entry = 1, row = 3, intoRow = 0f, sinceStart = 96f + 72 + 9 + 20)!!
+        assertEquals(96L + 72, drifted.placed.start)
+        assertEquals(96f + 72 + 9, drifted.tick, 0.001f)
+        // Not what this lane has there (another sequence, or a pattern soloed).
+        assertNull(bass.playhead(pattern = 0, entry = 1, row = 0, intoRow = 0f, sinceStart = 0f))
+        assertNull(bass.playhead(pattern = 2, entry = 5, row = 0, intoRow = 0f, sinceStart = 0f))
+        assertNull(bass.playhead(pattern = 2, entry = 1, row = 8, intoRow = 0f, sinceStart = 0f))
+    }
+
     @Test fun barsFromTheSection() {
         assertEquals(96, arrangement.barTicks)
     }

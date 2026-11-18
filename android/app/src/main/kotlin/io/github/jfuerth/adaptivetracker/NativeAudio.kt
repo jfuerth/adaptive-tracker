@@ -335,10 +335,13 @@ object NativeAudio {
     external fun getPlayPosition(channel: Int): IntArray
 
     /**
-     * Per channel, engine ticks (96 per beat) since what it plays started:
-     * its sequence's first entry, first time round. -1: nothing playing.
+     * Every channel's play position, [PLAYHEAD_VALUES] values each: the four
+     * of [getPlayPosition], then engine ticks since its sequence started
+     * (first entry, first time round), which only says which time round it's in.
      */
-    external fun getPlayTicks(): IntArray
+    external fun getPlayheads(): IntArray
+
+    const val PLAYHEAD_VALUES = 5
 
     /** [root, scaleMask] of the key in effect now. */
     external fun getCurrentKey(): IntArray

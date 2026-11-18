@@ -334,6 +334,12 @@ public:
         resumeAt(entryStartTick_);
     }
 
+    /// Every column's effect state and memories back to how a new channel
+    /// starts (a fresh start; the engine resets the voices).
+    void forgetEffects() {
+        for (auto& c : columns_) c = ColumnState{};
+    }
+
     /// Pitches are `speed` times the notes' (the engine's tape speed);
     /// sounding notes bend at once.
     void setSpeed(float speed) {

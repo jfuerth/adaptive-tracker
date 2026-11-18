@@ -193,10 +193,13 @@ public:
     };
     Stats stats() const;
 
-    /// Pattern-table index playing on `channel` (-1 if none) and its row. Any thread.
+    /// Where `channel` plays: [pattern-table index or -1, row or -1, sequence
+    /// entry or -1, engine ticks into the row]. Any thread.
     void playPosition(int channel, int32_t out[4]) const;
-    /// Per channel, engine ticks since what it plays started (-1: nothing playing).
-    void playTicks(int32_t out[adaptive::config::kMaxChannels]) const;
+    static constexpr int kPlayheadValues = 5;
+    /// Every channel's playPosition, then engine ticks since its sequence
+    /// started (first entry, first time round): kPlayheadValues per channel. Any thread.
+    void playheads(int32_t out[adaptive::config::kMaxChannels * kPlayheadValues]) const;
     /// The key in effect now: [root, scale mask]. Any thread.
     void currentKey(int32_t out[2]) const;
     void resetStats() { resetStatsRequested_.store(true); }

@@ -629,8 +629,12 @@ void AudioPlayer::playPosition(int channel, int32_t out[4]) const {
     out[3] = playingRowTicks_[channel].load(std::memory_order_relaxed);
 }
 
-void AudioPlayer::playTicks(int32_t out[adaptive::config::kMaxChannels]) const {
-    for (uint32_t c = 0; c < adaptive::config::kMaxChannels; ++c) out[c] = playingTicks_[c].load(std::memory_order_relaxed);
+void AudioPlayer::playheads(int32_t out[adaptive::config::kMaxChannels * kPlayheadValues]) const {
+    for (uint32_t c = 0; c < adaptive::config::kMaxChannels; ++c) {
+        int32_t* head = out + c * kPlayheadValues;
+        playPosition(static_cast<int>(c), head);
+        head[4] = playingTicks_[c].load(std::memory_order_relaxed);
+    }
 }
 
 void AudioPlayer::currentKey(int32_t out[2]) const {

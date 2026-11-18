@@ -114,6 +114,44 @@ TEST_CASE("Previews sound with an instrument and stop on release") {
     CHECK(peak < 1e-3f);
 }
 
+TEST_CASE("Starting a section or a solo pattern from the top resets effects to the instruments' sound") {
+    Fixture f;
+    using P = Instrument::Param;
+    const uint8_t lead = f.song->addInstrument(Instrument().set(P::Cutoff, 2200.0f));
+    f.song->assign(0, lead);
+    f.engine->setSong(f.song.get());
+    f.a->cells[0][0] = Cell::on(60).with(fx::kVibrato, 0x35);
+    f.a->cells[1][0] = Cell::effectOnly(fx::kFilterCutoff, 0x10);
+    f.a->cells[2][0] = Cell::effectOnly(fx::kWaveShape, 0x80);
+    f.engine->post(Command::gotoSection(0, Quantize::Now));
+    f.reachTick(3 * kBeat);
+    auto& v = f.engine->channel(0).voice(0);
+    REQUIRE(v.getVibratoDepth() > 0.0f);
+    REQUIRE(v.getBaseCutoff() < 2000.0f);
+    const float shaped = v.getWaveformShape();
+
+    // Section 1 (pattern b: a plain note) starts from the top: as the instrument sounds.
+    f.engine->post(Command::gotoSection(1, Quantize::Now));
+    f.reachTick(3 * kBeat + 1);
+    CHECK(v.getVibratoDepth() == doctest::Approx(Instrument().get(P::VibratoDepth)));
+    CHECK(v.getBaseCutoff() == doctest::Approx(2200.0f));
+    CHECK(v.getWaveformShape() != doctest::Approx(shaped));
+    CHECK(f.engine->channel(0).column(0).effect == fx::kNone);
+
+    // Keep phase carries on as it sounds.
+    f.engine->post(Command::gotoSection(0, Quantize::Now));
+    f.reachTick(5 * kBeat);
+    REQUIRE(v.getBaseCutoff() < 2000.0f);
+    f.engine->post(Command::gotoSection(1, Quantize::Now, Entry::KeepPhase));
+    f.reachTick(5 * kBeat + 1);
+    CHECK(v.getBaseCutoff() < 2000.0f);
+
+    // Soloing a pattern starts it fresh too.
+    f.engine->post(Command::soloPattern(0, Fixture::kB, ~0u));
+    f.reachTick(5 * kBeat + 2);
+    CHECK(v.getBaseCutoff() == doctest::Approx(2200.0f));
+}
+
 TEST_CASE("SoloPattern loops one pattern alone; a column mask silences other columns") {
     Fixture f;
     // Channel 1 gets a two-column pattern; channel 0 plays the section.

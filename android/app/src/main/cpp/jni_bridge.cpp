@@ -547,12 +547,13 @@ JNIEXPORT jintArray JNICALL JNI_FN(getPlayPosition)(JNIEnv* env, jobject, jint c
     return result;
 }
 
-JNIEXPORT jintArray JNICALL JNI_FN(getPlayTicks)(JNIEnv* env, jobject) {
-    constexpr jsize n = adaptive::config::kMaxChannels;
-    int32_t ticks[n];
-    player().playTicks(ticks);
+/// Per channel: getPlayPosition's four values, then engine ticks since its sequence started.
+JNIEXPORT jintArray JNICALL JNI_FN(getPlayheads)(JNIEnv* env, jobject) {
+    constexpr jsize n = adaptive::config::kMaxChannels * AudioPlayer::kPlayheadValues;
+    int32_t heads[n];
+    player().playheads(heads);
     jintArray result = env->NewIntArray(n);
-    if (result != nullptr) env->SetIntArrayRegion(result, 0, n, ticks);
+    if (result != nullptr) env->SetIntArrayRegion(result, 0, n, heads);
     return result;
 }
 

@@ -1,5 +1,7 @@
 package io.github.jfuerth.adaptivetracker.editor
 
+import kotlin.math.roundToLong
+
 /**
  * A section laid out in time: one lane per channel, each playing its
  * sequence of patterns over and over. Times are in effect ticks from the
@@ -21,6 +23,9 @@ class Arrangement(val lanes: List<Lane>, val ticksPerBeat: Int, val beatsPerBar:
         /** When row [row] of this instance starts. */
         fun rowStart(row: Int): Long = start + row.toLong() * entry.ticksPerRow
     }
+
+    /** Where a channel is playing: [row] of [placed], the line at [tick] ticks into the section. */
+    data class Playhead(val placed: Placed, val row: Int, val tick: Float)
 
     /** A channel's lane: its sequence and how many columns its patterns have. */
     class Lane(val channel: Int, val columns: Int, val entries: List<Entry>) {
@@ -48,6 +53,23 @@ class Arrangement(val lanes: List<Lane>, val ticksPerBeat: Int, val beatsPerBar:
                 }
                 loop++
             }
+        }
+
+        /**
+         * Places what the engine says the channel is playing: [pattern] at
+         * sequence [entry], [row], [intoRow] ticks into it. [sinceStart] (ticks
+         * since the sequence started) only picks the time round, so if the
+         * channel has drifted from this layout (a pattern's length changed
+         * while it played, a bump back), the playhead is still drawn in the
+         * row that is playing. Null if the lane doesn't have that entry.
+         */
+        fun playhead(pattern: Int, entry: Int, row: Int, intoRow: Float, sinceStart: Float): Playhead? {
+            val e = entries.getOrNull(entry) ?: return null
+            if (e.pattern != pattern || row !in 0 until e.rows) return null
+            val inLoop = e.start + row * e.ticksPerRow + intoRow.coerceIn(0f, e.ticksPerRow.toFloat())
+            val loop = ((sinceStart - inLoop) / length).roundToLong().coerceAtLeast(0L)
+            val placed = Placed(e, entry, loop * length + e.start)
+            return Playhead(placed, row, placed.rowStart(row) + intoRow.coerceIn(0f, e.ticksPerRow.toFloat()))
         }
 
         /** The first instance of [pattern] at or after [tick], or null if the lane doesn't play it. */

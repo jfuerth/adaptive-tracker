@@ -378,6 +378,7 @@ private:
                 }
                 currentSection_ = kNoIndex;
                 sectionStartTick_ = tick;  // beats and bars count from here
+                freshStart(c.a);
                 channels_[c.a].play(song_->pattern(c.b), tick);
                 channels_[c.a].setColumnMask(c.data);
                 updateGates();
@@ -563,8 +564,6 @@ private:
         }
     }
 
-    /// Push an edited parameter to every voice using instrument `index`,
-    /// including previews, so a held note changes as the control moves.
     /// Set the voices of `channel`'s columns from `from` onward to their instruments.
     void applyColumnInstruments(uint32_t channel, uint32_t from) {
         for (uint32_t col = from; col < config::kMaxColumns; ++col) {
@@ -573,6 +572,23 @@ private:
         }
     }
 
+    /**
+     * A channel starting from the top sounds as written, whatever played
+     * before: every voice back to its column's instrument (a column without
+     * one gets the default sound), so filter, vibrato, wave shape and
+     * resonance set by effects don't carry over, and the columns forget
+     * their effect memories.
+     */
+    void freshStart(uint32_t channel) {
+        channels_[channel].forgetEffects();
+        for (uint32_t col = 0; col < config::kMaxColumns; ++col) {
+            const uint8_t i = song_->columnInstrument(channel, col);
+            (i < song_->numInstruments ? song_->instruments[i] : Instrument()).applyTo(channels_[channel].voice(col));
+        }
+    }
+
+    /// Push an edited parameter to every voice using instrument `index`,
+    /// including previews, so a held note changes as the control moves.
     void applyInstrumentParam(uint8_t index, const Instrument& inst, Instrument::Param p) {
         if (song_ != nullptr) {
             for (uint32_t ch = 0; ch < config::kMaxChannels; ++ch) {
@@ -946,6 +962,7 @@ private:
         for (uint32_t c = 0; c < config::kMaxChannels; ++c) {
             Channel& ch = channels_[c];
             if (song_->isPlayable(s.sequences[c])) {
+                if (!keepPhase) freshStart(c);  // carrying on (keep phase): as it sounds now
                 ch.playSequence(&s.sequences[c], song_->patterns, start);
             } else if (!ch.isOneShot()) {
                 ch.play(nullptr, 0);  // not in this section; leave stingers alone

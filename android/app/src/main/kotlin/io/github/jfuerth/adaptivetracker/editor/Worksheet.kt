@@ -45,7 +45,7 @@ import kotlin.math.min
 /** The worksheet's cursor: a field of a cell, in one time round ([instance]: its start tick) of a pattern. */
 data class SheetCursor(val lane: Int, val instance: Long, val pattern: Int, val row: Int, val column: Int, val field: Field)
 
-/** Engine ticks per beat; NativeAudio.getPlayTicks counts these. */
+/** Engine ticks per beat; NativeAudio.getPlayheads counts these. */
 private const val ENGINE_TICKS_PER_BEAT = 96
 
 private val CELL_STYLE = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 15.sp)
@@ -88,8 +88,9 @@ fun Worksheet(
     var panY by remember { mutableFloatStateOf(0f) }
     var zoom by remember { mutableFloatStateOf(1f) }
     var viewport by remember { mutableStateOf(IntSize.Zero) }
-    var ticks by remember { mutableStateOf(IntArray(0)) }
-
+    // Each lane's playhead (null: not playing this lane's sequence). Read only
+    // while drawing, so a new position redraws without recomposing.
+    var heads by remember { mutableStateOf<List<Arrangement.Playhead?>>(emptyList()) }
     // The visible part of the sheet, in world pixels.
     fun viewW() = (viewport.width - g.gutter) / zoom
     fun viewH() = (viewport.height - g.header) / zoom
@@ -99,23 +100,23 @@ fun Worksheet(
         panY = panY.coerceAtLeast(-viewH() * 0.3f)
     }
 
-    // Where each channel is playing, in effect ticks; every frame.
-    val engineTicksPerTick = ENGINE_TICKS_PER_BEAT.toFloat() / arrangement.ticksPerBeat
-    LaunchedEffect(Unit) {
+    // Every frame, before drawing: where the engine says each channel is,
+    // placed in the layout, and (following) the latest playhead a third of the
+    // way down. Panning here, in the same frame, keeps the scroll even.
+    val playingNow by rememberUpdatedState(playing)
+    val followNow by rememberUpdatedState(follow)
+    LaunchedEffect(arrangement, geometry) {
         while (true) {
-            withFrameNanos { }
-            val t = NativeAudio.getPlayTicks()
-            if (!t.contentEquals(ticks)) ticks = t
+            withFrameNanos {
+                val now = if (playingNow) playheads(arrangement, NativeAudio.getPlayheads()) else emptyList()
+                if (now != heads) heads = now
+                val latest = now.maxOfOrNull { it?.tick ?: -1f } ?: -1f
+                if (followNow && latest >= 0 && viewport.height > 0) {
+                    panY = latest * g.pxPerTick - viewH() / 3f
+                    clamp()
+                }
+            }
         }
-    }
-    // Following: the latest playhead stays a third of the way down.
-    LaunchedEffect(ticks, follow, playing, viewport) {
-        if (!follow || !playing || viewport.height == 0) return@LaunchedEffect
-        val latest = arrangement.lanes.maxOfOrNull { ticks.getOrElse(it.channel) { -1 } } ?: -1
-        if (latest < 0) return@LaunchedEffect
-        val at = latest / engineTicksPerTick
-        panY = at * g.pxPerTick - viewH() / 3f
-        clamp()
     }
     // The cursor stays in view when it moves (typing advances it).
     LaunchedEffect(cursor, viewport) {
@@ -174,10 +175,11 @@ fun Worksheet(
             }) {
                 drawBeats(g, arrangement, t0, t1, zoom, colors.outlineVariant, colors.outline)
                 arrangement.lanes.forEachIndexed { laneIndex, lane ->
-                    val playTick = ticks.getOrElse(lane.channel) { -1 }.let { if (it < 0 || !playing) -1f else it / engineTicksPerTick }
+                    val head = heads.getOrNull(laneIndex)
                     for (placed in lane.between(t0, t1)) {
                         drawInstance(
-                            g, texts, ctx, laneIndex, placed, t0, t1, zoom, panY, playTick,
+                            g, texts, ctx, laneIndex, placed, t0, t1, zoom, panY,
+                            playRow = if (head?.placed == placed) head.row else -1,
                             cursor?.takeIf { it.lane == laneIndex },
                             sameAsCursor = cursor?.pattern == placed.entry.pattern,
                             colors = SheetColors(
@@ -193,8 +195,8 @@ fun Worksheet(
                             ),
                         )
                     }
-                    if (playTick >= 0) {
-                        val y = (ticks[lane.channel] / engineTicksPerTick) * g.pxPerTick
+                    if (head != null) {
+                        val y = head.tick * g.pxPerTick
                         drawLine(colors.tertiary, Offset(g.laneX[laneIndex], y), Offset(g.laneX[laneIndex] + g.laneW[laneIndex], y), strokeWidth = 2f / zoom)
                     }
                 }
@@ -342,7 +344,7 @@ private fun DrawScope.drawInstance(
     t1: Long,
     zoom: Float,
     viewTop: Float,
-    playTick: Float,
+    playRow: Int,
     cursor: SheetCursor?,
     sameAsCursor: Boolean,
     colors: SheetColors,
@@ -384,7 +386,6 @@ private fun DrawScope.drawInstance(
     if (first > last) return
     // Below a readable size on screen, notes are drawn as marks instead.
     val readable = g.textH * zoom >= 9f
-    val playRow = if (playTick >= 0) placed.rowAt(playTick.toLong()) else -1
 
     for (r in first..last) {
         val y = top + r * rowH
@@ -422,5 +423,27 @@ private fun DrawScope.drawInstance(
                 drawRect(colors.dim, Offset(cx, y), Size(g.colW * 0.3f, max(rowH * 0.2f, 1f / zoom)))
             }
         }
+    }
+}
+
+/**
+ * Each lane's playhead from what the engine reports ([reported]:
+ * NativeAudio.getPlayheads), or null where its channel isn't playing this
+ * lane's sequence.
+ */
+private fun playheads(arrangement: Arrangement, reported: IntArray): List<Arrangement.Playhead?> {
+    val engineTicksPerTick = ENGINE_TICKS_PER_BEAT.toFloat() / arrangement.ticksPerBeat
+    return arrangement.lanes.map { lane ->
+        val at = lane.channel * NativeAudio.PLAYHEAD_VALUES
+        if (at + NativeAudio.PLAYHEAD_VALUES > reported.size) return@map null
+        val pattern = reported[at]
+        val row = reported[at + 1]
+        val entry = reported[at + 2]
+        if (pattern < 0 || row < 0 || entry < 0) return@map null
+        lane.playhead(
+            pattern, entry, row,
+            intoRow = reported[at + 3] / engineTicksPerTick,
+            sinceStart = reported[at + 4] / engineTicksPerTick,
+        )
     }
 }
